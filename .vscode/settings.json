@@ -1,0 +1,28 @@
+{
+    "files.associations": {
+        "sokol_app.h": "c",
+        "triangle.gen.h": "c",
+        "*.rh": "c",
+        "charconv": "c",
+        "chrono": "c",
+        "format": "c",
+        "forward_list": "c",
+        "iomanip": "c",
+        "ios": "c",
+        "iosfwd": "c",
+        "istream": "c",
+        "list": "c",
+        "optional": "c",
+        "ostream": "c",
+        "sstream": "c",
+        "stop_token": "c",
+        "string": "c",
+        "thread": "c",
+        "xhash": "c",
+        "xiosbase": "c",
+        "xlocale": "c",
+        "xlocbuf": "c",
+        "xstring": "c",
+        "algorithm": "c"
+    }
+}
