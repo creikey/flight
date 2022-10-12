@@ -9,7 +9,7 @@
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceFolder}/flight.exe",
-            "args": [],
+            "args": ["--host"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "symbolSearchPath": "${workspaceFolder}",

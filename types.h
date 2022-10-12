@@ -16,19 +16,19 @@ typedef sgp_vec2 sgp_point;
 
 #ifndef _STDBOOL
 
-#define bool  _Bool
+#define bool _Bool
 #define false 0
-#define true  1
+#define true 1
 
 #endif
 
 typedef sgp_vec2 V2;
 typedef sgp_point P2;
 
+#define Log(...) fprintf(stdout, "%s:%d | ", __FILE__, __LINE__); fprintf(stdout, __VA_ARGS__)
 #define MAX_BOXES 32
-#define MAX_PLAYERS 2
+#define MAX_PLAYERS 4
 #define BOX_SIZE 0.5f
-#define TIMESTEP 1.0f / 60.0f
 
 struct Body
 {
@@ -67,11 +67,11 @@ struct ClientToServer
 };
 
 // server
-void server();
+void server(void *data);
 
 // gamestate
-void process(struct GameState * gs, float dt); // does in place
 
+void process(struct GameState *gs, float dt); // does in place
 
 // all the math is static so that it can be defined in each compilation unit its included in
 

@@ -25,6 +25,9 @@
         "xstring": "c",
         "algorithm": "c",
         "sokol_gp.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "sokol_time.h": "c",
+        "enet.h": "c",
+        "types.h": "c"
     }
 }
