@@ -18,6 +18,7 @@ struct Body
     sgp_point old_position;
     sgp_vec2 acceleration;
 };
+
 struct GameState
 {
     struct Player
@@ -135,9 +136,9 @@ void frame(void)
         sgp_clear();
 
         // Drawing in world space now
-        // sgp_translate(gs.player.body.position.x, gs.player.body.position.y);
         sgp_translate(width / 2, height / 2);
         sgp_scale_at(300.0f + funval, 300.0f + funval, 0.0f, 0.0f);
+        sgp_translate(-gs.player.body.position.x, -gs.player.body.position.y);
 
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
         sgp_draw_filled_rect(100.0f, 100.0f, 400.0f, 400.0f);
