@@ -154,8 +154,6 @@ static void frame(void)
         process(&gs, (float)sapp_frame_duration());
     }
 
-
-
     // drawing
     {
         sgp_begin(width, height);

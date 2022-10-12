@@ -92,6 +92,7 @@ void server(void *data)
                     else
                     {
                         event.peer->data = (void *)player_slot;
+                        gs.players[player_slot] = (struct Player){ 0 };
                         gs.players[player_slot].connected = true;
                     }
 
