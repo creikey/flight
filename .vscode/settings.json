@@ -23,6 +23,8 @@
         "xlocale": "c",
         "xlocbuf": "c",
         "xstring": "c",
-        "algorithm": "c"
+        "algorithm": "c",
+        "sokol_gp.h": "c",
+        "stdbool.h": "c"
     }
 }

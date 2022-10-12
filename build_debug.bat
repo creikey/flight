@@ -7,4 +7,4 @@ IF %ERRORLEVEL% NEQ 0 ECHO ERROR download sokol-shdc from https://github.com/flo
 
 @REM example of how to compile shaders: sokol-shdc.exe --input triangle.glsl --output triangle.gen.h --slang glsl330:hlsl5:metal_macos
 
-cl /MP /Zi /Fd"flight.pdb" /I"thirdparty" /Fe"flight" main.c
+cl /MP /Zi /Fd"flight.pdb" /I"thirdparty" /Fe"flight" main.c gamestate.c server.c

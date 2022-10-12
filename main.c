@@ -8,35 +8,16 @@
 #include "sokol_gp.h"
 #include "sokol_app.h"
 #include "sokol_glue.h"
+#include <winsock.h>
 
-#define MAX_BOXES 32
-#define BOX_SIZE 0.5f
-#define TIMESTEP 1.0f / 60.0f
-struct Body
-{
-    sgp_point position;
-    sgp_point old_position;
-    sgp_vec2 acceleration;
-};
+#include "types.h"
 
-struct GameState
-{
-    struct Player
-    {
-        struct Body body;
-    } player;
-
-    int num_boxes;
-    struct Box
-    {
-        struct Body body;
-    } boxes[MAX_BOXES];
-};
-
-struct GameState gs = {0};
-bool mouse_down = false;
-bool keydown[SAPP_KEYCODE_MENU] = {0};
-float funval = 0.0f; // easy to play with value controlled by left mouse button when held down @BeforeShip remove on release builds
+static struct GameState gs = {0};
+static int myplayer = -1;
+static bool mouse_down = false;
+static bool keydown[SAPP_KEYCODE_MENU] = {0};
+static float funval = 0.0f; // easy to play with value controlled by left mouse button when held down @BeforeShip remove on release builds
+static bool is_host = false;
 
 void init(void)
 {
@@ -52,12 +33,12 @@ void init(void)
 
     gs.boxes[0] = (struct Box){
         .body = (struct Body){
-            .position = (sgp_point){.x = 0.75f, .y = 0.0}},
+            .position = (P2){.x = 0.75f, .y = 0.0}},
     };
     gs.boxes[0].body.old_position = gs.boxes[0].body.position;
     gs.boxes[1] = (struct Box){
         .body = (struct Body){
-            .position = (sgp_point){.x = 0.75f, .y = 0.5f}},
+            .position = (P2){.x = 0.75f, .y = 0.5f}},
     };
     gs.boxes[1].body.old_position = gs.boxes[1].body.position;
     gs.num_boxes = 2;
@@ -71,38 +52,6 @@ void init(void)
     }
 }
 
-sgp_vec2 v2add(sgp_vec2 a, sgp_vec2 b)
-{
-    return (sgp_vec2){
-        .x = a.x + b.x,
-        .y = a.y + b.y,
-    };
-}
-
-sgp_vec2 v2scale(sgp_vec2 a, float f)
-{
-    return (sgp_vec2){
-        .x = a.x * f,
-        .y = a.y * f,
-    };
-}
-
-sgp_vec2 v2sub(sgp_vec2 a, sgp_vec2 b)
-{
-    return (sgp_vec2){
-        .x = a.x - b.x,
-        .y = a.y - b.y,
-    };
-}
-
-void process_body(struct Body *body)
-{
-    sgp_vec2 current = body->position;
-    body->position = v2add(body->position, v2sub(current, body->old_position));
-    body->position = v2add(body->position, v2scale(body->acceleration, TIMESTEP*TIMESTEP));
-    body->old_position = current;
-}
-
 void frame(void)
 {
     int width = sapp_width(), height = sapp_height();
@@ -110,18 +59,15 @@ void frame(void)
     float time = sapp_frame_count() * sapp_frame_duration();
 
     // gameplay
+    struct ClientToServer curmsg = {0};
     {
-        sgp_vec2 input = (sgp_vec2){
+        V2 input = (V2){
             .x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
             .y = (float)keydown[SAPP_KEYCODE_S] - (float)keydown[SAPP_KEYCODE_W],
         };
-        gs.player.body.acceleration = v2scale(input, 5.0f);
+        curmsg.input = input;
 
-        process_body(&gs.player.body);
-        for(int i = 0; i < gs.num_boxes; i++)
-        {
-            process_body(&gs.boxes[i].body);
-        }
+        process(&gs, (float)sapp_frame_duration());
     }
 
     // drawing
@@ -138,7 +84,10 @@ void frame(void)
         // Drawing in world space now
         sgp_translate(width / 2, height / 2);
         sgp_scale_at(300.0f + funval, 300.0f + funval, 0.0f, 0.0f);
-        sgp_translate(-gs.player.body.position.x, -gs.player.body.position.y);
+        if(myplayer != -1)
+        {
+            sgp_translate(-gs.players[myplayer].body.position.x, -gs.players[myplayer].body.position.y);
+        }
 
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
         sgp_draw_filled_rect(100.0f, 100.0f, 400.0f, 400.0f);
@@ -156,9 +105,12 @@ void frame(void)
         float halfbox = BOX_SIZE / 2.0f;
 
         // player
-        {
+        for(int i = 0; i < MAX_PLAYERS; i++){
+            struct Player * p = &gs.players[i];
+            if(!p->connected)
+                continue;
             sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-            sgp_draw_filled_rect(gs.player.body.position.x - halfbox, gs.player.body.position.y - halfbox, BOX_SIZE, BOX_SIZE);
+            sgp_draw_filled_rect(p->body.position.x - halfbox, p->body.position.y - halfbox, BOX_SIZE, BOX_SIZE);
         }
 
         // boxes
@@ -220,7 +172,7 @@ void event(const sapp_event *e)
 
 sapp_desc sokol_main(int argc, char *argv[])
 {
-    (void)argc;
+    is_host = argc >= 1;
     (void)argv;
     return (sapp_desc){
         .init_cb = init,
