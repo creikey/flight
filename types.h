@@ -34,7 +34,12 @@ struct Body
 {
     P2 position;
     P2 old_position;
+
+    float rotation;
+    float old_rotation;
+
     V2 acceleration;
+    float angular_acceleration;
 };
 
 struct Player

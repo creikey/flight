@@ -195,7 +195,10 @@ static void frame(void)
             if (!p->connected)
                 continue;
             sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+            sgp_push_transform();
+            sgp_rotate_at(p->body.rotation,p->body.position.x, p->body.position.y);
             sgp_draw_filled_rect(p->body.position.x - halfbox, p->body.position.y - halfbox, BOX_SIZE, BOX_SIZE);
+            sgp_pop_transform();
         }
 
         // boxes
