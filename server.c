@@ -92,7 +92,11 @@ void server(void *data)
                     else
                     {
                         event.peer->data = (void *)player_slot;
-                        gs.players[player_slot] = (struct Player){ 0 };
+                        gs.players[player_slot] = (struct Player){ .body.position = (V2){
+                            .x = 0.0f,
+                            .y = 1.0f*(float)player_slot,
+                        }};
+                        gs.players[player_slot].body.old_position = gs.players[player_slot].body.position;
                         gs.players[player_slot].connected = true;
                     }
 

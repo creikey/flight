@@ -1,5 +1,8 @@
 #pragma once
 
+// @Robust remove this include somehow, needed for sqrt and cos
+#include <math.h>
+
 // including headers from headers bad
 #ifndef SOKOL_GP_INCLUDED
 
@@ -25,7 +28,9 @@ typedef sgp_vec2 sgp_point;
 typedef sgp_vec2 V2;
 typedef sgp_point P2;
 
-#define Log(...) fprintf(stdout, "%s:%d | ", __FILE__, __LINE__); fprintf(stdout, __VA_ARGS__)
+#define Log(...)                                     \
+    fprintf(stdout, "%s:%d | ", __FILE__, __LINE__); \
+    fprintf(stdout, __VA_ARGS__)
 #define MAX_BOXES 32
 #define MAX_PLAYERS 4
 #define BOX_SIZE 0.5f
@@ -93,6 +98,40 @@ static V2 V2scale(V2 a, float f)
     return (V2){
         .x = a.x * f,
         .y = a.y * f,
+    };
+}
+
+static float V2length(V2 v)
+{
+    return sqrtf(v.x * v.x + v.y * v.y);
+}
+
+static V2 V2normalize(V2 v)
+{
+    return V2scale(v, 1.0f / V2length(v));
+}
+
+static float V2dot(V2 a, V2 b)
+{
+    return a.x * b.x + a.y * b.y;
+}
+
+static float V2projectvalue(V2 vec, V2 onto)
+{
+    float length_onto = V2length(onto);
+    return V2dot(vec, onto) / (length_onto * length_onto);
+}
+
+static V2 V2project(V2 vec, V2 onto)
+{
+    return V2scale(onto, V2projectvalue(vec, onto));
+}
+
+static V2 V2rotate(V2 vec, float theta)
+{
+    return (V2){
+        .x = vec.x * cos(theta) - vec.y * sin(theta),
+        .y = vec.x * sin(theta) + vec.y * cos(theta),
     };
 }
 

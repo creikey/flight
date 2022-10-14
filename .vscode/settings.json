@@ -28,6 +28,7 @@
         "stdbool.h": "c",
         "sokol_time.h": "c",
         "enet.h": "c",
-        "types.h": "c"
+        "types.h": "c",
+        "cmath": "c"
     }
 }
