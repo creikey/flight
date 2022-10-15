@@ -15,17 +15,32 @@ void server(void *data)
 
     struct GameState gs = {0};
 
-    gs.boxes[0] = (struct Box){
-        .body = (struct Body){
-            .position = (P2){.x = 0.75f, .y = 0.0}},
-    };
-    gs.boxes[0].body.old_position = gs.boxes[0].body.position;
-    gs.boxes[1] = (struct Box){
-        .body = (struct Body){
-            .position = (P2){.x = 0.75f, .y = 0.5f}},
-    };
-    gs.boxes[1].body.old_position = gs.boxes[1].body.position;
-    gs.num_boxes = 2;
+    // two boxes stacked on top
+    if (false)
+    {
+        gs.boxes[0] = (struct Box){
+            .body = (struct Body){
+                .position = (P2){.x = 0.75f, .y = 0.0}},
+        };
+        gs.boxes[0].body.old_position = gs.boxes[0].body.position;
+        gs.boxes[1] = (struct Box){
+            .body = (struct Body){
+                .position = (P2){.x = 0.75f, .y = 0.5f}},
+        };
+        gs.boxes[1].body.old_position = gs.boxes[1].body.position;
+        gs.num_boxes = 2;
+    }
+
+    // one box
+    if (true)
+    {
+        gs.boxes[0] = (struct Box){
+            .body = (struct Body){
+                .position = (P2){.x = 0.75f, .y = 0.0}},
+        };
+        gs.boxes[0].body.old_position = gs.boxes[0].body.position;
+        gs.num_boxes = 1;
+    }
 
     if (enet_initialize() != 0)
     {
@@ -72,8 +87,8 @@ void server(void *data)
                 {
                 case ENET_EVENT_TYPE_CONNECT:
                     Log("A new client connected from %x:%u.\n",
-                           event.peer->address.host,
-                           event.peer->address.port);
+                        event.peer->address.host,
+                        event.peer->address.port);
 
                     int64_t player_slot = -1;
                     for (int i = 0; i < MAX_PLAYERS; i++)
@@ -92,10 +107,10 @@ void server(void *data)
                     else
                     {
                         event.peer->data = (void *)player_slot;
-                        gs.players[player_slot] = (struct Player){ .body.position = (V2){
-                            .x = 0.0f,
-                            .y = 1.0f*(float)player_slot,
-                        }};
+                        gs.players[player_slot] = (struct Player){.body.position = (V2){
+                                                                      .x = 0.0f,
+                                                                      .y = 1.0f * (float)player_slot,
+                                                                  }};
                         gs.players[player_slot].body.old_position = gs.players[player_slot].body.position;
                         gs.players[player_slot].connected = true;
                     }

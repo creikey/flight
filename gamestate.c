@@ -39,11 +39,12 @@ static void integrate_acceleration(struct Body *body, float dt)
 
 static void modify_interval(struct Body *from, float *from_interval, V2 center, V2 axis)
 {
+    float halfbox = BOX_SIZE/2.0f;
     V2 points[4] = {
-        V2add(from->position, V2rotate((V2){.x = 0.5f, .y = -0.5f}, from->rotation)),  // upper right
-        V2add(from->position, V2rotate((V2){.x = 0.5f, .y = 0.5f}, from->rotation)),   // bottom right
-        V2add(from->position, V2rotate((V2){.x = -0.5f, .y = 0.5f}, from->rotation)),  // lower left
-        V2add(from->position, V2rotate((V2){.x = -0.5f, .y = -0.5f}, from->rotation)), // upper left
+        V2add(from->position, V2rotate((V2){.x = halfbox, .y = -halfbox}, from->rotation)),  // upper right
+        V2add(from->position, V2rotate((V2){.x = halfbox, .y = halfbox}, from->rotation)),   // bottom right
+        V2add(from->position, V2rotate((V2){.x = -halfbox, .y = halfbox}, from->rotation)),  // lower left
+        V2add(from->position, V2rotate((V2){.x = -halfbox, .y = -halfbox}, from->rotation)), // upper left
     };
     for (int point_i = 0; point_i < 4; point_i++)
     {
@@ -119,10 +120,11 @@ void process(struct GameState *gs, float dt)
             assert(from_interval[0] < from_interval[1]);
             assert(to_interval[0] < to_interval[1]);
 
-            if (to_interval[0] < from_interval[1]) // intersecting
+            if (from_interval[1] > to_interval[0]) // intersecting
             {
-                from->position = V2add(from->position, V2scale(axis, -0.5f));
-                to->position = V2add(from->position, V2scale(axis, 0.5f));
+                float intersection_depth = from_interval[1] - to_interval[0];
+                from->position = V2add(from->position, V2scale(axis, intersection_depth*-0.5f));
+                to->position = V2add(to->position, V2scale(axis, intersection_depth*0.5f));
             }
         }
     }

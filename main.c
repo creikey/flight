@@ -113,6 +113,10 @@ static void frame(void)
                         Log("New client from host %x\n", event.peer->address.host);
                         break;
                     case ENET_EVENT_TYPE_RECEIVE:
+                        // @Robust @BeforeShip use some kind of serialization strategy that checks for out of bounds
+                        // and other validation instead of just casting to a struct
+                        // "Alignment of structure members can be different even among different compilers on the same platform, let alone different platforms."
+                        // ^^ need serialization strategy that accounts for this if multiple platforms is happening https://stackoverflow.com/questions/28455163/how-can-i-portably-send-a-c-struct-through-a-network-socket
                         struct ServerToClient msg;
                         if(event.packet->dataLength != sizeof(msg))
                         {
@@ -151,7 +155,7 @@ static void frame(void)
         ENetPacket * packet = enet_packet_create((void*)&curmsg, sizeof(curmsg), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
         enet_peer_send(peer, 0, packet);
 
-        process(&gs, (float)sapp_frame_duration());
+        // process(&gs, (float)sapp_frame_duration());
     }
 
     // drawing
