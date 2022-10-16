@@ -17,6 +17,7 @@ void __assert(bool cond, const char * file, int line, const char * cond_string)
 
 // super try not to depend on external libraries like enet or sokol to keep build process simple,
 // gamestate its own portable submodule. If need to link to other stuff document here:
+// - debug
 
 static void integrate_acceleration(struct Body *body, float dt)
 {
