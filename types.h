@@ -80,8 +80,12 @@ struct ClientToServer
 void server(void *data);
 
 // gamestate
-
 void process(struct GameState *gs, float dt); // does in place
+
+// debug draw
+void dbg_drawall();
+void dbg_line(V2 from, V2 to);
+void dbg_rect(V2 center);
 
 // all the math is static so that it can be defined in each compilation unit its included in
 

@@ -14,7 +14,6 @@
 
 #include "types.h"
 
-
 static struct GameState gs = {0};
 static int myplayer = -1;
 static bool mouse_down = false;
@@ -34,8 +33,6 @@ void init(void)
         fprintf(stderr, "Failed to create Sokol GFX context!\n");
         exit(-1);
     }
-
-    
 
     sgp_desc sgpdesc = {0};
     sgp_setup(&sgpdesc);
@@ -102,40 +99,46 @@ static void frame(void)
     // networking
     {
         ENetEvent event;
-        while(true)
+        while (true)
         {
             int enet_status = enet_host_service(client, &event, 0);
-            if(enet_status > 0 )
+            if (enet_status > 0)
             {
-                switch(event.type)
+                switch (event.type)
                 {
-                    case ENET_EVENT_TYPE_CONNECT:
-                        Log("New client from host %x\n", event.peer->address.host);
-                        break;
-                    case ENET_EVENT_TYPE_RECEIVE:
-                        // @Robust @BeforeShip use some kind of serialization strategy that checks for out of bounds
-                        // and other validation instead of just casting to a struct
-                        // "Alignment of structure members can be different even among different compilers on the same platform, let alone different platforms."
-                        // ^^ need serialization strategy that accounts for this if multiple platforms is happening https://stackoverflow.com/questions/28455163/how-can-i-portably-send-a-c-struct-through-a-network-socket
-                        struct ServerToClient msg;
-                        if(event.packet->dataLength != sizeof(msg))
-                        {
-                            Log("Unknown packet size: %zd\n", event.packet->dataLength);
-                        } else {
-                            memcpy(&msg, event.packet->data, sizeof(msg));
-                            myplayer = msg.your_player;
-                            gs = msg.cur_gs;
-                        }
-                        enet_packet_destroy(event.packet);
-                        break;
-                    case ENET_EVENT_TYPE_DISCONNECT:
-                        fprintf(stderr, "Disconnected from server\n");
-                        exit(-1);
-                        break;
+                case ENET_EVENT_TYPE_CONNECT:
+                    Log("New client from host %x\n", event.peer->address.host);
+                    break;
+                case ENET_EVENT_TYPE_RECEIVE:
+                    // @Robust @BeforeShip use some kind of serialization strategy that checks for out of bounds
+                    // and other validation instead of just casting to a struct
+                    // "Alignment of structure members can be different even among different compilers on the same platform, let alone different platforms."
+                    // ^^ need serialization strategy that accounts for this if multiple platforms is happening https://stackoverflow.com/questions/28455163/how-can-i-portably-send-a-c-struct-through-a-network-socket
+                    struct ServerToClient msg;
+                    if (event.packet->dataLength != sizeof(msg))
+                    {
+                        Log("Unknown packet size: %zd\n", event.packet->dataLength);
+                    }
+                    else
+                    {
+                        memcpy(&msg, event.packet->data, sizeof(msg));
+                        myplayer = msg.your_player;
+                        gs = msg.cur_gs;
+                    }
+                    enet_packet_destroy(event.packet);
+                    break;
+                case ENET_EVENT_TYPE_DISCONNECT:
+                    fprintf(stderr, "Disconnected from server\n");
+                    exit(-1);
+                    break;
                 }
-            } else if(enet_status == 0) {
+            }
+            else if (enet_status == 0)
+            {
                 break;
-            } else if(enet_status < 0) {
+            }
+            else if (enet_status < 0)
+            {
                 fprintf(stderr, "Error receiving enet events: %d\n", enet_status);
                 break;
             }
@@ -152,17 +155,16 @@ static void frame(void)
         };
         curmsg.input = input;
 
-        ENetPacket * packet = enet_packet_create((void*)&curmsg, sizeof(curmsg), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+        ENetPacket *packet = enet_packet_create((void *)&curmsg, sizeof(curmsg), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
         enet_peer_send(peer, 0, packet);
 
-        // process(&gs, (float)sapp_frame_duration());
+        process(&gs, (float)sapp_frame_duration());
     }
 
     // drawing
     {
         sgp_begin(width, height);
         sgp_viewport(0, 0, width, height);
-        // sgp_project(-ratio, ratio, 1.0f, -1.0f);
         sgp_project(0.0f, width, 0.0f, height);
 
         // Draw background color
@@ -172,13 +174,14 @@ static void frame(void)
         // Drawing in world space now
         sgp_translate(width / 2, height / 2);
         sgp_scale_at(300.0f + funval, 300.0f + funval, 0.0f, 0.0f);
+
+        // camera go to player
         if (myplayer != -1)
         {
             sgp_translate(-gs.players[myplayer].body.position.x, -gs.players[myplayer].body.position.y);
         }
 
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-        sgp_draw_filled_rect(100.0f, 100.0f, 400.0f, 400.0f);
 
         // stars
         const int num = 50;
@@ -200,19 +203,32 @@ static void frame(void)
                 continue;
             sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
             sgp_push_transform();
-            sgp_rotate_at(p->body.rotation,p->body.position.x, p->body.position.y);
+            sgp_rotate_at(p->body.rotation, p->body.position.x, p->body.position.y);
             sgp_draw_filled_rect(p->body.position.x - halfbox, p->body.position.y - halfbox, BOX_SIZE, BOX_SIZE);
             sgp_pop_transform();
+
+            sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
+            V2 vel = (V2scale(V2sub(p->body.position, p->body.old_position), 60.0f));
+            V2 to = V2add(p->body.position, vel);
+            sgp_draw_line(p->body.position.x, p->body.position.y, to.x, to.y);
         }
 
         // boxes
         {
-            sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
             for (int i = 0; i < gs.num_boxes; i++)
             {
+                sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
                 sgp_draw_filled_rect(gs.boxes[i].body.position.x - halfbox, gs.boxes[i].body.position.y - halfbox, BOX_SIZE, BOX_SIZE);
+
+                sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
+                V2 vel = (V2scale(V2sub(gs.boxes[i].body.position, gs.boxes[i].body.old_position), 60.0f));
+                V2 to = V2add(gs.boxes[i].body.position, vel);
+                sgp_draw_line(gs.boxes[i].body.position.x, gs.boxes[i].body.position.y, to.x, to.y);
             }
         }
+
+        sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+        dbg_drawall();
 
         // sgp_draw_line(5.0f, 5.0f, 5.0f, 10.0f);
         // sgp_draw_line()

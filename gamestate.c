@@ -60,6 +60,7 @@ static void modify_interval(struct Body *from, float *from_interval, V2 center, 
     }
 }
 
+
 void process(struct GameState *gs, float dt)
 {
     int num_bodies = gs->num_boxes;
@@ -113,6 +114,10 @@ void process(struct GameState *gs, float dt)
             V2 axis = V2normalize(V2sub(to->position, from->position));
             V2 center = V2scale(V2add(to->position, from->position), 0.5f);
 
+            dbg_line(from->position, to->position);
+            
+            dbg_rect(center);
+            
             float from_interval[2] = {1000.0f, -1000.0f};
             float to_interval[2] = {1000.0f, -1000.0f};
             modify_interval(from, from_interval, center, axis);
@@ -120,9 +125,13 @@ void process(struct GameState *gs, float dt)
             assert(from_interval[0] < from_interval[1]);
             assert(to_interval[0] < to_interval[1]);
 
+            // @BeforeShip debug compile time flag in preprocessor
+
             if (from_interval[1] > to_interval[0]) // intersecting
             {
                 float intersection_depth = from_interval[1] - to_interval[0];
+                
+
                 from->position = V2add(from->position, V2scale(axis, intersection_depth*-0.5f));
                 to->position = V2add(to->position, V2scale(axis, intersection_depth*0.5f));
             }
