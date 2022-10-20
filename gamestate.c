@@ -39,6 +39,16 @@ void destroy(struct GameState *gs)
     gs->space = NULL;
 }
 
+static V2 cp_to_v2(cpVect v)
+{
+    return (V2){.x = v.x, .y = v.y};
+}
+
+static cpVect v2_to_cp(V2 v)
+{
+    return cpv(v.x, v.y);
+}
+
 struct Box box_new(struct GameState *gs, V2 pos)
 {
     assert(gs->space != NULL);
@@ -46,7 +56,7 @@ struct Box box_new(struct GameState *gs, V2 pos)
     cpBody *body = cpSpaceAddBody(gs->space, cpBodyNew(BOX_MASS, cpMomentForBox(BOX_MASS, BOX_SIZE, BOX_SIZE)));
     cpShape *shape = cpBoxShapeNew(body, BOX_SIZE, BOX_SIZE, 0.0f);
     cpSpaceAddShape(gs->space, shape);
-    cpBodySetPosition(body, cpv(pos.x, pos.y));
+    cpBodySetPosition(body, v2_to_cp(pos));
 
     return (struct Box){
         .body = body,
@@ -62,15 +72,7 @@ void box_destroy(struct Box *box)
     box->body = NULL;
 }
 
-static V2 cp_to_v2(cpVect v)
-{
-    return (V2){.x = v.x, .y = v.y};
-}
 
-static cpVect v2_to_cp(V2 v)
-{
-    return cpv(v.x, v.y);
-}
 
 V2 box_pos(struct Box box)
 {
