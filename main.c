@@ -158,6 +158,7 @@ static void frame(void)
         ENetPacket *packet = enet_packet_create((void *)&curmsg, sizeof(curmsg), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
         enet_peer_send(peer, 0, packet);
 
+        // @BeforeShip client side prediction and rollback to previous server authoritative state, then replay inputs
         process(&gs, (float)sapp_frame_duration());
     }
 

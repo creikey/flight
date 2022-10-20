@@ -89,6 +89,8 @@ void dbg_rect(V2 center);
 
 // all the math is static so that it can be defined in each compilation unit its included in
 
+#define PI 3.14159f
+
 static V2 V2add(V2 a, V2 b)
 {
     return (V2){
@@ -137,6 +139,12 @@ static V2 V2rotate(V2 vec, float theta)
         .x = vec.x * cos(theta) - vec.y * sin(theta),
         .y = vec.x * sin(theta) + vec.y * cos(theta),
     };
+}
+
+// also known as atan2
+static float V2angle(V2 vec)
+{
+    return atan2f(vec.y, vec.x);
 }
 
 static V2 V2sub(V2 a, V2 b)

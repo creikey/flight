@@ -29,6 +29,8 @@
         "sokol_time.h": "c",
         "enet.h": "c",
         "types.h": "c",
-        "cmath": "c"
+        "cmath": "c",
+        "math.h": "c",
+        "corecrt_math.h": "c"
     }
 }
