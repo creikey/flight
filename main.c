@@ -26,6 +26,8 @@ void init(void)
 {
     // @BeforeShip make all fprintf into logging to file, warning dialog boxes on failure instead of exit(-1), replace the macros in sokol with this as well, like assert
 
+    initialize(&gs);
+
     sg_desc sgdesc = {.context = sapp_sgcontext()};
     sg_setup(&sgdesc);
     if (!sg_isvalid())
@@ -114,17 +116,11 @@ static void frame(void)
                     // and other validation instead of just casting to a struct
                     // "Alignment of structure members can be different even among different compilers on the same platform, let alone different platforms."
                     // ^^ need serialization strategy that accounts for this if multiple platforms is happening https://stackoverflow.com/questions/28455163/how-can-i-portably-send-a-c-struct-through-a-network-socket
-                    struct ServerToClient msg;
-                    if (event.packet->dataLength != sizeof(msg))
-                    {
-                        Log("Unknown packet size: %zd\n", event.packet->dataLength);
-                    }
-                    else
-                    {
-                        memcpy(&msg, event.packet->data, sizeof(msg));
-                        myplayer = msg.your_player;
-                        gs = msg.cur_gs;
-                    }
+                    struct ServerToClient msg = {
+                        .cur_gs = &gs,
+                    };
+                    // @Robust maximum acceptable message size?
+                    from_bytes(&msg, event.packet->data, event.packet->dataLength);
                     enet_packet_destroy(event.packet);
                     break;
                 case ENET_EVENT_TYPE_DISCONNECT:
@@ -179,7 +175,8 @@ static void frame(void)
         // camera go to player
         if (myplayer != -1)
         {
-            sgp_translate(-gs.players[myplayer].body.position.x, -gs.players[myplayer].body.position.y);
+            V2 pos = box_pos(gs.players[myplayer].box);
+            sgp_translate(-pos.x, -pos.y);
         }
 
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
@@ -204,14 +201,14 @@ static void frame(void)
                 continue;
             sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
             sgp_push_transform();
-            sgp_rotate_at(p->body.rotation, p->body.position.x, p->body.position.y);
-            sgp_draw_filled_rect(p->body.position.x - halfbox, p->body.position.y - halfbox, BOX_SIZE, BOX_SIZE);
+            sgp_rotate_at(box_rotation(p->box), box_pos(p->box).x, box_pos(p->box).y);
+            sgp_draw_filled_rect(box_pos(p->box).x - halfbox, box_pos(p->box).y - halfbox, BOX_SIZE, BOX_SIZE);
             sgp_pop_transform();
 
             sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
-            V2 vel = (V2scale(V2sub(p->body.position, p->body.old_position), 60.0f));
-            V2 to = V2add(p->body.position, vel);
-            sgp_draw_line(p->body.position.x, p->body.position.y, to.x, to.y);
+            V2 vel = box_vel(p->box);
+            V2 to = V2add(box_pos(p->box), vel);
+            sgp_draw_line(box_pos(p->box).x, box_pos(p->box).y, to.x, to.y);
         }
 
         // boxes
@@ -219,12 +216,15 @@ static void frame(void)
             for (int i = 0; i < gs.num_boxes; i++)
             {
                 sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
-                sgp_draw_filled_rect(gs.boxes[i].body.position.x - halfbox, gs.boxes[i].body.position.y - halfbox, BOX_SIZE, BOX_SIZE);
+                sgp_push_transform();
+                sgp_rotate_at(box_rotation(gs.boxes[i]), box_pos(gs.boxes[i]).x, box_pos(gs.boxes[i]).y);
+                sgp_draw_filled_rect(box_pos(gs.boxes[i]).x - halfbox, box_pos(gs.boxes[i]).y - halfbox, BOX_SIZE, BOX_SIZE);
+                sgp_pop_transform();
 
                 sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
-                V2 vel = (V2scale(V2sub(gs.boxes[i].body.position, gs.boxes[i].body.old_position), 60.0f));
-                V2 to = V2add(gs.boxes[i].body.position, vel);
-                sgp_draw_line(gs.boxes[i].body.position.x, gs.boxes[i].body.position.y, to.x, to.y);
+                V2 vel = box_vel(gs.boxes[i]);
+                V2 to = V2add(box_pos(gs.boxes[i]), vel);
+                sgp_draw_line(box_pos(gs.boxes[i]).x, box_pos(gs.boxes[i]).y, to.x, to.y);
             }
         }
 
@@ -247,6 +247,7 @@ static void frame(void)
 
 void cleanup(void)
 {
+    destroy(&gs);
     sgp_shutdown();
     sg_shutdown();
     enet_deinitialize();

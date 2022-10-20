@@ -31,6 +31,11 @@
         "types.h": "c",
         "cmath": "c",
         "math.h": "c",
-        "corecrt_math.h": "c"
+        "corecrt_math.h": "c",
+        "cppolyline.h": "c",
+        "chipmunk_private.h": "c",
+        "chipmunk.h": "c",
+        "cpbody.h": "c",
+        "chipmunk_structs.h": "c"
     }
 }

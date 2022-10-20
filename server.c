@@ -14,31 +14,20 @@ void server(void *data)
     stm_setup();
 
     struct GameState gs = {0};
+    initialize(&gs);
 
     // two boxes stacked on top
-    if (false)
+    if (true)
     {
-        gs.boxes[0] = (struct Box){
-            .body = (struct Body){
-                .position = (P2){.x = 0.75f, .y = 0.0}},
-        };
-        gs.boxes[0].body.old_position = gs.boxes[0].body.position;
-        gs.boxes[1] = (struct Box){
-            .body = (struct Body){
-                .position = (P2){.x = 0.75f, .y = 0.5f}},
-        };
-        gs.boxes[1].body.old_position = gs.boxes[1].body.position;
+        gs.boxes[0] = box_new(&gs, (V2){.x = 0.75f, .y = 0.0});
+        gs.boxes[1] = box_new(&gs, (V2){.x = 0.75f, .y = 0.5f});
         gs.num_boxes = 2;
     }
 
     // one box
-    if (true)
+    if (false)
     {
-        gs.boxes[0] = (struct Box){
-            .body = (struct Body){
-                .position = (P2){.x = 0.75f, .y = 0.0}},
-        };
-        gs.boxes[0].body.old_position = gs.boxes[0].body.position;
+        gs.boxes[0] = box_new(&gs, (V2){.x = 0.75f, .y = 0.0});
         gs.num_boxes = 1;
     }
 
@@ -107,11 +96,10 @@ void server(void *data)
                     else
                     {
                         event.peer->data = (void *)player_slot;
-                        gs.players[player_slot] = (struct Player){.body.position = (V2){
-                                                                      .x = 0.0f,
-                                                                      .y = 1.0f * (float)player_slot,
-                                                                  }};
-                        gs.players[player_slot].body.old_position = gs.players[player_slot].body.position;
+                        gs.players[player_slot].box = box_new(&gs, (V2){
+                                                                       .x = 0.0f,
+                                                                       .y = 1.0f * (float)player_slot,
+                                                                   });
                         gs.players[player_slot].connected = true;
                     }
 
@@ -140,8 +128,10 @@ void server(void *data)
                     break;
 
                 case ENET_EVENT_TYPE_DISCONNECT:
-                    Log("%" PRId64 " disconnected.\n", (int64_t)event.peer->data);
-                    gs.players[(int64_t)event.peer->data].connected = false;
+                    int player_index = (int64_t)event.peer->data;
+                    Log("%" PRId64 " disconnected player index %d.\n", (int64_t)event.peer->data, player_index);
+                    gs.players[player_index].connected = false;
+                    box_destroy(&gs.players[player_index].box);
                     event.peer->data = NULL;
                 }
             }
@@ -149,13 +139,15 @@ void server(void *data)
 
         total_time += (float)stm_sec(stm_diff(stm_now(), last_processed_time));
         last_processed_time = stm_now();
-        // @Robost if can't process quick enough will be stuck being lagged behind, think of a solution for this...
+        // @Robost @BeforeShip if can't process quick enough will be stuck being lagged behind, think of a solution for this...
         while (total_time > TIMESTEP)
         {
             process(&gs, TIMESTEP);
             total_time -= TIMESTEP;
         }
 
+#define MAX_BYTES_SIZE 2048 * 2
+        static char bytes_buffer[MAX_BYTES_SIZE] = {0};
         for (int i = 0; i < server->peerCount; i++)
         {
             // @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
@@ -164,13 +156,18 @@ void server(void *data)
                 continue;
             }
             struct ServerToClient to_send;
-            to_send.cur_gs = gs;
+            to_send.cur_gs = &gs;
             to_send.your_player = (int)(int64_t)server->peers[i].data;
-            ENetPacket *gamestate_packet = enet_packet_create((void *)&to_send, sizeof(struct ServerToClient), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+
+            int len = 0;
+            into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE);
+
+            ENetPacket *gamestate_packet = enet_packet_create((void *)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
             enet_peer_send(&server->peers[i], 0, gamestate_packet);
         }
     }
 
+    destroy(&gs);
     enet_host_destroy(server);
     enet_deinitialize();
 }

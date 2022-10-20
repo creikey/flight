@@ -13,7 +13,7 @@ WinKill, Flight
 WinActivate, flightbuild
 If WinActive("flightbuild")
 {
-    Send, build_debug.bat && flight.exe --host{Enter}
+    Send, cd C:\Users\Cameron\Documents\flight{Enter} build_debug.bat && flight.exe --host{Enter}
 }
 return
 
@@ -26,6 +26,6 @@ WinKill, Flight
 WinActivate, flightbuild
 If WinActive("flightbuild")
 {
-    Send, build_debug.bat && START /B flight.exe && flight.exe --host{Enter}
+    Send, cd C:\Users\Cameron\Documents\flight{Enter} build_debug.bat && START /B flight.exe && flight.exe --host{Enter}
 }
 return

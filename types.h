@@ -1,5 +1,10 @@
 #pragma once
 
+#define MAX_PLAYERS 4
+#define BOX_SIZE 0.5f
+#define MAX_BOXES 128
+#define BOX_MASS 1.0f
+
 // @Robust remove this include somehow, needed for sqrt and cos
 #include <math.h>
 
@@ -13,6 +18,16 @@ typedef struct sgp_vec2
 
 typedef sgp_vec2 sgp_point;
 
+#endif
+
+#ifndef CHIPMUNK_H
+typedef void cpSpace;
+typedef void cpBody;
+typedef void cpShape;
+
+extern void cpShapeFree(cpShape *);
+extern void cpBodyFree(cpBody *);
+extern void cpSpaceFree(cpSpace *);
 #endif
 
 #include <stdbool.h>
@@ -31,43 +46,30 @@ typedef sgp_point P2;
 #define Log(...)                                     \
     fprintf(stdout, "%s:%d | ", __FILE__, __LINE__); \
     fprintf(stdout, __VA_ARGS__)
-#define MAX_BOXES 32
-#define MAX_PLAYERS 4
-#define BOX_SIZE 0.5f
 
-struct Body
+struct Box
 {
-    P2 position;
-    P2 old_position;
-
-    float rotation;
-    float old_rotation;
-
-    V2 acceleration;
-    float angular_acceleration;
+    cpBody *body;
+    cpShape *shape;
 };
 
-struct Player
-{
-    struct Body body;
-    bool connected;
-    V2 input;
-};
-
+// gotta update the serialization functions when this changes
 struct GameState
 {
-    struct Player players[MAX_PLAYERS];
-
-    int num_boxes;
-    struct Box
+    cpSpace *space;
+    struct Player
     {
-        struct Body body;
-    } boxes[MAX_BOXES];
+        struct Box box;
+        bool connected;
+        V2 input;
+    } players[MAX_PLAYERS];
+    int num_boxes;
+    struct Box boxes[MAX_BOXES];
 };
 
 struct ServerToClient
 {
-    struct GameState cur_gs;
+    struct GameState *cur_gs;
     int your_player;
 };
 
@@ -80,7 +82,19 @@ struct ClientToServer
 void server(void *data);
 
 // gamestate
+void initialize(struct GameState *gs); // must do this to place boxes into it and process
+void destroy(struct GameState *gs);
 void process(struct GameState *gs, float dt); // does in place
+void into_bytes(struct ServerToClient *gs, char *out_bytes, int *out_len, int max_len);
+void from_bytes(struct ServerToClient *gs, char *bytes, int max_len);
+
+// box
+struct Box box_new(struct GameState *gs, V2 pos);
+void box_destroy(struct Box * box);
+V2 box_pos(struct Box box);
+V2 box_vel(struct Box box);
+float box_rotation(struct Box box);
+float box_angular_velocity(struct Box box);
 
 // debug draw
 void dbg_drawall();
