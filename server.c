@@ -16,12 +16,16 @@ void server(void *data)
     struct GameState gs = {0};
     initialize(&gs);
 
-    // two boxes stacked on top
+    // box haven
     if (true)
     {
         gs.boxes[0] = box_new(&gs, (V2){.x = 0.75f, .y = 0.0});
         gs.boxes[1] = box_new(&gs, (V2){.x = 0.75f, .y = 0.5f});
-        gs.num_boxes = 2;
+        gs.boxes[2] = box_new(&gs, (V2){.x = 0.75f, .y = 1.0f});
+        gs.boxes[3] = box_new(&gs, (V2){.x = -0.75f, .y = 0.0});
+        gs.boxes[4] = box_new(&gs, (V2){.x = -0.75f, .y = 0.5f});
+        gs.boxes[5] = box_new(&gs, (V2){.x = -0.75f, .y = 1.0f});
+        gs.num_boxes = 6;
     }
 
     // one box

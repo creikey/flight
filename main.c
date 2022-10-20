@@ -121,6 +121,7 @@ static void frame(void)
                     };
                     // @Robust maximum acceptable message size?
                     from_bytes(&msg, event.packet->data, event.packet->dataLength);
+                    myplayer = msg.your_player;
                     enet_packet_destroy(event.packet);
                     break;
                 case ENET_EVENT_TYPE_DISCONNECT:
@@ -202,6 +203,7 @@ static void frame(void)
             sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
             sgp_push_transform();
             sgp_rotate_at(box_rotation(p->box), box_pos(p->box).x, box_pos(p->box).y);
+            V2 bpos = box_pos(p->box);
             sgp_draw_filled_rect(box_pos(p->box).x - halfbox, box_pos(p->box).y - halfbox, BOX_SIZE, BOX_SIZE);
             sgp_pop_transform();
 
@@ -218,7 +220,13 @@ static void frame(void)
                 sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
                 sgp_push_transform();
                 sgp_rotate_at(box_rotation(gs.boxes[i]), box_pos(gs.boxes[i]).x, box_pos(gs.boxes[i]).y);
-                sgp_draw_filled_rect(box_pos(gs.boxes[i]).x - halfbox, box_pos(gs.boxes[i]).y - halfbox, BOX_SIZE, BOX_SIZE);
+                V2 bpos = box_pos(gs.boxes[i]);
+                sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x - halfbox, bpos.y + halfbox); // left
+                sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y - halfbox); // top
+                sgp_draw_line(bpos.x + halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // right
+                sgp_draw_line(bpos.x - halfbox, bpos.y + halfbox, bpos.x + halfbox, bpos.y + halfbox); // bottom
+                sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // diagonal
+                // sgp_draw_filled_rect(box_pos(gs.boxes[i]).x - halfbox, box_pos(gs.boxes[i]).y - halfbox, BOX_SIZE, BOX_SIZE);
                 sgp_pop_transform();
 
                 sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
