@@ -3,6 +3,13 @@
 
 #include <stdio.h> // assert logging
 
+// do not use any global variables to process gamestate
+
+// super try not to depend on external libraries like enet or sokol to keep build process simple,
+// gamestate its own portable submodule. If need to link to other stuff document here:
+// - debug.c for debug drawing
+// - chipmunk
+
 void __assert(bool cond, const char *file, int line, const char *cond_string)
 {
     if (!cond)
@@ -12,32 +19,6 @@ void __assert(bool cond, const char *file, int line, const char *cond_string)
 }
 
 #define assert(condition) __assert(condition, __FILE__, __LINE__, #condition)
-
-// do not use any global variables to process gamestate
-
-// super try not to depend on external libraries like enet or sokol to keep build process simple,
-// gamestate its own portable submodule. If need to link to other stuff document here:
-// - debug.c for debug drawing
-// - chipmunk
-
-void initialize(struct GameState *gs)
-{
-    gs->space = cpSpaceNew();
-}
-void destroy(struct GameState *gs)
-{
-    for (int i = 0; i < MAX_PLAYERS; i++)
-    {
-        box_destroy(&gs->players[i].box);
-    }
-    for (int i = 0; i < gs->num_boxes; i++)
-    {
-        box_destroy(&gs->boxes[i]);
-    }
-    gs->num_boxes = 0;
-    cpSpaceDestroy(gs->space);
-    gs->space = NULL;
-}
 
 static V2 cp_to_v2(cpVect v)
 {
@@ -49,46 +30,130 @@ static cpVect v2_to_cp(V2 v)
     return cpv(v.x, v.y);
 }
 
-struct Box box_new(struct GameState *gs, V2 pos)
+void initialize(struct GameState *gs)
+{
+    gs->space = cpSpaceNew();
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        reset_player(&gs->players[i]);
+    }
+}
+void destroy(struct GameState *gs)
+{
+    for (int i = 0; i < gs->num_grids; i++)
+    {
+        grid_destroy(&gs->grids[i]);
+    }
+    gs->num_grids = 0;
+
+    cpSpaceDestroy(gs->space);
+    gs->space = NULL;
+}
+
+void reset_player(struct Player *p)
+{
+    *p = (struct Player){0};
+    p->currently_inhabiting_index = -1;
+}
+
+struct Box box_new(struct GameState *gs, struct Grid *grid, V2 pos)
+{
+
+    float halfbox = BOX_SIZE / 2.0f;
+    cpBB box = cpBBNew(-halfbox + pos.x, -halfbox + pos.y, halfbox + pos.x, halfbox + pos.y);
+    cpVect verts[4] = {
+        cpv(box.r, box.b),
+        cpv(box.r, box.t),
+        cpv(box.l, box.t),
+        cpv(box.l, box.b),
+    };
+
+    struct Box to_return = (struct Box){
+        .shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), grid->body, 4, verts, 0.0f), // this cast is done in chipmunk, not sure why it works
+    };
+
+    // assumed to be grid in inhabit code as well
+    cpShapeSetUserData(to_return.shape, (void *)grid);
+    cpShapeSetMass(to_return.shape, BOX_MASS);
+    cpSpaceAddShape(gs->space, to_return.shape);
+
+    // update the center of mass (can't believe this isn't done for me...)
+    // float total_mass = 0.0f;
+    // float total_moment_of_inertia = 0.0f;
+    // V2 total_pos = {0};
+    // for (int i = 0; i < grid->num_boxes; i++)
+    // {
+    //     cpShape *cur_shape = grid->boxes[i].shape;
+    //     total_mass += cpShapeGetMass(cur_shape);
+    //     total_moment_of_inertia += cpShapeGetMoment(cur_shape);
+    //     total_pos = V2add(total_pos, V2scale(cp_to_v2(cpShapeGetCenterOfGravity(cur_shape)), cpShapeGetMass(cur_shape)));
+    // }
+    // total_pos = V2scale(total_pos, 1.0f / total_mass);
+
+
+    // @Robust I think moment of inertia calculation is wrong? https://chipmunk-physics.net/forum/viewtopic.php?t=2566
+
+    return to_return;
+}
+
+struct Grid grid_new(struct GameState *gs, V2 pos)
 {
     assert(gs->space != NULL);
     float halfbox = BOX_SIZE / 2.0f;
-    cpBody *body = cpSpaceAddBody(gs->space, cpBodyNew(BOX_MASS, cpMomentForBox(BOX_MASS, BOX_SIZE, BOX_SIZE)));
-    cpShape *shape = cpBoxShapeNew(body, BOX_SIZE, BOX_SIZE, 0.0f);
-    cpSpaceAddShape(gs->space, shape);
+
+    cpBody *body = cpSpaceAddBody(gs->space, cpBodyNew(0.0, 0.0)); // zeros for mass/moment of inertia means automatically calculated from its collision shapes
     cpBodySetPosition(body, v2_to_cp(pos));
 
-    return (struct Box){
+    struct Grid to_return = (struct Grid){
         .body = body,
-        .shape = shape,
     };
+
+    // box_new(gs, &to_return, (V2){0});
+
+    return to_return;
 }
 
-void box_destroy(struct Box *box)
+void grid_destroy(struct Grid *grid)
 {
-    cpShapeFree(box->shape);
-    cpBodyFree(box->body);
-    box->shape = NULL;
-    box->body = NULL;
-}
+    for (int ii = 0; ii < grid->num_boxes; ii++)
+    {
+        cpShapeFree(grid->boxes[ii].shape);
+        grid->boxes[ii].shape = NULL;
+    }
+    grid->num_boxes = 0;
 
-
-
-V2 box_pos(struct Box box)
-{
-    return cp_to_v2(cpBodyGetPosition(box.body));
+    cpBodyFree(grid->body);
+    grid->body = NULL;
 }
-V2 box_vel(struct Box box)
+// center of mass, not the literal position
+V2 grid_com(struct Grid *grid)
 {
-    return cp_to_v2(cpBodyGetVelocity(box.body));
+    return cp_to_v2(cpBodyLocalToWorld(grid->body, cpBodyGetCenterOfGravity(grid->body)));
 }
-float box_rotation(struct Box box)
+V2 grid_pos(struct Grid *grid)
 {
-    return cpBodyGetAngle(box.body);
+    return cp_to_v2(cpBodyGetPosition(grid->body));
 }
-float box_angular_velocity(struct Box box)
+V2 grid_vel(struct Grid *grid)
 {
-    return cpBodyGetAngularVelocity(box.body);
+    return cp_to_v2(cpBodyGetVelocity(grid->body));
+}
+float grid_rotation(struct Grid *grid)
+{
+    return cpBodyGetAngle(grid->body);
+}
+float grid_angular_velocity(struct Grid *grid)
+{
+    return cpBodyGetAngularVelocity(grid->body);
+}
+V2 box_pos(struct Box *box)
+{
+    struct Grid *g = (struct Grid *)cpShapeGetUserData(box->shape);
+    return V2add(grid_pos(g), cp_to_v2(cpShapeGetCenterOfGravity(box->shape)));
+}
+float box_rotation(struct Box *box)
+{
+    return cpBodyGetAngle(cpShapeGetBody(box->shape));
 }
 
 #define memwrite(out, variable)                 \
@@ -149,20 +214,29 @@ void des_V2(char **in, V2 *v)
     des_float(in, &v->y);
 }
 
-void ser_box(char **out, struct Box *b)
+void ser_grid(char **out, struct Grid *g)
 {
-    // box must not be null, dummy!
-    assert(b->body != NULL);
-    ser_V2(out, box_pos(*b));
-    ser_V2(out, box_vel(*b));
-    ser_float(out, box_rotation(*b));
-    ser_float(out, box_angular_velocity(*b));
+    // grid must not be null, dummy!
+    assert(g->body != NULL);
+
+    ser_V2(out, grid_pos(g));
+    ser_V2(out, grid_vel(g));
+    ser_float(out, grid_rotation(g));
+    ser_float(out, grid_angular_velocity(g));
+
+    ser_int(out, g->num_boxes);
+    for (int i = 0; i < g->num_boxes; i++)
+    {
+        ser_V2(out, cp_to_v2(cpShapeGetCenterOfGravity(g->boxes[i].shape)));
+        ser_float(out, g->boxes[i].damage);
+    }
 }
 
 // takes gamestate as argument to place box in the gamestates space
-void des_box(char **in, struct Box *b, struct GameState *gs)
+void des_grid(char **in, struct Grid *g, struct GameState *gs)
 {
-    assert(b->body == NULL); // destroy the box before deserializing into it
+    assert(g->body == NULL); // destroy the grid before deserializing into it
+
     V2 pos = {0};
     V2 vel = {0};
     float rot = 0.0f;
@@ -173,10 +247,20 @@ void des_box(char **in, struct Box *b, struct GameState *gs)
     des_float(in, &rot);
     des_float(in, &angular_vel);
 
-    *b = box_new(gs, pos);
-    cpBodySetVelocity(b->body, v2_to_cp(vel));
-    cpBodySetAngle(b->body, rot);
-    cpBodySetAngularVelocity(b->body, angular_vel);
+    *g = grid_new(gs, pos);
+    cpBodySetVelocity(g->body, v2_to_cp(vel));
+    cpBodySetAngle(g->body, rot);
+    cpBodySetAngularVelocity(g->body, angular_vel);
+
+    des_int(in, &g->num_boxes);
+
+    for (int i = 0; i < g->num_boxes; i++)
+    {
+        V2 pos = {0};
+        des_V2(in, &pos);
+        g->boxes[i] = box_new(gs, g, pos);
+        des_float(in, &g->boxes[i].damage);
+    }
 }
 
 void ser_player(char **out, struct Player *p)
@@ -184,8 +268,11 @@ void ser_player(char **out, struct Player *p)
     ser_bool(out, p->connected);
     if (p->connected)
     {
-        ser_box(out, &p->box);
-        ser_V2(out, p->input);
+        ser_int(out, p->currently_inhabiting_index);
+        ser_V2(out, p->pos);
+        ser_V2(out, p->vel);
+        ser_V2(out, p->movement);
+        ser_bool(out, p->inhabit);
     }
 }
 
@@ -194,8 +281,11 @@ void des_player(char **in, struct Player *p, struct GameState *gs)
     des_bool(in, &p->connected);
     if (p->connected)
     {
-        des_box(in, &p->box, gs);
-        des_V2(in, &p->input);
+        des_int(in, &p->currently_inhabiting_index);
+        des_V2(in, &p->pos);
+        des_V2(in, &p->vel);
+        des_V2(in, &p->movement);
+        des_bool(in, &p->inhabit);
     }
 }
 
@@ -210,6 +300,7 @@ void into_bytes(struct ServerToClient *msg, char *bytes, int *out_len, int max_l
     char *original_bytes = bytes;
 
     ser_int(&bytes, msg->your_player);
+    LEN_CHECK();
 
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
@@ -218,12 +309,12 @@ void into_bytes(struct ServerToClient *msg, char *bytes, int *out_len, int max_l
     }
 
     // @Robust invalid message on num boxes bigger than max boxes
-    ser_int(&bytes, gs->num_boxes);
+    ser_int(&bytes, gs->num_grids);
     LEN_CHECK();
 
-    for (int i = 0; i < gs->num_boxes; i++)
+    for (int i = 0; i < gs->num_grids; i++)
     {
-        ser_box(&bytes, &gs->boxes[i]);
+        ser_grid(&bytes, &gs->grids[i]);
         LEN_CHECK();
     }
 
@@ -236,6 +327,7 @@ void from_bytes(struct ServerToClient *msg, char *bytes, int max_len)
 
     char *original_bytes = bytes;
     // destroy and free all chipmunk
+
     destroy(gs);
     initialize(gs);
 
@@ -248,12 +340,12 @@ void from_bytes(struct ServerToClient *msg, char *bytes, int max_len)
         LEN_CHECK();
     }
 
-    des_int(&bytes, &gs->num_boxes);
+    des_int(&bytes, &gs->num_grids);
     LEN_CHECK();
 
-    for (int i = 0; i < gs->num_boxes; i++)
+    for (int i = 0; i < gs->num_grids; i++)
     {
-        des_box(&bytes, &gs->boxes[i], gs);
+        des_grid(&bytes, &gs->grids[i], gs);
         LEN_CHECK();
     }
 }
@@ -268,7 +360,56 @@ void process(struct GameState *gs, float dt)
         struct Player *p = &gs->players[i];
         if (!p->connected)
             continue;
-        cpBodyApplyForceAtWorldPoint(p->box.body, v2_to_cp(V2scale(p->input, 5.0f)), v2_to_cp(box_pos(p->box)));
+
+        if (p->inhabit)
+        {
+            p->inhabit = false; // "handle" the input
+            if (p->currently_inhabiting_index == -1)
+            {
+
+                // @Robust mask to only ship boxes of things the player can inhabit
+                cpPointQueryInfo query_info = {0};
+                cpShape *result = cpSpacePointQueryNearest(gs->space, v2_to_cp(p->pos), 0.1, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES), &query_info);
+                if (result != NULL)
+                {
+                    struct Grid *g = (struct Grid *)cpShapeGetUserData(result);
+                    for (int ii = 0; ii < gs->num_grids; ii++)
+                    {
+                        if (&gs->grids[ii] == g)
+                        {
+                            p->currently_inhabiting_index = ii;
+                            break;
+                        }
+                    }
+                    if (p->currently_inhabiting_index == -1)
+                    {
+                        Log("Couldn't find ship to inhabit even though point collision returned something\n");
+                    }
+                }
+                else
+                {
+                    Log("No ship above player at point %f %f\n", p->pos.x, p->pos.y);
+                }
+            }
+            else
+            { 
+                p->vel = grid_vel(&gs->grids[p->currently_inhabiting_index]);
+                p->currently_inhabiting_index = -1;
+            }
+        }
+
+        if (p->currently_inhabiting_index == -1)
+        {
+            p->vel = V2lerp(p->vel, p->movement, dt * 5.0f);
+            p->pos = V2add(p->pos, V2scale(p->vel, dt));
+        }
+        else
+        {
+            struct Grid *g = &gs->grids[p->currently_inhabiting_index];
+            p->pos = V2lerp(p->pos, grid_com(g), dt * 20.0f);
+            cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->movement, 5.0f)), v2_to_cp(grid_com(g)));
+        }
+        // cpBodyApplyForceAtWorldPoint(p->box.body, v2_to_cp(V2scale(p->input, 5.0f)), v2_to_cp(box_pos(p->box)));
     }
 
     cpSpaceStep(gs->space, dt);

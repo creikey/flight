@@ -36,6 +36,20 @@
         "chipmunk_private.h": "c",
         "chipmunk.h": "c",
         "cpbody.h": "c",
-        "chipmunk_structs.h": "c"
+        "chipmunk_structs.h": "c",
+        "xloctime": "c",
+        "iterator": "c",
+        "vector": "c",
+        "xlocmon": "c",
+        "xlocnum": "c",
+        "xutility": "c",
+        "functional": "c",
+        "memory": "c",
+        "mutex": "c",
+        "streambuf": "c",
+        "type_traits": "c",
+        "xmemory": "c",
+        "xtr1common": "c",
+        "xtree": "c"
     }
 }

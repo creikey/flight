@@ -17,22 +17,29 @@ void server(void *data)
     initialize(&gs);
 
     // box haven
-    if (true)
+    if(true)
     {
-        gs.boxes[0] = box_new(&gs, (V2){.x = 0.75f, .y = 0.0});
-        gs.boxes[1] = box_new(&gs, (V2){.x = 0.75f, .y = 0.5f});
-        gs.boxes[2] = box_new(&gs, (V2){.x = 0.75f, .y = 1.0f});
-        gs.boxes[3] = box_new(&gs, (V2){.x = -0.75f, .y = 0.0});
-        gs.boxes[4] = box_new(&gs, (V2){.x = -0.75f, .y = 0.5f});
-        gs.boxes[5] = box_new(&gs, (V2){.x = -0.75f, .y = 1.0f});
-        gs.num_boxes = 6;
-    }
+        gs.grids[0] = grid_new(&gs, (V2){.x = 0.75f, .y = 0.0});
+        gs.grids[0].boxes[0] = box_new(&gs, &gs.grids[0], (V2){0});
+        gs.grids[0].boxes[1] = box_new(&gs, &gs.grids[0], (V2){0, 0.5f});
+        gs.grids[0].boxes[2] = box_new(&gs, &gs.grids[0], (V2){0, 1.0f});
+        gs.grids[0].boxes[3] = box_new(&gs, &gs.grids[0], (V2){0.5f, 1.0f});
+        gs.grids[0].num_boxes = 4;
 
-    // one box
+        gs.grids[1] = grid_new(&gs, (V2){.x = -0.75f, .y = 0.0});
+        gs.grids[1].boxes[0] = box_new(&gs, &gs.grids[1], (V2){0});
+        gs.grids[1].num_boxes = 1;
+
+        gs.num_grids = 2;
+    }
+    
+    // one box policy
     if (false)
     {
-        gs.boxes[0] = box_new(&gs, (V2){.x = 0.75f, .y = 0.0});
-        gs.num_boxes = 1;
+        gs.grids[0] = grid_new(&gs, (V2){.x = 0.75f, .y = 0.0});
+        gs.grids[0].boxes[0] = box_new(&gs, &gs.grids[0], (V2){0});
+        gs.num_grids = 1;
+        gs.grids[0].num_boxes = 1;
     }
 
     if (enet_initialize() != 0)
@@ -100,10 +107,11 @@ void server(void *data)
                     else
                     {
                         event.peer->data = (void *)player_slot;
-                        gs.players[player_slot].box = box_new(&gs, (V2){
-                                                                       .x = 0.0f,
-                                                                       .y = 1.0f * (float)player_slot,
-                                                                   });
+                        reset_player(&gs.players[player_slot]);
+                        // gs.players[player_slot].box = box_new(&gs, (V2){
+                        //                                                .x = 0.0f,
+                        //                                                .y = 1.0f * (float)player_slot,
+                        //                                            });
                         gs.players[player_slot].connected = true;
                     }
 
@@ -123,7 +131,8 @@ void server(void *data)
                         struct ClientToServer received = {0};
                         memcpy(&received, event.packet->data, length);
                         int64_t player_slot = (int64_t)event.peer->data;
-                        gs.players[player_slot].input = received.input;
+                        gs.players[player_slot].movement = received.movement;
+                        gs.players[player_slot].inhabit = received.inhabit;
                     }
 
                     /* Clean up the packet now that we're done using it. */
@@ -135,7 +144,7 @@ void server(void *data)
                     int player_index = (int64_t)event.peer->data;
                     Log("%" PRId64 " disconnected player index %d.\n", (int64_t)event.peer->data, player_index);
                     gs.players[player_index].connected = false;
-                    box_destroy(&gs.players[player_index].box);
+                    // box_destroy(&gs.players[player_index].box);
                     event.peer->data = NULL;
                 }
             }

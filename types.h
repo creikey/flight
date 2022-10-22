@@ -2,7 +2,8 @@
 
 #define MAX_PLAYERS 4
 #define BOX_SIZE 0.5f
-#define MAX_BOXES 128
+#define MAX_GRIDS 16
+#define MAX_BOXES_PER_GRID 16
 #define BOX_MASS 1.0f
 
 // @Robust remove this include somehow, needed for sqrt and cos
@@ -11,6 +12,8 @@
 // including headers from headers bad
 #ifndef SOKOL_GP_INCLUDED
 
+// @Robust use double precision for all vectors, when passed back to sokol
+// somehow automatically or easily cast to floats
 typedef struct sgp_vec2
 {
     float x, y;
@@ -24,10 +27,6 @@ typedef sgp_vec2 sgp_point;
 typedef void cpSpace;
 typedef void cpBody;
 typedef void cpShape;
-
-extern void cpShapeFree(cpShape *);
-extern void cpBodyFree(cpBody *);
-extern void cpSpaceFree(cpSpace *);
 #endif
 
 #include <stdbool.h>
@@ -47,24 +46,34 @@ typedef sgp_point P2;
     fprintf(stdout, "%s:%d | ", __FILE__, __LINE__); \
     fprintf(stdout, __VA_ARGS__)
 
-struct Box
-{
-    cpBody *body;
-    cpShape *shape;
-};
-
 // gotta update the serialization functions when this changes
 struct GameState
 {
     cpSpace *space;
     struct Player
     {
-        struct Box box;
+        int currently_inhabiting_index; // is equal to -1 when not inhabiting a grid
         bool connected;
-        V2 input;
+        V2 pos;
+        V2 vel;
+
+        // input
+        V2 movement;
+        bool inhabit;
     } players[MAX_PLAYERS];
-    int num_boxes;
-    struct Box boxes[MAX_BOXES];
+    int num_grids;
+    // important that this memory does not move around, each box shape in it has a pointer to its grid struct, stored in the box's shapes user_data
+    struct Grid
+    {
+        cpBody *body;
+
+        int num_boxes;
+        struct Box
+        {
+            cpShape *shape;
+            float damage;
+        } boxes[MAX_BOXES_PER_GRID]; // @Robust this needs to be dynamically allocated, huge disparity in how many blocks a body can have...
+    } grids[MAX_GRIDS];
 };
 
 struct ServerToClient
@@ -75,11 +84,12 @@ struct ServerToClient
 
 struct ClientToServer
 {
-    V2 input;
+    V2 movement;
+    bool inhabit;
 };
 
 // server
-void server(void *data);
+void server(void *data); // data parameter required from thread api...
 
 // gamestate
 void initialize(struct GameState *gs); // must do this to place boxes into it and process
@@ -88,13 +98,20 @@ void process(struct GameState *gs, float dt); // does in place
 void into_bytes(struct ServerToClient *gs, char *out_bytes, int *out_len, int max_len);
 void from_bytes(struct ServerToClient *gs, char *bytes, int max_len);
 
-// box
-struct Box box_new(struct GameState *gs, V2 pos);
-void box_destroy(struct Box * box);
-V2 box_pos(struct Box box);
-V2 box_vel(struct Box box);
-float box_rotation(struct Box box);
-float box_angular_velocity(struct Box box);
+// player
+void reset_player(struct Player *p);
+
+// grid
+struct Grid grid_new(struct GameState *gs, V2 pos);
+void grid_destroy(struct Grid *grid);
+V2 grid_com(struct Grid *grid);
+V2 grid_pos(struct Grid *grid);
+V2 grid_vel(struct Grid *grid);
+float grid_rotation(struct Grid *grid);
+float grid_angular_velocity(struct Grid *grid);
+struct Box box_new(struct GameState *gs, struct Grid *grid, V2 pos);
+V2 box_pos(struct Box *box);
+float box_rotation(struct Box *box);
 
 // debug draw
 void dbg_drawall();
@@ -167,4 +184,18 @@ static V2 V2sub(V2 a, V2 b)
         .x = a.x - b.x,
         .y = a.y - b.y,
     };
+}
+
+static float lerp(float a, float b, float f)
+{
+    return a * (1.0f - f) + (b * f);
+}
+
+static V2 V2lerp(V2 a, V2 b, float factor)
+{
+    V2 to_return = {0};
+    to_return.x = lerp(a.x, b.x, factor);
+    to_return.y = lerp(a.y, b.y, factor);
+
+    return to_return;
 }

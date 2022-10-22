@@ -18,13 +18,19 @@ static struct GameState gs = {0};
 static int myplayer = -1;
 static bool mouse_down = false;
 static bool keydown[SAPP_KEYCODE_MENU] = {0};
+typedef struct KeyPressed
+{
+    bool pressed;
+    uint64_t frame;
+} KeyPressed;
+static KeyPressed keypressed[SAPP_KEYCODE_MENU] = {0};
 static float funval = 0.0f; // easy to play with value controlled by left mouse button when held down @BeforeShip remove on release builds
 static ENetHost *client;
 static ENetPeer *peer;
 
 void init(void)
 {
-    // @BeforeShip make all fprintf into logging to file, warning dialog boxes on failure instead of exit(-1), replace the macros in sokol with this as well, like assert
+    // @BeforeShip make all fprintf into logging to file, warning dialog grids on failure instead of exit(-1), replace the macros in sokol with this as well, like assert
 
     initialize(&gs);
 
@@ -97,6 +103,15 @@ static void frame(void)
     int width = sapp_width(), height = sapp_height();
     float ratio = width / (float)height;
     float time = sapp_frame_count() * sapp_frame_duration();
+    float dt = sapp_frame_duration();
+
+    for (int i = 0; i < SAPP_KEYCODE_MENU; i++)
+    {
+        if (keypressed[i].frame < sapp_frame_count())
+        {
+            keypressed[i].pressed = false;
+        }
+    }
 
     // networking
     {
@@ -150,12 +165,14 @@ static void frame(void)
             .x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
             .y = (float)keydown[SAPP_KEYCODE_S] - (float)keydown[SAPP_KEYCODE_W],
         };
-        curmsg.input = input;
+        curmsg.movement = input;
+        curmsg.inhabit = keypressed[SAPP_KEYCODE_G].pressed;
 
         ENetPacket *packet = enet_packet_create((void *)&curmsg, sizeof(curmsg), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
         enet_peer_send(peer, 0, packet);
 
         // @BeforeShip client side prediction and rollback to previous server authoritative state, then replay inputs
+        // no need to store copies of game state, just player input frame to frame. Then know how many frames ago the server game state arrived, it's that easy!
         process(&gs, (float)sapp_frame_duration());
     }
 
@@ -164,6 +181,7 @@ static void frame(void)
         sgp_begin(width, height);
         sgp_viewport(0, 0, width, height);
         sgp_project(0.0f, width, 0.0f, height);
+        sgp_set_blend_mode(SGP_BLENDMODE_BLEND);
 
         // Draw background color
         sgp_set_color(0.1f, 0.1f, 0.1f, 1.0f);
@@ -176,7 +194,7 @@ static void frame(void)
         // camera go to player
         if (myplayer != -1)
         {
-            V2 pos = box_pos(gs.players[myplayer].box);
+            V2 pos = gs.players[myplayer].pos;
             sgp_translate(-pos.x, -pos.y);
         }
 
@@ -200,39 +218,48 @@ static void frame(void)
             struct Player *p = &gs.players[i];
             if (!p->connected)
                 continue;
-            sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+            static float opacities[MAX_PLAYERS] = {1.0f};
+            opacities[i] = lerp(opacities[i], p->currently_inhabiting_index == -1 ? 1.0f : 0.1f, dt*7.0f);
+            sgp_set_color(1.0f, 1.0f, 1.0f, opacities[i]);
             sgp_push_transform();
-            sgp_rotate_at(box_rotation(p->box), box_pos(p->box).x, box_pos(p->box).y);
-            V2 bpos = box_pos(p->box);
-            sgp_draw_filled_rect(box_pos(p->box).x - halfbox, box_pos(p->box).y - halfbox, BOX_SIZE, BOX_SIZE);
+            float psize = 0.1f;
+            sgp_draw_filled_rect(p->pos.x - psize / 2.0f, p->pos.y - psize / 2.0f, psize, psize);
             sgp_pop_transform();
+            // sgp_rotate_at(grid_rotation(p->grid), grid_pos(p->grid).x, grid_pos(p->grid).y);
+            // V2 bpos = grid_pos(p->grid);
+            // sgp_draw_filled_rect(grid_pos(p->grid).x - halfbox, grid_pos(p->grid).y - halfbox, BOX_SIZE, BOX_SIZE);
+            // sgp_pop_transform();
 
-            sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
-            V2 vel = box_vel(p->box);
-            V2 to = V2add(box_pos(p->box), vel);
-            sgp_draw_line(box_pos(p->box).x, box_pos(p->box).y, to.x, to.y);
+            // sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
+            // V2 vel = grid_vel(p->grid);
+            // V2 to = V2add(grid_pos(p->grid), vel);
+            // sgp_draw_line(grid_pos(p->grid).x, grid_pos(p->grid).y, to.x, to.y);
         }
 
-        // boxes
+        // grids
         {
-            for (int i = 0; i < gs.num_boxes; i++)
+            for (int i = 0; i < gs.num_grids; i++)
             {
-                sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
-                sgp_push_transform();
-                sgp_rotate_at(box_rotation(gs.boxes[i]), box_pos(gs.boxes[i]).x, box_pos(gs.boxes[i]).y);
-                V2 bpos = box_pos(gs.boxes[i]);
-                sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x - halfbox, bpos.y + halfbox); // left
-                sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y - halfbox); // top
-                sgp_draw_line(bpos.x + halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // right
-                sgp_draw_line(bpos.x - halfbox, bpos.y + halfbox, bpos.x + halfbox, bpos.y + halfbox); // bottom
-                sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // diagonal
-                // sgp_draw_filled_rect(box_pos(gs.boxes[i]).x - halfbox, box_pos(gs.boxes[i]).y - halfbox, BOX_SIZE, BOX_SIZE);
-                sgp_pop_transform();
-
+                struct Grid *g = &gs.grids[i];
+                for (int ii = 0; ii < g->num_boxes; ii++)
+                {
+                    struct Box *b = &g->boxes[ii];
+                    sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
+                    sgp_push_transform();
+                    sgp_rotate_at(box_rotation(b), grid_pos(g).x, grid_pos(g).y);
+                    V2 bpos = box_pos(b);
+                    sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x - halfbox, bpos.y + halfbox); // left
+                    sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y - halfbox); // top
+                    sgp_draw_line(bpos.x + halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // right
+                    sgp_draw_line(bpos.x - halfbox, bpos.y + halfbox, bpos.x + halfbox, bpos.y + halfbox); // bottom
+                    sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // diagonal
+                    // sgp_draw_filled_rect(box_pos(b).x - halfbox, box_pos(b).y - halfbox, BOX_SIZE, BOX_SIZE);
+                    sgp_pop_transform();
+                }
                 sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
-                V2 vel = box_vel(gs.boxes[i]);
-                V2 to = V2add(box_pos(gs.boxes[i]), vel);
-                sgp_draw_line(box_pos(gs.boxes[i]).x, box_pos(gs.boxes[i]).y, to.x, to.y);
+                V2 vel = grid_vel(&gs.grids[i]);
+                V2 to = V2add(grid_com(g), vel);
+                sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
             }
         }
 
@@ -267,9 +294,16 @@ void event(const sapp_event *e)
     {
     case SAPP_EVENTTYPE_KEY_DOWN:
         keydown[e->key_code] = true;
+        if (keypressed[e->key_code].frame == 0)
+        {
+            keypressed[e->key_code].pressed = true;
+            keypressed[e->key_code].frame = e->frame_count;
+        }
         break;
     case SAPP_EVENTTYPE_KEY_UP:
         keydown[e->key_code] = false;
+        keypressed[e->key_code].pressed = false;
+        keypressed[e->key_code].frame = 0;
         break;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
         if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
