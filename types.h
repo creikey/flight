@@ -3,6 +3,7 @@
 #define MAX_PLAYERS 4
 #define BOX_SIZE 0.5f
 #define MAX_HAND_REACH 1.0f
+#define GOLD_COLLECT_RADIUS 0.3f
 #define MAX_GRIDS 32
 #define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
@@ -12,6 +13,8 @@
 
 // including headers from headers bad
 #ifndef SOKOL_GP_INCLUDED
+
+void sgp_set_color(float, float, float, float);
 
 // @Robust use double precision for all vectors, when passed back to sokol
 // somehow automatically or easily cast to floats
@@ -51,14 +54,20 @@ typedef sgp_point P2;
 struct GameState
 {
     cpSpace *space;
+
+    float time;
+
+    V2 goldpos;
+
     struct Player
     {
         bool connected;
-        
+
         int currently_inhabiting_index; // is equal to -1 when not inhabiting a grid
         V2 pos;
         V2 vel;
         float spice_taken_away; // at 1.0, out of spice
+        float goldness;         // how much the player is a winner
 
         // input
         V2 movement;
@@ -68,7 +77,7 @@ struct GameState
         bool dobuild;
         int grid_index;
     } players[MAX_PLAYERS];
-    
+
     // if body or shape is null, then that grid/box has been freed
 
     // important that this memory does not move around, each box shape in it has a pointer to its grid struct, stored in the box's shapes user_data
@@ -205,7 +214,12 @@ static V2 V2sub(V2 a, V2 b)
 
 static inline float clamp01(float f)
 {
-	return fmax(0.0f, fmin(f, 1.0f));
+    return fmax(0.0f, fmin(f, 1.0f));
+}
+
+static float fract(float f)
+{
+    return f - floorf(f);
 }
 
 static float lerp(float a, float b, float f)
@@ -221,3 +235,37 @@ static V2 V2lerp(V2 a, V2 b, float factor)
 
     return to_return;
 }
+
+typedef struct Color
+{
+    float r, g, b, a;
+} Color;
+
+static Color colhex(int r, int g, int b)
+{
+    return (Color){
+        .r = (float)r / 255.0,
+        .g = (float)g / 255.0,
+        .b = (float)b / 255.0,
+        .a = 1.0f,
+    };
+}
+
+static Color Collerp(Color a, Color b, float factor)
+{
+    Color to_return = {0};
+    to_return.r = lerp(a.r, b.r, factor);
+    to_return.g = lerp(a.g, b.g, factor);
+    to_return.b = lerp(a.b, b.b, factor);
+    to_return.a = lerp(a.a, b.a, factor);
+
+    return to_return;
+}
+
+static void set_color(Color c)
+{
+    sgp_set_color(c.r, c.g, c.b, c.a);
+}
+
+#define WHITE (Color){.r=1.0f,.g=1.0f,.b=1.0f,.a=1.0f}
+#define GOLD colhex(255, 215, 0)

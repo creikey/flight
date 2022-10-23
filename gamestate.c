@@ -343,6 +343,7 @@ void ser_player(char **out, struct Player *p)
         ser_V2(out, p->pos);
         ser_V2(out, p->vel);
         ser_float(out, p->spice_taken_away);
+        ser_float(out, p->goldness);
 
         // input
         ser_V2(out, p->movement);
@@ -363,6 +364,7 @@ void des_player(char **in, struct Player *p, struct GameState *gs)
         des_V2(in, &p->pos);
         des_V2(in, &p->vel);
         des_float(in, &p->spice_taken_away);
+        des_float(in, &p->goldness);
 
         // input
         des_V2(in, &p->movement);
@@ -386,6 +388,11 @@ void into_bytes(struct ServerToClient *msg, char *bytes, int *out_len, int max_l
 
     ser_int(&bytes, msg->your_player);
     LEN_CHECK();
+
+    ser_float(&bytes, gs->time);
+    LEN_CHECK();
+
+    ser_V2(&bytes, gs->goldpos);
 
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
@@ -415,12 +422,17 @@ void from_bytes(struct ServerToClient *msg, char *bytes, int max_len)
     struct GameState *gs = msg->cur_gs;
 
     char *original_bytes = bytes;
-    // destroy and free all chipmunk
 
     destroy(gs);
     initialize(gs);
 
     des_int(&bytes, &msg->your_player);
+    LEN_CHECK();
+
+    des_float(&bytes, &gs->time);
+    LEN_CHECK();
+
+    des_V2(&bytes, &gs->goldpos);
     LEN_CHECK();
 
     for (int i = 0; i < MAX_PLAYERS; i++)
@@ -478,9 +490,19 @@ struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float ra
     return NULL;
 }
 
+static float hash11(float p)
+{
+    p = fract(p * .1031);
+    p *= p + 33.33;
+    p *= p + p;
+    return fract(p);
+}
+
 void process(struct GameState *gs, float dt)
 {
     assert(gs->space != NULL);
+
+    gs->time += dt;
 
     // process input
     for (int i = 0; i < MAX_PLAYERS; i++)
@@ -488,6 +510,12 @@ void process(struct GameState *gs, float dt)
         struct Player *p = &gs->players[i];
         if (!p->connected)
             continue;
+
+        if(V2length(V2sub(p->pos, gs->goldpos)) < GOLD_COLLECT_RADIUS)
+        {
+            p->goldness += 0.2;
+            gs->goldpos = (V2){.x = hash11(gs->time)*20.0f, .y = hash11(gs->time-13.6f)*20.0f};
+        }
 
         if (p->dobuild)
         {
@@ -517,6 +545,7 @@ void process(struct GameState *gs, float dt)
                 }
                 p->spice_taken_away += 0.2f;
                 grid_new(empty_grid, gs, p->build);
+                cpBodySetVelocity(empty_grid->body, v2_to_cp(p->vel));
                 box_new(&empty_grid->boxes[0], gs, empty_grid, (V2){0});
             }
             else
@@ -595,6 +624,8 @@ void process(struct GameState *gs, float dt)
             struct Grid *g = &gs->grids[p->currently_inhabiting_index];
             p->pos = V2lerp(p->pos, grid_com(g), dt * 20.0f);
             cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->movement, 5.0f)), v2_to_cp(grid_com(g)));
+            // bigger the ship, the more efficient the spice usage
+            p->spice_taken_away += dt*0.15f/(cpBodyGetMass(g->body)*2.0f)*V2length(p->movement);
         }
 
         if(p->spice_taken_away >= 1.0f)

@@ -341,7 +341,7 @@ static void frame(void)
         if (myplayer != -1)
         {
             static float hand_reach_alpha = 1.0f;
-            hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt*5.0);
+            hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt * 5.0);
             sgp_set_color(1.0f, 1.0f, 1.0f, hand_reach_alpha);
             draw_circle(gs.players[myplayer].pos, MAX_HAND_REACH);
         }
@@ -367,7 +367,10 @@ static void frame(void)
                 continue;
             static float opacities[MAX_PLAYERS] = {1.0f};
             opacities[i] = lerp(opacities[i], p->currently_inhabiting_index == -1 ? 1.0f : 0.1f, dt * 7.0f);
-            sgp_set_color(1.0f, 1.0f, 1.0f, opacities[i]);
+            Color col_to_draw = Collerp(WHITE, GOLD, p->goldness);
+            col_to_draw.a = opacities[i];
+
+            set_color(col_to_draw);
             sgp_push_transform();
             float psize = 0.1f;
             sgp_draw_filled_rect(p->pos.x - psize / 2.0f, p->pos.y - psize / 2.0f, psize, psize);
@@ -419,6 +422,12 @@ static void frame(void)
                 sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
             }
         }
+
+        // gold target
+        set_color(GOLD);
+        sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y,0.1f,0.1f);
+
+
 
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
         dbg_drawall();
