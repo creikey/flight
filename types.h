@@ -61,13 +61,14 @@ struct GameState
         V2 movement;
         bool inhabit;
     } players[MAX_PLAYERS];
-    int num_grids;
+    
+    // if body or shape is null, then that grid/box has been freed
+
     // important that this memory does not move around, each box shape in it has a pointer to its grid struct, stored in the box's shapes user_data
     struct Grid
     {
         cpBody *body;
 
-        int num_boxes;
         struct Box
         {
             cpShape *shape;
@@ -102,14 +103,13 @@ void from_bytes(struct ServerToClient *gs, char *bytes, int max_len);
 void reset_player(struct Player *p);
 
 // grid
-struct Grid grid_new(struct GameState *gs, V2 pos);
-void grid_destroy(struct Grid *grid);
+void grid_new(struct Grid *to_modify, struct GameState *gs, V2 pos);
 V2 grid_com(struct Grid *grid);
 V2 grid_pos(struct Grid *grid);
 V2 grid_vel(struct Grid *grid);
 float grid_rotation(struct Grid *grid);
 float grid_angular_velocity(struct Grid *grid);
-struct Box box_new(struct GameState *gs, struct Grid *grid, V2 pos);
+void box_new(struct Box *to_modify, struct GameState *gs, struct Grid *grid, V2 pos);
 V2 box_pos(struct Box *box);
 float box_rotation(struct Box *box);
 
@@ -117,6 +117,11 @@ float box_rotation(struct Box *box);
 void dbg_drawall();
 void dbg_line(V2 from, V2 to);
 void dbg_rect(V2 center);
+
+// helper
+#define SKIPNULL(thing) \
+    if (thing == NULL)  \
+    continue
 
 // all the math is static so that it can be defined in each compilation unit its included in
 

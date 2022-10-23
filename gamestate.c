@@ -30,9 +30,98 @@ static cpVect v2_to_cp(V2 v)
     return cpv(v.x, v.y);
 }
 
+static struct Box *getbox(cpShape *shape)
+{
+    return (struct Box *)cpShapeGetUserData(shape);
+}
+
+static int grid_num_boxes(struct Grid *g)
+{
+    int to_return = 0;
+    for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
+    {
+        SKIPNULL(g->boxes[i].shape);
+        to_return++;
+    }
+    return to_return;
+}
+
+static void box_destroy(cpSpace *space, struct Box *box)
+{
+    cpSpaceRemoveShape(space, box->shape);
+    cpShapeFree(box->shape);
+    box->shape = NULL;
+}
+
+// space should be from gamestate, doesn't accept gamestate parameter so collision
+// callbacks can use it
+void grid_destroy(cpSpace *space, struct Grid *grid)
+{
+    for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
+    {
+        SKIPNULL(grid->boxes[i].shape);
+
+        box_destroy(space, &grid->boxes[i]);
+    }
+
+    cpSpaceRemoveBody(space, grid->body);
+    cpBodyFree(grid->body);
+    grid->body = NULL;
+}
+
+static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
+{
+    box_destroy(space, box);
+
+    if (grid_num_boxes(grid) == 0)
+    {
+        grid_destroy(space, grid);
+    }
+}
+
+static void postStepRemove(cpSpace *space, void *key, void *data)
+{
+    cpShape *b = (cpShape *)key;
+    if (getbox(b)->damage > 1.0f)
+    {
+        grid_remove_box(space, (struct Grid *)cpBodyGetUserData(cpShapeGetBody(b)), getbox(b));
+    }
+}
+
+static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
+{
+    cpShape *a, *b;
+    cpArbiterGetShapes(arb, &a, &b);
+
+    double total_depth = 0.0f;
+    for (int i = 0; i < cpArbiterGetCount(arb); i++)
+        total_depth -= cpArbiterGetDepth(arb, i);
+
+    // getbox(a)->damage += ;
+
+    // float damage = (total_depth / 0.01) * 0.1f;
+    float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb)));
+    Log("Collision with damage %f\n", damage*0.25f);
+    if (damage > 0.05f)
+    {
+        getbox(a)->damage += damage;
+        getbox(b)->damage += damage;
+    }
+
+    // b must be the key passed into the post step removed, the key is cast into its shape
+    cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, b, NULL);
+    cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, a, NULL);
+
+    return true; // keep colliding
+}
+
 void initialize(struct GameState *gs)
 {
     gs->space = cpSpaceNew();
+    cpCollisionHandler *handler = cpSpaceAddCollisionHandler(gs->space, 0, 0); // @Robust limit collision type to just blocks that can be damaged
+    // handler->beginFunc = begin;
+    handler->postSolveFunc = on_damage;
+    // handler->postSolveFunc = postStepRemove;
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
         reset_player(&gs->players[i]);
@@ -40,13 +129,13 @@ void initialize(struct GameState *gs)
 }
 void destroy(struct GameState *gs)
 {
-    for (int i = 0; i < gs->num_grids; i++)
+    for (int i = 0; i < MAX_GRIDS; i++)
     {
-        grid_destroy(&gs->grids[i]);
+        SKIPNULL(gs->grids[i].body);
+        grid_destroy(gs->space, &gs->grids[i]);
     }
-    gs->num_grids = 0;
 
-    cpSpaceDestroy(gs->space);
+    cpSpaceFree(gs->space);
     gs->space = NULL;
 }
 
@@ -56,9 +145,10 @@ void reset_player(struct Player *p)
     p->currently_inhabiting_index = -1;
 }
 
-struct Box box_new(struct GameState *gs, struct Grid *grid, V2 pos)
+// box must be passed as a parameter as the box added to chipmunk uses this pointer in its
+// user data
+void box_new(struct Box *to_modify, struct GameState *gs, struct Grid *grid, V2 pos)
 {
-
     float halfbox = BOX_SIZE / 2.0f;
     cpBB box = cpBBNew(-halfbox + pos.x, -halfbox + pos.y, halfbox + pos.x, halfbox + pos.y);
     cpVect verts[4] = {
@@ -68,63 +158,26 @@ struct Box box_new(struct GameState *gs, struct Grid *grid, V2 pos)
         cpv(box.l, box.b),
     };
 
-    struct Box to_return = (struct Box){
-        .shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), grid->body, 4, verts, 0.0f), // this cast is done in chipmunk, not sure why it works
-    };
+    to_modify->shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), grid->body, 4, verts, 0.0f); // this cast is done in chipmunk, not sure why it works
 
     // assumed to be grid in inhabit code as well
-    cpShapeSetUserData(to_return.shape, (void *)grid);
-    cpShapeSetMass(to_return.shape, BOX_MASS);
-    cpSpaceAddShape(gs->space, to_return.shape);
-
-    // update the center of mass (can't believe this isn't done for me...)
-    // float total_mass = 0.0f;
-    // float total_moment_of_inertia = 0.0f;
-    // V2 total_pos = {0};
-    // for (int i = 0; i < grid->num_boxes; i++)
-    // {
-    //     cpShape *cur_shape = grid->boxes[i].shape;
-    //     total_mass += cpShapeGetMass(cur_shape);
-    //     total_moment_of_inertia += cpShapeGetMoment(cur_shape);
-    //     total_pos = V2add(total_pos, V2scale(cp_to_v2(cpShapeGetCenterOfGravity(cur_shape)), cpShapeGetMass(cur_shape)));
-    // }
-    // total_pos = V2scale(total_pos, 1.0f / total_mass);
-
-
-    // @Robust I think moment of inertia calculation is wrong? https://chipmunk-physics.net/forum/viewtopic.php?t=2566
-
-    return to_return;
+    cpShapeSetUserData(to_modify->shape, (void *)to_modify);
+    cpShapeSetMass(to_modify->shape, BOX_MASS);
+    cpSpaceAddShape(gs->space, to_modify->shape);
 }
 
-struct Grid grid_new(struct GameState *gs, V2 pos)
+// the grid pointer passed gets referenced by the body
+void grid_new(struct Grid *to_modify, struct GameState *gs, V2 pos)
 {
     assert(gs->space != NULL);
     float halfbox = BOX_SIZE / 2.0f;
 
     cpBody *body = cpSpaceAddBody(gs->space, cpBodyNew(0.0, 0.0)); // zeros for mass/moment of inertia means automatically calculated from its collision shapes
+    to_modify->body = body;
     cpBodySetPosition(body, v2_to_cp(pos));
-
-    struct Grid to_return = (struct Grid){
-        .body = body,
-    };
-
-    // box_new(gs, &to_return, (V2){0});
-
-    return to_return;
+    cpBodySetUserData(to_modify->body, (void *)to_modify);
 }
 
-void grid_destroy(struct Grid *grid)
-{
-    for (int ii = 0; ii < grid->num_boxes; ii++)
-    {
-        cpShapeFree(grid->boxes[ii].shape);
-        grid->boxes[ii].shape = NULL;
-    }
-    grid->num_boxes = 0;
-
-    cpBodyFree(grid->body);
-    grid->body = NULL;
-}
 // center of mass, not the literal position
 V2 grid_com(struct Grid *grid)
 {
@@ -148,7 +201,7 @@ float grid_angular_velocity(struct Grid *grid)
 }
 V2 box_pos(struct Box *box)
 {
-    struct Grid *g = (struct Grid *)cpShapeGetUserData(box->shape);
+    struct Grid *g = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(box->shape));
     return V2add(grid_pos(g), cp_to_v2(cpShapeGetCenterOfGravity(box->shape)));
 }
 float box_rotation(struct Box *box)
@@ -224,11 +277,15 @@ void ser_grid(char **out, struct Grid *g)
     ser_float(out, grid_rotation(g));
     ser_float(out, grid_angular_velocity(g));
 
-    ser_int(out, g->num_boxes);
-    for (int i = 0; i < g->num_boxes; i++)
+    for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
     {
-        ser_V2(out, cp_to_v2(cpShapeGetCenterOfGravity(g->boxes[i].shape)));
-        ser_float(out, g->boxes[i].damage);
+        bool exists = g->boxes[i].shape != NULL;
+        ser_bool(out, exists);
+        if (exists)
+        {
+            ser_V2(out, cp_to_v2(cpShapeGetCenterOfGravity(g->boxes[i].shape)));
+            ser_float(out, g->boxes[i].damage);
+        }
     }
 }
 
@@ -247,19 +304,22 @@ void des_grid(char **in, struct Grid *g, struct GameState *gs)
     des_float(in, &rot);
     des_float(in, &angular_vel);
 
-    *g = grid_new(gs, pos);
+    grid_new(g, gs, pos);
     cpBodySetVelocity(g->body, v2_to_cp(vel));
     cpBodySetAngle(g->body, rot);
     cpBodySetAngularVelocity(g->body, angular_vel);
 
-    des_int(in, &g->num_boxes);
-
-    for (int i = 0; i < g->num_boxes; i++)
+    for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
     {
-        V2 pos = {0};
-        des_V2(in, &pos);
-        g->boxes[i] = box_new(gs, g, pos);
-        des_float(in, &g->boxes[i].damage);
+        bool exists = false;
+        des_bool(in, &exists);
+        if (exists)
+        {
+            V2 pos = {0};
+            des_V2(in, &pos);
+            box_new(&g->boxes[i], gs, g, pos);
+            des_float(in, &g->boxes[i].damage);
+        }
     }
 }
 
@@ -309,13 +369,17 @@ void into_bytes(struct ServerToClient *msg, char *bytes, int *out_len, int max_l
     }
 
     // @Robust invalid message on num boxes bigger than max boxes
-    ser_int(&bytes, gs->num_grids);
-    LEN_CHECK();
 
-    for (int i = 0; i < gs->num_grids; i++)
+    for (int i = 0; i < MAX_GRIDS; i++)
     {
-        ser_grid(&bytes, &gs->grids[i]);
+        bool exists = gs->grids[i].body != NULL;
+        ser_bool(&bytes, exists);
         LEN_CHECK();
+        if (exists)
+        {
+            ser_grid(&bytes, &gs->grids[i]);
+            LEN_CHECK();
+        }
     }
 
     *out_len = bytes - original_bytes;
@@ -340,13 +404,16 @@ void from_bytes(struct ServerToClient *msg, char *bytes, int max_len)
         LEN_CHECK();
     }
 
-    des_int(&bytes, &gs->num_grids);
-    LEN_CHECK();
-
-    for (int i = 0; i < gs->num_grids; i++)
+    for (int i = 0; i < MAX_GRIDS; i++)
     {
-        des_grid(&bytes, &gs->grids[i], gs);
+        bool exists = false;
+        des_bool(&bytes, &exists);
         LEN_CHECK();
+        if (exists)
+        {
+            des_grid(&bytes, &gs->grids[i], gs);
+            LEN_CHECK();
+        }
     }
 }
 
@@ -361,6 +428,11 @@ void process(struct GameState *gs, float dt)
         if (!p->connected)
             continue;
 
+        if (gs->grids[p->currently_inhabiting_index].body == NULL)
+        {
+            p->currently_inhabiting_index = -1;
+        }
+
         if (p->inhabit)
         {
             p->inhabit = false; // "handle" the input
@@ -372,9 +444,11 @@ void process(struct GameState *gs, float dt)
                 cpShape *result = cpSpacePointQueryNearest(gs->space, v2_to_cp(p->pos), 0.1, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES), &query_info);
                 if (result != NULL)
                 {
-                    struct Grid *g = (struct Grid *)cpShapeGetUserData(result);
-                    for (int ii = 0; ii < gs->num_grids; ii++)
+                    // result is assumed to be a box shape
+                    struct Grid *g = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(result));
+                    for (int ii = 0; ii < MAX_GRIDS; ii++)
                     {
+                        SKIPNULL(gs->grids[ii].body);
                         if (&gs->grids[ii] == g)
                         {
                             p->currently_inhabiting_index = ii;
@@ -392,7 +466,7 @@ void process(struct GameState *gs, float dt)
                 }
             }
             else
-            { 
+            {
                 p->vel = grid_vel(&gs->grids[p->currently_inhabiting_index]);
                 p->currently_inhabiting_index = -1;
             }

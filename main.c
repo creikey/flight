@@ -134,7 +134,7 @@ static void frame(void)
                     struct ServerToClient msg = {
                         .cur_gs = &gs,
                     };
-                    // @Robust maximum acceptable message size?
+                    // @Robust @BeforeShip maximum acceptable message size?
                     from_bytes(&msg, event.packet->data, event.packet->dataLength);
                     myplayer = msg.your_player;
                     enet_packet_destroy(event.packet);
@@ -219,7 +219,7 @@ static void frame(void)
             if (!p->connected)
                 continue;
             static float opacities[MAX_PLAYERS] = {1.0f};
-            opacities[i] = lerp(opacities[i], p->currently_inhabiting_index == -1 ? 1.0f : 0.1f, dt*7.0f);
+            opacities[i] = lerp(opacities[i], p->currently_inhabiting_index == -1 ? 1.0f : 0.1f, dt * 7.0f);
             sgp_set_color(1.0f, 1.0f, 1.0f, opacities[i]);
             sgp_push_transform();
             float psize = 0.1f;
@@ -238,11 +238,13 @@ static void frame(void)
 
         // grids
         {
-            for (int i = 0; i < gs.num_grids; i++)
+            for (int i = 0; i < MAX_GRIDS; i++)
             {
+                SKIPNULL(gs.grids[i].body);
                 struct Grid *g = &gs.grids[i];
-                for (int ii = 0; ii < g->num_boxes; ii++)
+                for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
                 {
+                    SKIPNULL(g->boxes[ii].shape);
                     struct Box *b = &g->boxes[ii];
                     sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
                     sgp_push_transform();
@@ -253,7 +255,13 @@ static void frame(void)
                     sgp_draw_line(bpos.x + halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // right
                     sgp_draw_line(bpos.x - halfbox, bpos.y + halfbox, bpos.x + halfbox, bpos.y + halfbox); // bottom
                     sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // diagonal
-                    // sgp_draw_filled_rect(box_pos(b).x - halfbox, box_pos(b).y - halfbox, BOX_SIZE, BOX_SIZE);
+
+                    if (b->damage > 0.01f)
+                    {
+                        Log("Damage: %f\n", b->damage);
+                    }
+                    sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
+                    sgp_draw_filled_rect(box_pos(b).x - halfbox, box_pos(b).y - halfbox, BOX_SIZE, BOX_SIZE);
                     sgp_pop_transform();
                 }
                 sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);

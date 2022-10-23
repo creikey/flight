@@ -19,27 +19,35 @@ void server(void *data)
     // box haven
     if(true)
     {
-        gs.grids[0] = grid_new(&gs, (V2){.x = 0.75f, .y = 0.0});
-        gs.grids[0].boxes[0] = box_new(&gs, &gs.grids[0], (V2){0});
-        gs.grids[0].boxes[1] = box_new(&gs, &gs.grids[0], (V2){0, 0.5f});
-        gs.grids[0].boxes[2] = box_new(&gs, &gs.grids[0], (V2){0, 1.0f});
-        gs.grids[0].boxes[3] = box_new(&gs, &gs.grids[0], (V2){0.5f, 1.0f});
-        gs.grids[0].num_boxes = 4;
+        grid_new(&gs.grids[0], &gs, (V2){.x = 0.75f, .y = 0.0});
+        box_new(&gs.grids[0].boxes[0],&gs, &gs.grids[0], (V2){0});
+        box_new(&gs.grids[0].boxes[1],&gs, &gs.grids[0], (V2){0, 0.5f});
+        box_new(&gs.grids[0].boxes[2],&gs, &gs.grids[0], (V2){0, 1.0f});
+        box_new(&gs.grids[0].boxes[3],&gs, &gs.grids[0], (V2){0.5f, 1.0f});
 
-        gs.grids[1] = grid_new(&gs, (V2){.x = -0.75f, .y = 0.0});
-        gs.grids[1].boxes[0] = box_new(&gs, &gs.grids[1], (V2){0});
-        gs.grids[1].num_boxes = 1;
+        grid_new(&gs.grids[1], &gs, (V2){.x = -0.75f, .y = 0.0});
+        box_new(&gs.grids[1].boxes[0],&gs, &gs.grids[1], (V2){0});
 
-        gs.num_grids = 2;
+        grid_new(&gs.grids[2], &gs, (V2){.x = -0.75f, .y = 0.5});
+        box_new(&gs.grids[2].boxes[0],&gs, &gs.grids[2], (V2){0});
     }
+
+    // two boxes
+    if (false)
+    {
+        grid_new(&gs.grids[0], &gs, (V2){.x = 0.75f, .y = 0.0});
+        box_new(&gs.grids[0].boxes[0],&gs, &gs.grids[0], (V2){0});
+        
+        grid_new(&gs.grids[1], &gs, (V2){.x = -1.75f, .y = 0.0});
+        box_new(&gs.grids[1].boxes[1],&gs, &gs.grids[1], (V2){1});
+    }
+
     
     // one box policy
     if (false)
     {
-        gs.grids[0] = grid_new(&gs, (V2){.x = 0.75f, .y = 0.0});
-        gs.grids[0].boxes[0] = box_new(&gs, &gs.grids[0], (V2){0});
-        gs.num_grids = 1;
-        gs.grids[0].num_boxes = 1;
+        grid_new(&gs.grids[0], &gs, (V2){.x = 0.75f, .y = 0.0});
+        box_new(&gs.grids[0].boxes[0],&gs, &gs.grids[0], (V2){0});
     }
 
     if (enet_initialize() != 0)
