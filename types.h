@@ -2,6 +2,7 @@
 
 #define MAX_PLAYERS 4
 #define BOX_SIZE 0.5f
+#define MAX_HAND_REACH 1.0f
 #define MAX_GRIDS 32
 #define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
@@ -52,10 +53,12 @@ struct GameState
     cpSpace *space;
     struct Player
     {
-        int currently_inhabiting_index; // is equal to -1 when not inhabiting a grid
         bool connected;
+        
+        int currently_inhabiting_index; // is equal to -1 when not inhabiting a grid
         V2 pos;
         V2 vel;
+        float spice_taken_away; // at 1.0, out of spice
 
         // input
         V2 movement;
@@ -198,6 +201,11 @@ static V2 V2sub(V2 a, V2 b)
         .x = a.x - b.x,
         .y = a.y - b.y,
     };
+}
+
+static inline float clamp01(float f)
+{
+	return fmax(0.0f, fmin(f, 1.0f));
 }
 
 static float lerp(float a, float b, float f)

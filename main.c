@@ -129,6 +129,22 @@ static void drawbox(V2 gridpos, float rot, V2 bpos, float damage, bool offset_fr
     sgp_pop_transform();
 }
 
+static void draw_circle(V2 point, float radius)
+{
+#define POINTS 64
+    sgp_line lines[POINTS];
+    for (int i = 0; i < POINTS; i++)
+    {
+        float progress = (float)i / (float)POINTS;
+        float next_progress = (float)(i + 1) / (float)POINTS;
+        lines[i].a = (V2){.x = cos(progress * 2.0f * PI) * radius, .y = sin(progress * 2.0f * PI) * radius};
+        lines[i].b = (V2){.x = cos(next_progress * 2.0f * PI) * radius, .y = sin(next_progress * 2.0f * PI) * radius};
+        lines[i].a = V2add(lines[i].a, point);
+        lines[i].b = V2add(lines[i].b, point);
+    }
+    sgp_draw_lines(lines, POINTS);
+}
+
 static void frame(void)
 {
     int width = sapp_width(), height = sapp_height();
@@ -207,6 +223,7 @@ static void frame(void)
         float grid_rotation;
         V2 pos;
     } build_preview = {0};
+    bool hand_at_arms_length = false;
     {
         // calculate world position and camera
         {
@@ -222,14 +239,29 @@ static void frame(void)
 
         // calculate build preview stuff
         int grid_index = -1;
+        if (myplayer != -1)
         {
-            struct Grid *placing_grid = closest_to_point_in_radius(&gs, world_mouse_pos, 0.35f);
+            V2 hand_pos = V2sub(world_mouse_pos, gs.players[myplayer].pos);
+            float hand_len = V2length(hand_pos);
+            if (hand_len > MAX_HAND_REACH)
+            {
+                hand_at_arms_length = true;
+                hand_len = MAX_HAND_REACH;
+            }
+            else
+            {
+                hand_at_arms_length = false;
+            }
+            hand_pos = V2scale(V2normalize(hand_pos), hand_len);
+            hand_pos = V2add(hand_pos, gs.players[myplayer].pos);
+
+            struct Grid *placing_grid = closest_to_point_in_radius(&gs, hand_pos, 0.35f);
             if (placing_grid == NULL)
             {
                 build_preview = (struct BuildPreviewInfo){
-                    .grid_pos = world_mouse_pos,
+                    .grid_pos = hand_pos,
                     .grid_rotation = 0.0f,
-                    .pos = world_mouse_pos,
+                    .pos = hand_pos,
                 };
             }
             else
@@ -242,7 +274,7 @@ static void frame(void)
                         break;
                     }
                 }
-                V2 pos = grid_snapped_box_pos(placing_grid, world_mouse_pos);
+                V2 pos = grid_snapped_box_pos(placing_grid, hand_pos);
                 build_preview = (struct BuildPreviewInfo){
                     .grid_pos = grid_pos(placing_grid),
                     .grid_rotation = grid_rotation(placing_grid),
@@ -285,6 +317,17 @@ static void frame(void)
         sgp_set_color(0.1f, 0.1f, 0.1f, 1.0f);
         sgp_clear();
 
+        // draw spice bar
+        if (myplayer != -1)
+        {
+            sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
+            float margin = width * 0.1;
+            float bar_width = width - margin * 2.0f;
+            sgp_draw_filled_rect(margin, 80.0f, bar_width, 30.0f);
+            sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+            sgp_draw_filled_rect(margin, 80.0f, bar_width * (1.0f - gs.players[myplayer].spice_taken_away), 30.0f);
+        }
+
         // sokol drawing library draw in world space
         {
             sgp_translate(width / 2, height / 2);
@@ -295,9 +338,16 @@ static void frame(void)
             sgp_translate(-camera_pos.x, -camera_pos.y);
         }
 
-        sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+        if (myplayer != -1)
+        {
+            static float hand_reach_alpha = 1.0f;
+            hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt*5.0);
+            sgp_set_color(1.0f, 1.0f, 1.0f, hand_reach_alpha);
+            draw_circle(gs.players[myplayer].pos, MAX_HAND_REACH);
+        }
 
         // stars
+        sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
         const int num = 50;
         for (int x = -num; x < num; x++)
         {

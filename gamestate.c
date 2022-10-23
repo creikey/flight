@@ -342,6 +342,7 @@ void ser_player(char **out, struct Player *p)
         ser_int(out, p->currently_inhabiting_index);
         ser_V2(out, p->pos);
         ser_V2(out, p->vel);
+        ser_float(out, p->spice_taken_away);
 
         // input
         ser_V2(out, p->movement);
@@ -361,6 +362,7 @@ void des_player(char **in, struct Player *p, struct GameState *gs)
         des_int(in, &p->currently_inhabiting_index);
         des_V2(in, &p->pos);
         des_V2(in, &p->vel);
+        des_float(in, &p->spice_taken_away);
 
         // input
         des_V2(in, &p->movement);
@@ -499,6 +501,7 @@ void process(struct GameState *gs, float dt)
                 struct Box *cur_box = (struct Box *)cpShapeGetUserData(nearest);
                 struct Grid *cur_grid = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(nearest));
                 grid_remove_box(gs->space, cur_grid, cur_box);
+                p->spice_taken_away -= 0.1f;
             }
             else if(p->grid_index == -1)
             {
@@ -512,6 +515,7 @@ void process(struct GameState *gs, float dt)
                         break;
                     }
                 }
+                p->spice_taken_away += 0.2f;
                 grid_new(empty_grid, gs, p->build);
                 box_new(&empty_grid->boxes[0], gs, empty_grid, (V2){0});
             }
@@ -530,6 +534,7 @@ void process(struct GameState *gs, float dt)
                 }
                 // @Robust cleanly fail when not enough boxes
                 assert(empty_box != NULL);
+                p->spice_taken_away += 0.1f;
                 box_new(empty_box, gs, g, grid_world_to_local(g, p->build));
             }
         }
@@ -580,8 +585,10 @@ void process(struct GameState *gs, float dt)
 
         if (p->currently_inhabiting_index == -1)
         {
-            p->vel = V2add(p->vel, V2scale(p->movement, dt*3.0f));
+            // @Robust make sure movement vector is normalized so player can't cheat
+            p->vel = V2add(p->vel, V2scale(p->movement, dt*0.5f));
             p->pos = V2add(p->pos, V2scale(p->vel, dt));
+            p->spice_taken_away += dt*0.15f*V2length(p->movement);
         }
         else
         {
@@ -589,6 +596,14 @@ void process(struct GameState *gs, float dt)
             p->pos = V2lerp(p->pos, grid_com(g), dt * 20.0f);
             cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->movement, 5.0f)), v2_to_cp(grid_com(g)));
         }
+
+        if(p->spice_taken_away >= 1.0f)
+        {
+            reset_player(p);
+            p->connected = true;
+        }
+
+        p->spice_taken_away = clamp01(p->spice_taken_away);
     }
 
     cpSpaceStep(gs->space, dt);
