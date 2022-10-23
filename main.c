@@ -16,7 +16,7 @@
 
 static struct GameState gs = {0};
 static int myplayer = -1;
-static bool mouse_down = false;
+static bool right_mouse_down = false;
 static bool keydown[SAPP_KEYCODE_MENU] = {0};
 typedef struct KeyPressed
 {
@@ -25,6 +25,8 @@ typedef struct KeyPressed
 } KeyPressed;
 static KeyPressed keypressed[SAPP_KEYCODE_MENU] = {0};
 static V2 mouse_pos = {0};
+static bool mouse_pressed = false;
+static uint64_t mouse_pressed_frame = 0;
 static bool mouse_frozen = false; // @BeforeShip make this debug only thing
 static float funval = 0.0f;       // easy to play with value controlled by left mouse button when held down @BeforeShip remove on release builds
 static ENetHost *client;
@@ -134,11 +136,18 @@ static void frame(void)
     float time = sapp_frame_count() * sapp_frame_duration();
     float dt = sapp_frame_duration();
 
-    for (int i = 0; i < SAPP_KEYCODE_MENU; i++)
+    // pressed input management
     {
-        if (keypressed[i].frame < sapp_frame_count())
+        for (int i = 0; i < SAPP_KEYCODE_MENU; i++)
         {
-            keypressed[i].pressed = false;
+            if (keypressed[i].frame < sapp_frame_count())
+            {
+                keypressed[i].pressed = false;
+            }
+        }
+        if (mouse_pressed_frame < sapp_frame_count())
+        {
+            mouse_pressed = false;
         }
     }
 
@@ -189,19 +198,76 @@ static void frame(void)
     // gameplay
     V2 build_target_pos = {0};
     float build_target_rotation = 0.0f;
+    V2 camera_pos = {0};
+    V2 world_mouse_pos = mouse_pos;
+    float zoom = 300.0f + funval;
+    struct BuildPreviewInfo
     {
-        // @Robust accumulate total time and send input at rate like 20 hz, not every frame
-        struct ClientToServer curmsg = {0};
-        V2 input = (V2){
-            .x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
-            .y = (float)keydown[SAPP_KEYCODE_S] - (float)keydown[SAPP_KEYCODE_W],
-        };
-        curmsg.movement = input;
-        curmsg.inhabit = keypressed[SAPP_KEYCODE_G].pressed;
+        V2 grid_pos;
+        float grid_rotation;
+        V2 pos;
+    } build_preview = {0};
+    {
+        // calculate world position and camera
+        {
+            if (myplayer != -1)
+            {
+                camera_pos = gs.players[myplayer].pos;
+            }
+            world_mouse_pos = V2sub(world_mouse_pos, (V2){.x = width / 2.0f, .y = height / 2.0f});
+            world_mouse_pos.x /= zoom;
+            world_mouse_pos.y /= zoom;
+            world_mouse_pos = V2add(world_mouse_pos, (V2){.x = camera_pos.x, .y = camera_pos.y});
+        }
 
-        // @BeforeShip figure out why tf the possess ship key is so unreliable
-        ENetPacket *packet = enet_packet_create((void *)&curmsg, sizeof(curmsg), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
-        enet_peer_send(peer, 0, packet);
+        // calculate build preview stuff
+        int grid_index = -1;
+        {
+            struct Grid *placing_grid = closest_to_point_in_radius(&gs, world_mouse_pos, 0.35f);
+            if (placing_grid == NULL)
+            {
+                build_preview = (struct BuildPreviewInfo){
+                    .grid_pos = world_mouse_pos,
+                    .grid_rotation = 0.0f,
+                    .pos = world_mouse_pos,
+                };
+            }
+            else
+            {
+                for (int i = 0; i < MAX_GRIDS; i++)
+                {
+                    if (&gs.grids[i] == placing_grid)
+                    {
+                        grid_index = i;
+                        break;
+                    }
+                }
+                V2 pos = grid_snapped_box_pos(placing_grid, world_mouse_pos);
+                build_preview = (struct BuildPreviewInfo){
+                    .grid_pos = grid_pos(placing_grid),
+                    .grid_rotation = grid_rotation(placing_grid),
+                    .pos = pos};
+            }
+        }
+
+        // Create and send input packet
+        {
+            // @Robust accumulate total time and send input at rate like 20 hz, not every frame
+            struct ClientToServer curmsg = {0};
+            V2 input = (V2){
+                .x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
+                .y = (float)keydown[SAPP_KEYCODE_S] - (float)keydown[SAPP_KEYCODE_W],
+            };
+            curmsg.movement = input;
+            curmsg.inhabit = keypressed[SAPP_KEYCODE_G].pressed;
+            curmsg.build = build_preview.pos;
+            curmsg.dobuild = mouse_pressed;
+            curmsg.grid_index = grid_index;
+
+            // @BeforeShip figure out why tf the possess ship key is so unreliable
+            ENetPacket *packet = enet_packet_create((void *)&curmsg, sizeof(curmsg), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+            enet_peer_send(peer, 0, packet);
+        }
 
         // @BeforeShip client side prediction and rollback to previous server authoritative state, then replay inputs
         // no need to store copies of game state, just player input frame to frame. Then know how many frames ago the server game state arrived, it's that easy!
@@ -220,21 +286,13 @@ static void frame(void)
         sgp_clear();
 
         // sokol drawing library draw in world space
-        V2 world_mouse_pos = mouse_pos;
         {
-            float zoom = 300.0f + funval;
             sgp_translate(width / 2, height / 2);
-            world_mouse_pos = V2sub(world_mouse_pos, (V2){.x = width / 2.0f, .y = height / 2.0f});
             sgp_scale_at(zoom, zoom, 0.0f, 0.0f);
-            world_mouse_pos.x /= zoom;
-            world_mouse_pos.y /= zoom;
+
             // camera go to player
-            if (myplayer != -1)
-            {
-                V2 pos = gs.players[myplayer].pos;
-                sgp_translate(-pos.x, -pos.y);
-                world_mouse_pos = V2add(world_mouse_pos, (V2){.x = pos.x, .y = pos.y});
-            }
+
+            sgp_translate(-camera_pos.x, -camera_pos.y);
         }
 
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
@@ -281,13 +339,11 @@ static void frame(void)
             sgp_set_color(1.0f, 0.0f, 0.0f, 0.5f);
             sgp_draw_filled_rect(world_mouse_pos.x, world_mouse_pos.y, 0.1f, 0.1f);
         }
-        struct Grid *placing_grid = closest_to_point_in_radius(&gs, world_mouse_pos, 0.35f);
-        if (placing_grid != NULL)
+
+        // building preview
         {
-            V2 pos = grid_snapped_box_pos(placing_grid, world_mouse_pos);
             sgp_set_color(0.5f, 0.5f, 0.5f, (sin(time * 9.0f) + 1.0) / 3.0f + 0.2);
-            drawbox(grid_pos(placing_grid), grid_rotation(placing_grid), pos, 0.0f, false);
-            // sgp_draw_filled_rect(pos.x, pos.y, 0.1f, 0.1f);
+            drawbox(build_preview.grid_pos, build_preview.grid_rotation, build_preview.pos, 0.0f, false);
         }
 
         // grids
@@ -317,11 +373,6 @@ static void frame(void)
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
         dbg_drawall();
 
-        // sgp_draw_line(5.0f, 5.0f, 5.0f, 10.0f);
-        // sgp_draw_line()
-        // sgp_rotate_at(time, 0.0f, 0.0f);
-
-        // Begin a render pass.
         sg_pass_action pass_action = {0};
         sg_begin_default_pass(&pass_action, width, height);
         sgp_flush();
@@ -362,18 +413,32 @@ void event(const sapp_event *e)
         break;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
         if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
-            mouse_down = true;
+        {
+            mouse_pressed = true;
+            mouse_pressed_frame = e->frame_count;
+        }
+        if (e->mouse_button == SAPP_MOUSEBUTTON_RIGHT)
+        {
+            right_mouse_down = true;
+        }
         break;
     case SAPP_EVENTTYPE_MOUSE_UP:
         if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
-            mouse_down = false;
+        {
+            mouse_pressed = false;
+            mouse_pressed_frame = 0;
+        }
+        if (e->mouse_button == SAPP_MOUSEBUTTON_RIGHT)
+        {
+            right_mouse_down = false;
+        }
         break;
     case SAPP_EVENTTYPE_MOUSE_MOVE:
         if (!mouse_frozen)
         {
             mouse_pos = (V2){.x = e->mouse_x, .y = e->mouse_y};
         }
-        if (mouse_down)
+        if (right_mouse_down)
         {
             funval += e->mouse_dx;
             Log("Funval %f\n", funval);

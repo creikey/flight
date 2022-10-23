@@ -60,6 +60,10 @@ struct GameState
         // input
         V2 movement;
         bool inhabit;
+
+        V2 build; // @Robust this is messy, clean up?
+        bool dobuild;
+        int grid_index;
     } players[MAX_PLAYERS];
     
     // if body or shape is null, then that grid/box has been freed
@@ -87,6 +91,9 @@ struct ClientToServer
 {
     V2 movement;
     bool inhabit;
+    V2 build;
+    bool dobuild;
+    int grid_index;
 };
 
 // server

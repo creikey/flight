@@ -96,7 +96,7 @@ static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
     float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * 0.25f;
     if (damage > 0.05f)
     {
-        Log("Collision with damage %f\n", damage);
+        // Log("Collision with damage %f\n", damage);
         getbox(a)->damage += damage;
         getbox(b)->damage += damage;
     }
@@ -139,9 +139,10 @@ void reset_player(struct Player *p)
 }
 
 // box must be passed as a parameter as the box added to chipmunk uses this pointer in its
-// user data
+// user data. pos is in local coordinates
 void box_new(struct Box *to_modify, struct GameState *gs, struct Grid *grid, V2 pos)
 {
+    *to_modify = (struct Box){0};
     float halfbox = BOX_SIZE / 2.0f;
     cpBB box = cpBBNew(-halfbox + pos.x, -halfbox + pos.y, halfbox + pos.x, halfbox + pos.y);
     cpVect verts[4] = {
@@ -184,9 +185,14 @@ V2 grid_vel(struct Grid *grid)
 {
     return cp_to_v2(cpBodyGetVelocity(grid->body));
 }
+V2 grid_world_to_local(struct Grid *grid, V2 world)
+{
+    return cp_to_v2(cpBodyWorldToLocal(grid->body, v2_to_cp(world)));
+}
+// returned snapped position is in world coordinates
 V2 grid_snapped_box_pos(struct Grid *grid, V2 world)
 {
-    V2 local = cp_to_v2(cpBodyWorldToLocal(grid->body, v2_to_cp(world)));
+    V2 local = grid_world_to_local(grid, world);
     local.x /= BOX_SIZE;
     local.y /= BOX_SIZE;
     local.x = roundf(local.x);
@@ -336,8 +342,14 @@ void ser_player(char **out, struct Player *p)
         ser_int(out, p->currently_inhabiting_index);
         ser_V2(out, p->pos);
         ser_V2(out, p->vel);
+
+        // input
         ser_V2(out, p->movement);
         ser_bool(out, p->inhabit);
+
+        ser_V2(out, p->build);
+        ser_bool(out, p->dobuild);
+        ser_int(out, p->grid_index);
     }
 }
 
@@ -349,8 +361,14 @@ void des_player(char **in, struct Player *p, struct GameState *gs)
         des_int(in, &p->currently_inhabiting_index);
         des_V2(in, &p->pos);
         des_V2(in, &p->vel);
+
+        // input
         des_V2(in, &p->movement);
         des_bool(in, &p->inhabit);
+
+        des_V2(in, &p->build);
+        des_bool(in, &p->dobuild);
+        des_int(in, &p->grid_index);
     }
 }
 
@@ -430,7 +448,7 @@ static void closest_point_callback_func(cpShape *shape, cpContactPointSet *point
     assert(points->count == 1);
     float dist = V2length(cp_to_v2(cpvsub(points->points[0].pointA, points->points[0].pointB)));
     // float dist = -points->points[0].distance;
-    if(dist > closest_to_point_in_radius_result_largest_dist)
+    if (dist > closest_to_point_in_radius_result_largest_dist)
     {
         closest_to_point_in_radius_result_largest_dist = dist;
         closest_to_point_in_radius_result = shape;
@@ -441,8 +459,8 @@ struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float ra
 {
     closest_to_point_in_radius_result = NULL;
     closest_to_point_in_radius_result_largest_dist = 0.0f;
-    
-    cpBody * tmpbody = cpBodyNew(0.0f, 0.0f);
+
+    cpBody *tmpbody = cpBodyNew(0.0f, 0.0f);
     cpShape *circle = cpCircleShapeNew(tmpbody, radius, v2_to_cp(point));
     cpSpaceShapeQuery(gs->space, circle, closest_point_callback_func, NULL);
 
@@ -454,7 +472,7 @@ struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float ra
         // @Robust query here for only boxes that are part of ships, could get nasty...
         return (struct Grid *)cpBodyGetUserData(cpShapeGetBody(closest_to_point_in_radius_result));
     }
-    
+
     return NULL;
 }
 
@@ -469,6 +487,53 @@ void process(struct GameState *gs, float dt)
         if (!p->connected)
             continue;
 
+        if (p->dobuild)
+        {
+            p->dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
+
+            cpPointQueryInfo info = {0};
+            // @Robust make sure to query only against boxes...
+            cpShape *nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(p->build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES), &info);
+            if (nearest != NULL)
+            {
+                struct Box *cur_box = (struct Box *)cpShapeGetUserData(nearest);
+                struct Grid *cur_grid = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(nearest));
+                grid_remove_box(gs->space, cur_grid, cur_box);
+            }
+            else if(p->grid_index == -1)
+            {
+                // @Robust better memory mgmt
+                struct Grid *empty_grid = NULL;
+                for (int ii = 0; ii < MAX_GRIDS; ii++)
+                {
+                    if (gs->grids[ii].body == NULL)
+                    {
+                        empty_grid = &gs->grids[ii];
+                        break;
+                    }
+                }
+                grid_new(empty_grid, gs, p->build);
+                box_new(&empty_grid->boxes[0], gs, empty_grid, (V2){0});
+            }
+            else
+            {
+                struct Grid *g = &gs->grids[p->grid_index];
+
+                struct Box *empty_box = NULL;
+                for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
+                {
+                    if (g->boxes[ii].shape == NULL)
+                    {
+                        empty_box = &g->boxes[ii];
+                        break;
+                    }
+                }
+                // @Robust cleanly fail when not enough boxes
+                assert(empty_box != NULL);
+                box_new(empty_box, gs, g, grid_world_to_local(g, p->build));
+            }
+        }
+
         if (gs->grids[p->currently_inhabiting_index].body == NULL)
         {
             p->currently_inhabiting_index = -1;
@@ -482,7 +547,7 @@ void process(struct GameState *gs, float dt)
 
                 // @Robust mask to only ship boxes of things the player can inhabit
                 cpPointQueryInfo query_info = {0};
-                cpShape *result = cpSpacePointQueryNearest(gs->space, v2_to_cp(p->pos), 0.1, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES), &query_info);
+                cpShape *result = cpSpacePointQueryNearest(gs->space, v2_to_cp(p->pos), 0.1f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES), &query_info);
                 if (result != NULL)
                 {
                     // result is assumed to be a box shape
@@ -515,7 +580,7 @@ void process(struct GameState *gs, float dt)
 
         if (p->currently_inhabiting_index == -1)
         {
-            p->vel = V2lerp(p->vel, p->movement, dt * 5.0f);
+            p->vel = V2add(p->vel, V2scale(p->movement, dt*3.0f));
             p->pos = V2add(p->pos, V2scale(p->vel, dt));
         }
         else
@@ -524,7 +589,6 @@ void process(struct GameState *gs, float dt)
             p->pos = V2lerp(p->pos, grid_com(g), dt * 20.0f);
             cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->movement, 5.0f)), v2_to_cp(grid_com(g)));
         }
-        // cpBodyApplyForceAtWorldPoint(p->box.body, v2_to_cp(V2scale(p->input, 5.0f)), v2_to_cp(box_pos(p->box)));
     }
 
     cpSpaceStep(gs->space, dt);

@@ -17,37 +17,36 @@ void server(void *data)
     initialize(&gs);
 
     // box haven
-    if(true)
+    if (true)
     {
         grid_new(&gs.grids[0], &gs, (V2){.x = 0.75f, .y = 0.0});
-        box_new(&gs.grids[0].boxes[0],&gs, &gs.grids[0], (V2){0});
-        box_new(&gs.grids[0].boxes[1],&gs, &gs.grids[0], (V2){0, 0.5f});
-        box_new(&gs.grids[0].boxes[2],&gs, &gs.grids[0], (V2){0, 1.0f});
-        box_new(&gs.grids[0].boxes[3],&gs, &gs.grids[0], (V2){0.5f, 1.0f});
+        box_new(&gs.grids[0].boxes[0], &gs, &gs.grids[0], (V2){0});
+        box_new(&gs.grids[0].boxes[1], &gs, &gs.grids[0], (V2){0, 0.5f});
+        box_new(&gs.grids[0].boxes[2], &gs, &gs.grids[0], (V2){0, 1.0f});
+        box_new(&gs.grids[0].boxes[3], &gs, &gs.grids[0], (V2){0.5f, 1.0f});
 
         grid_new(&gs.grids[1], &gs, (V2){.x = -0.75f, .y = 0.0});
-        box_new(&gs.grids[1].boxes[0],&gs, &gs.grids[1], (V2){0});
+        box_new(&gs.grids[1].boxes[0], &gs, &gs.grids[1], (V2){0});
 
         grid_new(&gs.grids[2], &gs, (V2){.x = -0.75f, .y = 0.5});
-        box_new(&gs.grids[2].boxes[0],&gs, &gs.grids[2], (V2){0});
+        box_new(&gs.grids[2].boxes[0], &gs, &gs.grids[2], (V2){0});
     }
 
     // two boxes
     if (false)
     {
         grid_new(&gs.grids[0], &gs, (V2){.x = 0.75f, .y = 0.0});
-        box_new(&gs.grids[0].boxes[0],&gs, &gs.grids[0], (V2){0});
-        
+        box_new(&gs.grids[0].boxes[0], &gs, &gs.grids[0], (V2){0});
+
         grid_new(&gs.grids[1], &gs, (V2){.x = -1.75f, .y = 0.0});
-        box_new(&gs.grids[1].boxes[1],&gs, &gs.grids[1], (V2){1});
+        box_new(&gs.grids[1].boxes[1], &gs, &gs.grids[1], (V2){1});
     }
 
-    
     // one box policy
     if (false)
     {
         grid_new(&gs.grids[0], &gs, (V2){.x = 0.75f, .y = 0.0});
-        box_new(&gs.grids[0].boxes[0],&gs, &gs.grids[0], (V2){0});
+        box_new(&gs.grids[0].boxes[0], &gs, &gs.grids[0], (V2){0});
     }
 
     if (enet_initialize() != 0)
@@ -82,7 +81,7 @@ void server(void *data)
         // @Speed handle enet messages and simulate gamestate in parallel, then sync... must clone gamestate for this
         while (true)
         {
-            int ret = enet_host_service(server, &event, 16);
+            int ret = enet_host_service(server, &event, 0);
             if (ret == 0)
                 break;
             if (ret < 0)
@@ -141,6 +140,9 @@ void server(void *data)
                         int64_t player_slot = (int64_t)event.peer->data;
                         gs.players[player_slot].movement = received.movement;
                         gs.players[player_slot].inhabit = received.inhabit;
+                        gs.players[player_slot].build = received.build;
+                        gs.players[player_slot].dobuild = received.dobuild;
+                        gs.players[player_slot].grid_index = received.grid_index;
                     }
 
                     /* Clean up the packet now that we're done using it. */
@@ -161,30 +163,35 @@ void server(void *data)
         total_time += (float)stm_sec(stm_diff(stm_now(), last_processed_time));
         last_processed_time = stm_now();
         // @Robost @BeforeShip if can't process quick enough will be stuck being lagged behind, think of a solution for this...
+        bool processed = false;
         while (total_time > TIMESTEP)
         {
+            processed = true;
             process(&gs, TIMESTEP);
             total_time -= TIMESTEP;
         }
 
-#define MAX_BYTES_SIZE 2048 * 2
-        static char bytes_buffer[MAX_BYTES_SIZE] = {0};
-        for (int i = 0; i < server->peerCount; i++)
+        if (processed)
         {
-            // @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
-            if (server->peers[i].state != ENET_PEER_STATE_CONNECTED)
+#define MAX_BYTES_SIZE 2048 * 2
+            static char bytes_buffer[MAX_BYTES_SIZE] = {0};
+            for (int i = 0; i < server->peerCount; i++)
             {
-                continue;
+                // @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
+                if (server->peers[i].state != ENET_PEER_STATE_CONNECTED)
+                {
+                    continue;
+                }
+                struct ServerToClient to_send;
+                to_send.cur_gs = &gs;
+                to_send.your_player = (int)(int64_t)server->peers[i].data;
+
+                int len = 0;
+                into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE);
+
+                ENetPacket *gamestate_packet = enet_packet_create((void *)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+                enet_peer_send(&server->peers[i], 0, gamestate_packet);
             }
-            struct ServerToClient to_send;
-            to_send.cur_gs = &gs;
-            to_send.your_player = (int)(int64_t)server->peers[i].data;
-
-            int len = 0;
-            into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE);
-
-            ENetPacket *gamestate_packet = enet_packet_create((void *)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
-            enet_peer_send(&server->peers[i], 0, gamestate_packet);
         }
     }
 
