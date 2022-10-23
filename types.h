@@ -2,8 +2,8 @@
 
 #define MAX_PLAYERS 4
 #define BOX_SIZE 0.5f
-#define MAX_GRIDS 16
-#define MAX_BOXES_PER_GRID 16
+#define MAX_GRIDS 32
+#define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
 
 // @Robust remove this include somehow, needed for sqrt and cos
@@ -96,6 +96,7 @@ void server(void *data); // data parameter required from thread api...
 void initialize(struct GameState *gs); // must do this to place boxes into it and process
 void destroy(struct GameState *gs);
 void process(struct GameState *gs, float dt); // does in place
+struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius);
 void into_bytes(struct ServerToClient *gs, char *out_bytes, int *out_len, int max_len);
 void from_bytes(struct ServerToClient *gs, char *bytes, int max_len);
 
@@ -107,6 +108,7 @@ void grid_new(struct Grid *to_modify, struct GameState *gs, V2 pos);
 V2 grid_com(struct Grid *grid);
 V2 grid_pos(struct Grid *grid);
 V2 grid_vel(struct Grid *grid);
+V2 grid_snapped_box_pos(struct Grid *grid, V2 world); // returns the snapped pos in world coords
 float grid_rotation(struct Grid *grid);
 float grid_angular_velocity(struct Grid *grid);
 void box_new(struct Box *to_modify, struct GameState *gs, struct Grid *grid, V2 pos);

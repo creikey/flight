@@ -93,17 +93,10 @@ static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
     cpShape *a, *b;
     cpArbiterGetShapes(arb, &a, &b);
 
-    double total_depth = 0.0f;
-    for (int i = 0; i < cpArbiterGetCount(arb); i++)
-        total_depth -= cpArbiterGetDepth(arb, i);
-
-    // getbox(a)->damage += ;
-
-    // float damage = (total_depth / 0.01) * 0.1f;
-    float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb)));
-    Log("Collision with damage %f\n", damage*0.25f);
+    float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * 0.25f;
     if (damage > 0.05f)
     {
+        Log("Collision with damage %f\n", damage);
         getbox(a)->damage += damage;
         getbox(b)->damage += damage;
     }
@@ -190,6 +183,18 @@ V2 grid_pos(struct Grid *grid)
 V2 grid_vel(struct Grid *grid)
 {
     return cp_to_v2(cpBodyGetVelocity(grid->body));
+}
+V2 grid_snapped_box_pos(struct Grid *grid, V2 world)
+{
+    V2 local = cp_to_v2(cpBodyWorldToLocal(grid->body, v2_to_cp(world)));
+    local.x /= BOX_SIZE;
+    local.y /= BOX_SIZE;
+    local.x = roundf(local.x);
+    local.y = roundf(local.y);
+    local.x *= BOX_SIZE;
+    local.y *= BOX_SIZE;
+
+    return cp_to_v2(cpBodyLocalToWorld(grid->body, v2_to_cp(local)));
 }
 float grid_rotation(struct Grid *grid)
 {
@@ -415,6 +420,42 @@ void from_bytes(struct ServerToClient *msg, char *bytes, int max_len)
             LEN_CHECK();
         }
     }
+}
+
+// has to be global var because can only get this information
+static cpShape *closest_to_point_in_radius_result = NULL;
+static float closest_to_point_in_radius_result_largest_dist = 0.0f;
+static void closest_point_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
+{
+    assert(points->count == 1);
+    float dist = V2length(cp_to_v2(cpvsub(points->points[0].pointA, points->points[0].pointB)));
+    // float dist = -points->points[0].distance;
+    if(dist > closest_to_point_in_radius_result_largest_dist)
+    {
+        closest_to_point_in_radius_result_largest_dist = dist;
+        closest_to_point_in_radius_result = shape;
+    }
+}
+
+struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius)
+{
+    closest_to_point_in_radius_result = NULL;
+    closest_to_point_in_radius_result_largest_dist = 0.0f;
+    
+    cpBody * tmpbody = cpBodyNew(0.0f, 0.0f);
+    cpShape *circle = cpCircleShapeNew(tmpbody, radius, v2_to_cp(point));
+    cpSpaceShapeQuery(gs->space, circle, closest_point_callback_func, NULL);
+
+    cpShapeFree(circle);
+    cpBodyFree(tmpbody);
+
+    if (closest_to_point_in_radius_result != NULL)
+    {
+        // @Robust query here for only boxes that are part of ships, could get nasty...
+        return (struct Grid *)cpBodyGetUserData(cpShapeGetBody(closest_to_point_in_radius_result));
+    }
+    
+    return NULL;
 }
 
 void process(struct GameState *gs, float dt)
