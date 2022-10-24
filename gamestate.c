@@ -189,6 +189,10 @@ V2 grid_world_to_local(struct Grid *grid, V2 world)
 {
     return cp_to_v2(cpBodyWorldToLocal(grid->body, v2_to_cp(world)));
 }
+V2 grid_local_to_world(struct Grid *grid, V2 local)
+{
+    return cp_to_v2(cpBodyLocalToWorld(grid->body, v2_to_cp(local)));
+}
 // returned snapped position is in world coordinates
 V2 grid_snapped_box_pos(struct Grid *grid, V2 world)
 {
@@ -511,61 +515,11 @@ void process(struct GameState *gs, float dt)
         if (!p->connected)
             continue;
 
-        if(V2length(V2sub(p->pos, gs->goldpos)) < GOLD_COLLECT_RADIUS)
+        // update gold win condition
+        if (V2length(V2sub(p->pos, gs->goldpos)) < GOLD_COLLECT_RADIUS)
         {
             p->goldness += 0.2;
-            gs->goldpos = (V2){.x = hash11(gs->time)*20.0f, .y = hash11(gs->time-13.6f)*20.0f};
-        }
-
-        if (p->dobuild)
-        {
-            p->dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
-
-            cpPointQueryInfo info = {0};
-            // @Robust make sure to query only against boxes...
-            cpShape *nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(p->build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES), &info);
-            if (nearest != NULL)
-            {
-                struct Box *cur_box = (struct Box *)cpShapeGetUserData(nearest);
-                struct Grid *cur_grid = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(nearest));
-                grid_remove_box(gs->space, cur_grid, cur_box);
-                p->spice_taken_away -= 0.1f;
-            }
-            else if(p->grid_index == -1)
-            {
-                // @Robust better memory mgmt
-                struct Grid *empty_grid = NULL;
-                for (int ii = 0; ii < MAX_GRIDS; ii++)
-                {
-                    if (gs->grids[ii].body == NULL)
-                    {
-                        empty_grid = &gs->grids[ii];
-                        break;
-                    }
-                }
-                p->spice_taken_away += 0.2f;
-                grid_new(empty_grid, gs, p->build);
-                cpBodySetVelocity(empty_grid->body, v2_to_cp(p->vel));
-                box_new(&empty_grid->boxes[0], gs, empty_grid, (V2){0});
-            }
-            else
-            {
-                struct Grid *g = &gs->grids[p->grid_index];
-
-                struct Box *empty_box = NULL;
-                for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
-                {
-                    if (g->boxes[ii].shape == NULL)
-                    {
-                        empty_box = &g->boxes[ii];
-                        break;
-                    }
-                }
-                // @Robust cleanly fail when not enough boxes
-                assert(empty_box != NULL);
-                p->spice_taken_away += 0.1f;
-                box_new(empty_box, gs, g, grid_world_to_local(g, p->build));
-            }
+            gs->goldpos = (V2){.x = hash11(gs->time) * 20.0f, .y = hash11(gs->time - 13.6f) * 20.0f};
         }
 
         if (gs->grids[p->currently_inhabiting_index].body == NULL)
@@ -612,23 +566,84 @@ void process(struct GameState *gs, float dt)
             }
         }
 
-        if (p->currently_inhabiting_index == -1)
+        // process movement
         {
-            // @Robust make sure movement vector is normalized so player can't cheat
-            p->vel = V2add(p->vel, V2scale(p->movement, dt*0.5f));
+            if (p->currently_inhabiting_index == -1)
+            {
+                // @Robust make sure movement vector is normalized so player can't cheat
+                p->vel = V2add(p->vel, V2scale(p->movement, dt * 0.5f));
+                p->spice_taken_away += dt * 0.15f * V2length(p->movement);
+            }
+            else
+            {
+                struct Grid *g = &gs->grids[p->currently_inhabiting_index];
+                V2 target_new_pos = V2lerp(p->pos, grid_com(g), dt * 20.0f);
+                p->vel = V2scale(V2sub(target_new_pos, p->pos), 1.0f / dt);
+                cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->movement, 5.0f)), v2_to_cp(grid_com(g)));
+                // bigger the ship, the more efficient the spice usage
+                p->spice_taken_away += dt * 0.15f / (cpBodyGetMass(g->body) * 2.0f) * V2length(p->movement);
+            }
             p->pos = V2add(p->pos, V2scale(p->vel, dt));
-            p->spice_taken_away += dt*0.15f*V2length(p->movement);
-        }
-        else
-        {
-            struct Grid *g = &gs->grids[p->currently_inhabiting_index];
-            p->pos = V2lerp(p->pos, grid_com(g), dt * 20.0f);
-            cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->movement, 5.0f)), v2_to_cp(grid_com(g)));
-            // bigger the ship, the more efficient the spice usage
-            p->spice_taken_away += dt*0.15f/(cpBodyGetMass(g->body)*2.0f)*V2length(p->movement);
         }
 
-        if(p->spice_taken_away >= 1.0f)
+        if (p->dobuild)
+        {
+            p->dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
+
+            cpPointQueryInfo info = {0};
+            // @Robust make sure to query only against boxes...
+            V2 world_build = p->build;
+            if (p->grid_index != -1)
+            {
+                world_build = grid_local_to_world(&gs->grids[p->grid_index], p->build);
+            }
+            cpShape *nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES), &info);
+            if (nearest != NULL)
+            {
+                struct Box *cur_box = (struct Box *)cpShapeGetUserData(nearest);
+                struct Grid *cur_grid = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(nearest));
+                grid_remove_box(gs->space, cur_grid, cur_box);
+                p->spice_taken_away -= 0.1f;
+            }
+            else if (p->grid_index == -1)
+            {
+                // @Robust better memory mgmt
+                struct Grid *empty_grid = NULL;
+                for (int ii = 0; ii < MAX_GRIDS; ii++)
+                {
+                    if (gs->grids[ii].body == NULL)
+                    {
+                        empty_grid = &gs->grids[ii];
+                        break;
+                    }
+                }
+                assert(empty_grid != NULL);
+                p->spice_taken_away += 0.2f;
+                grid_new(empty_grid, gs, world_build);
+                box_new(&empty_grid->boxes[0], gs, empty_grid, (V2){0});
+                cpBodySetVelocity(empty_grid->body, v2_to_cp(p->vel));
+            }
+            else
+            {
+                struct Grid *g = &gs->grids[p->grid_index];
+
+                struct Box *empty_box = NULL;
+                for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
+                {
+                    if (g->boxes[ii].shape == NULL)
+                    {
+                        empty_box = &g->boxes[ii];
+                        break;
+                    }
+                }
+                // @Robust cleanly fail when not enough boxes
+                assert(empty_box != NULL);
+                p->spice_taken_away += 0.1f;
+                box_new(empty_box, gs, g, grid_world_to_local(g, world_build));
+            }
+        }
+
+        if (p->spice_taken_away >= 1.0f)
         {
             reset_player(p);
             p->connected = true;

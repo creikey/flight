@@ -233,7 +233,7 @@ static void frame(void)
             }
             world_mouse_pos = V2sub(world_mouse_pos, (V2){.x = width / 2.0f, .y = height / 2.0f});
             world_mouse_pos.x /= zoom;
-            world_mouse_pos.y /= zoom;
+            world_mouse_pos.y /= -zoom;
             world_mouse_pos = V2add(world_mouse_pos, (V2){.x = camera_pos.x, .y = camera_pos.y});
         }
 
@@ -288,13 +288,25 @@ static void frame(void)
             struct ClientToServer curmsg = {0};
             V2 input = (V2){
                 .x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
-                .y = (float)keydown[SAPP_KEYCODE_S] - (float)keydown[SAPP_KEYCODE_W],
+                .y = (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S],
             };
             curmsg.movement = input;
             curmsg.inhabit = keypressed[SAPP_KEYCODE_G].pressed;
-            curmsg.build = build_preview.pos;
             curmsg.dobuild = mouse_pressed;
             curmsg.grid_index = grid_index;
+            if (curmsg.dobuild)
+            {
+                if (grid_index != -1)
+                {
+                    curmsg.build = grid_world_to_local(&gs.grids[curmsg.grid_index], build_preview.pos);
+                    V2 untransformed = grid_local_to_world(&gs.grids[curmsg.grid_index], curmsg.build);
+                    untransformed.x += 5.0f;
+                }
+                else
+                {
+                    curmsg.build = build_preview.pos;
+                }
+            }
 
             // @BeforeShip figure out why tf the possess ship key is so unreliable
             ENetPacket *packet = enet_packet_create((void *)&curmsg, sizeof(curmsg), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
@@ -303,7 +315,7 @@ static void frame(void)
 
         // @BeforeShip client side prediction and rollback to previous server authoritative state, then replay inputs
         // no need to store copies of game state, just player input frame to frame. Then know how many frames ago the server game state arrived, it's that easy!
-        process(&gs, (float)sapp_frame_duration());
+        // process(&gs, (float)sapp_frame_duration());
     }
 
     // drawing
@@ -329,9 +341,10 @@ static void frame(void)
         }
 
         // sokol drawing library draw in world space
+        // world space coordinates are +Y up, -Y down. Like normal cartesian coords
         {
             sgp_translate(width / 2, height / 2);
-            sgp_scale_at(zoom, zoom, 0.0f, 0.0f);
+            sgp_scale_at(zoom, -zoom, 0.0f, 0.0f);
 
             // camera go to player
 
@@ -411,10 +424,6 @@ static void frame(void)
                     struct Box *b = &g->boxes[ii];
                     sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
                     drawbox(grid_pos(g), grid_rotation(g), box_pos(b), b->damage, true);
-                    if (b->damage > 0.01f)
-                    {
-                        Log("Damage: %f\n", b->damage);
-                    }
                 }
                 sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
                 V2 vel = grid_vel(&gs.grids[i]);
@@ -423,11 +432,12 @@ static void frame(void)
             }
         }
 
+        set_color(RED);
+        sgp_draw_filled_rect(1.0f, 0.5f, 0.3f, 0.3f);
+
         // gold target
         set_color(GOLD);
-        sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y,0.1f,0.1f);
-
-
+        sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
 
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
         dbg_drawall();

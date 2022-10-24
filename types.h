@@ -73,6 +73,7 @@ struct GameState
         V2 movement;
         bool inhabit;
 
+        // if grid_index != -1, this is in local coordinates to the grid
         V2 build; // @Robust this is messy, clean up?
         bool dobuild;
         int grid_index;
@@ -103,6 +104,8 @@ struct ClientToServer
 {
     V2 movement;
     bool inhabit;
+
+    // if grid_index != -1, this is in local coordinates to the grid
     V2 build;
     bool dobuild;
     int grid_index;
@@ -127,6 +130,8 @@ void grid_new(struct Grid *to_modify, struct GameState *gs, V2 pos);
 V2 grid_com(struct Grid *grid);
 V2 grid_pos(struct Grid *grid);
 V2 grid_vel(struct Grid *grid);
+V2 grid_local_to_world(struct Grid *grid, V2 local);
+V2 grid_world_to_local(struct Grid *grid, V2 world);
 V2 grid_snapped_box_pos(struct Grid *grid, V2 world); // returns the snapped pos in world coords
 float grid_rotation(struct Grid *grid);
 float grid_angular_velocity(struct Grid *grid);
@@ -268,4 +273,5 @@ static void set_color(Color c)
 }
 
 #define WHITE (Color){.r=1.0f,.g=1.0f,.b=1.0f,.a=1.0f}
+#define RED (Color){.r=1.0f,.g=0.0f,.b=0.0f,.a=1.0f}
 #define GOLD colhex(255, 215, 0)
