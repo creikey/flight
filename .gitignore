@@ -1,3 +1,5 @@
+ipsettings.h
+
 *.exe
 *.obj
 *.pdb

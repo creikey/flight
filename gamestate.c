@@ -557,18 +557,35 @@ void process(struct GameState *gs, float dt)
                 {
                     // result is assumed to be a box shape
                     struct Grid *g = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(result));
+                    int ship_to_inhabit = -1;
                     for (int ii = 0; ii < MAX_GRIDS; ii++)
                     {
                         SKIPNULL(gs->grids[ii].body);
                         if (&gs->grids[ii] == g)
                         {
-                            p->currently_inhabiting_index = ii;
+                            ship_to_inhabit = ii;
                             break;
                         }
                     }
-                    if (p->currently_inhabiting_index == -1)
+
+                    // don't allow inhabiting a grid that's already inhabited
+                    for(int ii = 0; ii < MAX_PLAYERS; ii++)
+                    {
+                        if(gs->players[ii].currently_inhabiting_index == ship_to_inhabit)
+                        {
+                            Log("Attempted to inhabit already taken ship\n");
+                            ship_to_inhabit = -1;
+                        }
+                    }
+
+
+                    if (ship_to_inhabit == -1)
                     {
                         Log("Couldn't find ship to inhabit even though point collision returned something\n");
+                    }
+                    else
+                    {
+                        p->currently_inhabiting_index = ship_to_inhabit;
                     }
                 }
                 else

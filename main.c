@@ -77,8 +77,8 @@ static void init(void)
         ENetAddress address;
         ENetEvent event;
 
-        enet_address_set_host(&address, "127.0.0.1");
-        address.port = 8000;
+        enet_address_set_host(&address, SERVER_ADDRESS);
+        address.port = SERVER_PORT;
         peer = enet_host_connect(client, &address, 2, 0);
         if (peer == NULL)
         {
@@ -86,8 +86,8 @@ static void init(void)
                     "No available peers for initiating an ENet connection.\n");
             exit(-1);
         }
-        /* Wait up to 5 seconds for the connection attempt to succeed. */
-        if (enet_host_service(client, &event, 1000) > 0 &&
+        // the timeout is the third parameter here
+        if (enet_host_service(client, &event, 5000) > 0 &&
             event.type == ENET_EVENT_TYPE_CONNECT)
         {
             Log("Connected\n");
@@ -319,8 +319,6 @@ static void frame(void)
         // no need to store copies of game state, just player input frame to frame. Then know how many frames ago the server game state arrived, it's that easy!
         // process(&gs, (float)sapp_frame_duration());
     }
-
-    Log("Tick: %" PRIu64 "\n", tick(&gs));
 
     // drawing
     {

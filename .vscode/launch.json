@@ -15,7 +15,7 @@
             "symbolSearchPath": "${workspaceFolder}",
             "preLaunchTask": "build",
             "environment": [],
-            "console": "externalTerminal"
+            "console": "integratedTerminal",
         }
 
     ]

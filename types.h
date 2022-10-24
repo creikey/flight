@@ -8,11 +8,14 @@
 #define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
+#define SERVER_PORT 2551
+
+// must make this header and set the target address, just #define SERVER_ADDRESS "127.0.0.1"
+#include "ipsettings.h" // don't leak IP!
 
 // @Robust remove this include somehow, needed for sqrt and cos
 #include <math.h>
 #include <stdint.h> // tick is unsigned integer
-
 
 // including headers from headers bad
 #ifndef SOKOL_GP_INCLUDED
@@ -276,6 +279,8 @@ static void set_color(Color c)
     sgp_set_color(c.r, c.g, c.b, c.a);
 }
 
-#define WHITE (Color){.r=1.0f,.g=1.0f,.b=1.0f,.a=1.0f}
-#define RED (Color){.r=1.0f,.g=0.0f,.b=0.0f,.a=1.0f}
+#define WHITE \
+    (Color) { .r = 1.0f, .g = 1.0f, .b = 1.0f, .a = 1.0f }
+#define RED \
+    (Color) { .r = 1.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f }
 #define GOLD colhex(255, 215, 0)

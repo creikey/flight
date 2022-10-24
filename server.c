@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <inttypes.h> // int64 printing
 
-
 // started in a thread from host
 void server(void *data)
 {
@@ -56,9 +55,13 @@ void server(void *data)
 
     ENetAddress address;
     ENetHost *server;
-    address.host = ENET_HOST_ANY;
+    int sethost = enet_address_set_host_ip(&address, LOCAL_SERVER_ADDRESS);
+    if(sethost != 0)
+    {
+        Log("Fishy return value from set host: %d\n", sethost);
+    }
     /* Bind the server to port 1234. */
-    address.port = 8000;
+    address.port = SERVER_PORT;
     server = enet_host_create(&address /* the address to bind the server host to */,
                               32 /* allow up to 32 clients and/or outgoing connections */,
                               2 /* allow up to 2 channels to be used, 0 and 1 */,
@@ -71,7 +74,7 @@ void server(void *data)
         exit(-1);
     }
 
-    Log("Serving on port 8000...\n");
+    Log("Serving on port %d...\n", SERVER_PORT);
     ENetEvent event;
     uint64_t last_processed_time = stm_now();
     float total_time = 0.0f;
@@ -137,11 +140,35 @@ void server(void *data)
                         struct ClientToServer received = {0};
                         memcpy(&received, event.packet->data, length);
                         int64_t player_slot = (int64_t)event.peer->data;
+
+                        // dobuild logging
+                        if (false)
+                        {
+                            if (received.dobuild)
+                            {
+                                Log("Received build command\n");
+                            }
+                            if (gs.players[player_slot].dobuild && !received.dobuild)
+                            {
+                                Log("Received end of build command\n");
+                            }
+                        }
+                        
                         gs.players[player_slot].movement = received.movement;
-                        gs.players[player_slot].inhabit = received.inhabit;
-                        gs.players[player_slot].build = received.build;
-                        gs.players[player_slot].dobuild = received.dobuild;
                         gs.players[player_slot].grid_index = received.grid_index;
+                        
+                        // for these "event" inputs, only modify the game state if the event is true.
+                        // while processing the gamestate, will mark it as false once processed. This
+                        // prevents setting the event input to false before it's been processed.
+                        if (received.inhabit)
+                        {
+                            gs.players[player_slot].inhabit = received.inhabit;
+                        }
+                        if (received.dobuild)
+                        {
+                            gs.players[player_slot].build = received.build;
+                            gs.players[player_slot].dobuild = received.dobuild;
+                        }
                     }
 
                     /* Clean up the packet now that we're done using it. */
@@ -172,7 +199,6 @@ void server(void *data)
 
         if (processed)
         {
-            Log("Tick: %"PRIu64"\n", tick(&gs));
 #define MAX_BYTES_SIZE 2048 * 2
             static char bytes_buffer[MAX_BYTES_SIZE] = {0};
             for (int i = 0; i < server->peerCount; i++)
