@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <inttypes.h> // int64 printing
 
-#define TIMESTEP (1.0f / 60.0f)
 
 // started in a thread from host
 void server(void *data)
@@ -173,6 +172,7 @@ void server(void *data)
 
         if (processed)
         {
+            Log("Tick: %"PRIu64"\n", tick(&gs));
 #define MAX_BYTES_SIZE 2048 * 2
             static char bytes_buffer[MAX_BYTES_SIZE] = {0};
             for (int i = 0; i < server->peerCount; i++)

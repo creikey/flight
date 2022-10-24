@@ -14,6 +14,8 @@
 
 #include "types.h"
 
+#include <inttypes.h>
+
 static struct GameState gs = {0};
 static int myplayer = -1;
 static bool right_mouse_down = false;
@@ -317,6 +319,8 @@ static void frame(void)
         // no need to store copies of game state, just player input frame to frame. Then know how many frames ago the server game state arrived, it's that easy!
         // process(&gs, (float)sapp_frame_duration());
     }
+
+    Log("Tick: %" PRIu64 "\n", tick(&gs));
 
     // drawing
     {

@@ -248,6 +248,16 @@ void des_float(char **in, float *f)
     memread(in, f);
 }
 
+void ser_double(char **out, double d)
+{
+    memwrite(out, d);
+}
+
+void des_double(char **in, double *d)
+{
+    memread(in, d);
+}
+
 void ser_int(char **out, int i)
 {
     memwrite(out, i);
@@ -393,10 +403,11 @@ void into_bytes(struct ServerToClient *msg, char *bytes, int *out_len, int max_l
     ser_int(&bytes, msg->your_player);
     LEN_CHECK();
 
-    ser_float(&bytes, gs->time);
+    ser_double(&bytes, gs->time);
     LEN_CHECK();
 
     ser_V2(&bytes, gs->goldpos);
+    LEN_CHECK();
 
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
@@ -433,7 +444,7 @@ void from_bytes(struct ServerToClient *msg, char *bytes, int max_len)
     des_int(&bytes, &msg->your_player);
     LEN_CHECK();
 
-    des_float(&bytes, &gs->time);
+    des_double(&bytes, &gs->time);
     LEN_CHECK();
 
     des_V2(&bytes, &gs->goldpos);
@@ -494,12 +505,18 @@ struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float ra
     return NULL;
 }
 
+// for random generation
 static float hash11(float p)
 {
     p = fract(p * .1031);
     p *= p + 33.33;
     p *= p + p;
     return fract(p);
+}
+
+uint64_t tick(struct GameState *gs)
+{
+    return (uint64_t)floor(gs->time / ((double)TIMESTEP));
 }
 
 void process(struct GameState *gs, float dt)

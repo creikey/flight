@@ -7,9 +7,12 @@
 #define MAX_GRIDS 32
 #define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
+#define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 
 // @Robust remove this include somehow, needed for sqrt and cos
 #include <math.h>
+#include <stdint.h> // tick is unsigned integer
+
 
 // including headers from headers bad
 #ifndef SOKOL_GP_INCLUDED
@@ -55,7 +58,7 @@ struct GameState
 {
     cpSpace *space;
 
-    float time;
+    double time;
 
     V2 goldpos;
 
@@ -119,6 +122,7 @@ void initialize(struct GameState *gs); // must do this to place boxes into it an
 void destroy(struct GameState *gs);
 void process(struct GameState *gs, float dt); // does in place
 struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius);
+uint64_t tick(struct GameState *gs);
 void into_bytes(struct ServerToClient *gs, char *out_bytes, int *out_len, int max_len);
 void from_bytes(struct ServerToClient *gs, char *bytes, int max_len);
 

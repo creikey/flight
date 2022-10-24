@@ -50,6 +50,7 @@
         "type_traits": "c",
         "xmemory": "c",
         "xtr1common": "c",
-        "xtree": "c"
+        "xtree": "c",
+        "stdint.h": "c"
     }
 }
