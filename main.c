@@ -514,7 +514,6 @@ void event(const sapp_event *e)
         }
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        printf("%f\n", e->scroll_y);
         zoom_target *= 1.0f + (e->scroll_y/4.0f) * 0.1f;
         zoom_target = clamp(zoom_target, 0.5f, 900.0f);
         break;
