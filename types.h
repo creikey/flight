@@ -241,6 +241,15 @@ static inline float clamp01(float f)
     return fmax(0.0f, fmin(f, 1.0f));
 }
 
+static inline float clamp(float f, float minimum, float maximum)
+{
+    if(f < minimum)
+        return minimum;
+    if(f > maximum)
+        return maximum;
+    return f;
+}
+
 static float fract(float f)
 {
     return f - floorf(f);

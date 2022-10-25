@@ -34,6 +34,8 @@ static float funval = 0.0f;                          // easy to play with value 
 static struct ClientToServer client_to_server = {0}; // buffer of inputs
 static ENetHost *client;
 static ENetPeer *peer;
+static float zoom_target = 300.0f;
+static float zoom = 300.0f;
 
 static void init(void)
 {
@@ -219,7 +221,6 @@ static void frame(void)
     float build_target_rotation = 0.0f;
     V2 camera_pos = {0};
     V2 world_mouse_pos = mouse_pos;
-    float zoom = 300.0f + funval;
     struct BuildPreviewInfo
     {
         V2 grid_pos;
@@ -228,6 +229,9 @@ static void frame(void)
     } build_preview = {0};
     bool hand_at_arms_length = false;
     {
+        // interpolate zoom
+        zoom = lerp(zoom, zoom_target, dt*12.0f);
+
         // calculate world position and camera
         {
             if (myplayer != -1)
@@ -508,6 +512,11 @@ void event(const sapp_event *e)
 
             keypressed[e->key_code].frame = 0;
         }
+        break;
+    case SAPP_EVENTTYPE_MOUSE_SCROLL:
+        printf("%f\n", e->scroll_y);
+        zoom_target *= 1.0f + (e->scroll_y/4.0f) * 0.1f;
+        zoom_target = clamp(zoom_target, 0.5f, 900.0f);
         break;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
         if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
