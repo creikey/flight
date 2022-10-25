@@ -551,7 +551,8 @@ void process(struct GameState *gs, float dt)
         // update gold win condition
         if (V2length(V2sub(p->pos, gs->goldpos)) < GOLD_COLLECT_RADIUS)
         {
-            p->goldness += 0.2;
+            p->goldness += 0.1;
+            p->spice_taken_away = 0.0f;
             gs->goldpos = (V2){.x = hash11(gs->time) * 20.0f, .y = hash11(gs->time - 13.6f) * 20.0f};
         }
 
