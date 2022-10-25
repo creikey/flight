@@ -56,7 +56,7 @@ void server(void *data)
     ENetAddress address;
     ENetHost *server;
     int sethost = enet_address_set_host_ip(&address, LOCAL_SERVER_ADDRESS);
-    if(sethost != 0)
+    if (sethost != 0)
     {
         Log("Fishy return value from set host: %d\n", sethost);
     }
@@ -78,6 +78,7 @@ void server(void *data)
     ENetEvent event;
     uint64_t last_processed_time = stm_now();
     float total_time = 0.0f;
+    uint64_t player_to_latest_tick_processed[MAX_PLAYERS] = {0};
     while (true)
     {
         // @Speed handle enet messages and simulate gamestate in parallel, then sync... must clone gamestate for this
@@ -140,34 +141,34 @@ void server(void *data)
                         struct ClientToServer received = {0};
                         memcpy(&received, event.packet->data, length);
                         int64_t player_slot = (int64_t)event.peer->data;
+                        uint64_t latest_tick = player_to_latest_tick_processed[player_slot];
 
-                        // dobuild logging
-                        if (false)
+                        if (received.inputs[0].tick > latest_tick)
                         {
-                            if (received.dobuild)
+                            for (int i = INPUT_BUFFER - 1; i >= 0; i--)
                             {
-                                Log("Received build command\n");
+                                if (received.inputs[i].tick == 0) // empty input
+                                    continue;
+                                if(received.inputs[i].tick <= latest_tick)
+                                    continue; // don't reprocess inputs already processed
+                                struct InputFrame cur_input = received.inputs[i];
+                                gs.players[player_slot].movement = cur_input.movement;
+                                gs.players[player_slot].grid_index = cur_input.grid_index;
+
+                                // for these "event" inputs, only modify the game state if the event is true.
+                                // while processing the gamestate, will mark it as false once processed. This
+                                // prevents setting the event input to false before it's been processed.
+                                if (cur_input.inhabit)
+                                {
+                                    gs.players[player_slot].inhabit = cur_input.inhabit;
+                                }
+                                if (cur_input.dobuild)
+                                {
+                                    gs.players[player_slot].build = cur_input.build;
+                                    gs.players[player_slot].dobuild = cur_input.dobuild;
+                                }
                             }
-                            if (gs.players[player_slot].dobuild && !received.dobuild)
-                            {
-                                Log("Received end of build command\n");
-                            }
-                        }
-                        
-                        gs.players[player_slot].movement = received.movement;
-                        gs.players[player_slot].grid_index = received.grid_index;
-                        
-                        // for these "event" inputs, only modify the game state if the event is true.
-                        // while processing the gamestate, will mark it as false once processed. This
-                        // prevents setting the event input to false before it's been processed.
-                        if (received.inhabit)
-                        {
-                            gs.players[player_slot].inhabit = received.inhabit;
-                        }
-                        if (received.dobuild)
-                        {
-                            gs.players[player_slot].build = received.build;
-                            gs.players[player_slot].dobuild = received.dobuild;
+                            player_to_latest_tick_processed[player_slot] = received.inputs[0].tick;
                         }
                     }
 

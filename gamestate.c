@@ -268,6 +268,16 @@ void des_int(char **in, int *i)
     memread(in, i);
 }
 
+void ser_uint64(char **out, uint64_t i)
+{
+    memwrite(out, i);
+}
+
+void des_uint64(char **in, uint64_t *i)
+{
+    memread(in, i);
+}
+
 void ser_bool(char **out, bool b)
 {
     **out = (char)b;
@@ -403,6 +413,8 @@ void into_bytes(struct ServerToClient *msg, char *bytes, int *out_len, int max_l
     ser_int(&bytes, msg->your_player);
     LEN_CHECK();
 
+    ser_uint64(&bytes, gs->tick);
+
     ser_double(&bytes, gs->time);
     LEN_CHECK();
 
@@ -442,6 +454,9 @@ void from_bytes(struct ServerToClient *msg, char *bytes, int max_len)
     initialize(gs);
 
     des_int(&bytes, &msg->your_player);
+    LEN_CHECK();
+
+    des_uint64(&bytes, &gs->tick);
     LEN_CHECK();
 
     des_double(&bytes, &gs->time);
@@ -523,6 +538,7 @@ void process(struct GameState *gs, float dt)
 {
     assert(gs->space != NULL);
 
+    gs->tick += 1;
     gs->time += dt;
 
     // process input
@@ -569,15 +585,14 @@ void process(struct GameState *gs, float dt)
                     }
 
                     // don't allow inhabiting a grid that's already inhabited
-                    for(int ii = 0; ii < MAX_PLAYERS; ii++)
+                    for (int ii = 0; ii < MAX_PLAYERS; ii++)
                     {
-                        if(gs->players[ii].currently_inhabiting_index == ship_to_inhabit)
+                        if (gs->players[ii].currently_inhabiting_index == ship_to_inhabit)
                         {
                             Log("Attempted to inhabit already taken ship\n");
                             ship_to_inhabit = -1;
                         }
                     }
-
 
                     if (ship_to_inhabit == -1)
                     {

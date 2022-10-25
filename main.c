@@ -29,8 +29,9 @@ static KeyPressed keypressed[SAPP_KEYCODE_MENU] = {0};
 static V2 mouse_pos = {0};
 static bool mouse_pressed = false;
 static uint64_t mouse_pressed_frame = 0;
-static bool mouse_frozen = false; // @BeforeShip make this debug only thing
-static float funval = 0.0f;       // easy to play with value controlled by left mouse button when held down @BeforeShip remove on release builds
+static bool mouse_frozen = false;                    // @BeforeShip make this debug only thing
+static float funval = 0.0f;                          // easy to play with value controlled by left mouse button when held down @BeforeShip remove on release builds
+static struct ClientToServer client_to_server = {0}; // buffer of inputs
 static ENetHost *client;
 static ENetPeer *peer;
 
@@ -151,7 +152,7 @@ static void frame(void)
 {
     int width = sapp_width(), height = sapp_height();
     float ratio = width / (float)height;
-    float time = sapp_frame_count() * sapp_frame_duration();
+    double time = sapp_frame_count() * sapp_frame_duration();
     float dt = sapp_frame_duration();
 
     // pressed input management
@@ -287,32 +288,54 @@ static void frame(void)
         // Create and send input packet
         {
             // @Robust accumulate total time and send input at rate like 20 hz, not every frame
-            struct ClientToServer curmsg = {0};
+
+            struct InputFrame cur_input_frame = {0};
             V2 input = (V2){
                 .x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
                 .y = (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S],
             };
-            curmsg.movement = input;
-            curmsg.inhabit = keypressed[SAPP_KEYCODE_G].pressed;
-            curmsg.dobuild = mouse_pressed;
-            curmsg.grid_index = grid_index;
-            if (curmsg.dobuild)
+            cur_input_frame.movement = input;
+            cur_input_frame.inhabit = keypressed[SAPP_KEYCODE_G].pressed;
+            cur_input_frame.dobuild = mouse_pressed;
+            cur_input_frame.grid_index = grid_index;
+            if (cur_input_frame.dobuild)
             {
                 if (grid_index != -1)
                 {
-                    curmsg.build = grid_world_to_local(&gs.grids[curmsg.grid_index], build_preview.pos);
-                    V2 untransformed = grid_local_to_world(&gs.grids[curmsg.grid_index], curmsg.build);
+                    cur_input_frame.build = grid_world_to_local(&gs.grids[cur_input_frame.grid_index], build_preview.pos);
+                    V2 untransformed = grid_local_to_world(&gs.grids[cur_input_frame.grid_index], cur_input_frame.build);
                     untransformed.x += 5.0f;
                 }
                 else
                 {
-                    curmsg.build = build_preview.pos;
+                    cur_input_frame.build = build_preview.pos;
                 }
             }
 
-            // @BeforeShip figure out why tf the possess ship key is so unreliable
-            ENetPacket *packet = enet_packet_create((void *)&curmsg, sizeof(curmsg), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
-            enet_peer_send(peer, 0, packet);
+            struct InputFrame latest = client_to_server.inputs[0];
+            // if they're not the same
+            if (
+                !V2cmp(cur_input_frame.movement, latest.movement, 0.01f) ||
+                cur_input_frame.inhabit != latest.inhabit ||
+                cur_input_frame.dobuild != latest.dobuild ||
+                cur_input_frame.grid_index != latest.grid_index ||
+                !V2cmp(cur_input_frame.build, latest.build, 0.01f))
+            {
+                for (int i = 0; i < INPUT_BUFFER - 1; i++)
+                {
+                    client_to_server.inputs[i + 1] = client_to_server.inputs[i];
+                }
+                cur_input_frame.tick = gs.tick;
+                client_to_server.inputs[0] = cur_input_frame;
+            }
+
+            static double last_input_sent_time = 0.0;
+            if (fabs(last_input_sent_time - time) > TIME_BETWEEN_INPUT_PACKETS)
+            {
+                ENetPacket *packet = enet_packet_create((void *)&client_to_server, sizeof(client_to_server), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+                enet_peer_send(peer, 0, packet);
+                last_input_sent_time = time;
+            }
         }
 
         // @BeforeShip client side prediction and rollback to previous server authoritative state, then replay inputs
@@ -434,9 +457,6 @@ static void frame(void)
             }
         }
 
-        set_color(RED);
-        sgp_draw_filled_rect(1.0f, 0.5f, 0.3f, 0.3f);
-
         // gold target
         set_color(GOLD);
         sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
@@ -466,21 +486,28 @@ void event(const sapp_event *e)
     switch (e->type)
     {
     case SAPP_EVENTTYPE_KEY_DOWN:
-        keydown[e->key_code] = true;
         if (e->key_code == SAPP_KEYCODE_T)
         {
             mouse_frozen = !mouse_frozen;
         }
-        if (keypressed[e->key_code].frame == 0)
+        if (!mouse_frozen)
         {
-            keypressed[e->key_code].pressed = true;
-            keypressed[e->key_code].frame = e->frame_count;
+            keydown[e->key_code] = true;
+            if (keypressed[e->key_code].frame == 0)
+            {
+                keypressed[e->key_code].pressed = true;
+                keypressed[e->key_code].frame = e->frame_count;
+            }
         }
         break;
     case SAPP_EVENTTYPE_KEY_UP:
-        keydown[e->key_code] = false;
-        keypressed[e->key_code].pressed = false;
-        keypressed[e->key_code].frame = 0;
+        if (!mouse_frozen)
+        {
+            keydown[e->key_code] = false;
+            keypressed[e->key_code].pressed = false;
+
+            keypressed[e->key_code].frame = 0;
+        }
         break;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
         if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)

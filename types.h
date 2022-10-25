@@ -8,7 +8,9 @@
 #define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
+#define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
 #define SERVER_PORT 2551
+#define INPUT_BUFFER 4
 
 // must make this header and set the target address, just #define SERVER_ADDRESS "127.0.0.1"
 #include "ipsettings.h" // don't leak IP!
@@ -61,6 +63,7 @@ struct GameState
 {
     cpSpace *space;
 
+    uint64_t tick;
     double time;
 
     V2 goldpos;
@@ -108,13 +111,17 @@ struct ServerToClient
 
 struct ClientToServer
 {
-    V2 movement;
-    bool inhabit;
+    struct InputFrame
+    {
+        uint64_t tick;
+        V2 movement;
+        bool inhabit;
 
-    // if grid_index != -1, this is in local coordinates to the grid
-    V2 build;
-    bool dobuild;
-    int grid_index;
+        // if grid_index != -1, this is in local coordinates to the grid
+        V2 build;
+        bool dobuild;
+        int grid_index;
+    } inputs[INPUT_BUFFER];
 };
 
 // server
@@ -222,6 +229,11 @@ static V2 V2sub(V2 a, V2 b)
         .x = a.x - b.x,
         .y = a.y - b.y,
     };
+}
+
+static bool V2cmp(V2 a, V2 b, float eps)
+{
+    return V2length(V2sub(a, b)) < eps;
 }
 
 static inline float clamp01(float f)
