@@ -1,10 +1,11 @@
 #pragma once
 
 #define MAX_PLAYERS 4
-#define BOX_SIZE 0.5f
+#define BOX_SIZE 0.25f
 #define MAX_HAND_REACH 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
 #define MAX_GRIDS 32
+#define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
 #define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on

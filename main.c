@@ -262,7 +262,7 @@ static void frame(void)
             hand_pos = V2scale(V2normalize(hand_pos), hand_len);
             hand_pos = V2add(hand_pos, gs.players[myplayer].pos);
 
-            struct Grid *placing_grid = closest_to_point_in_radius(&gs, hand_pos, 0.35f);
+            struct Grid *placing_grid = closest_to_point_in_radius(&gs, hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP);
             if (placing_grid == NULL)
             {
                 build_preview = (struct BuildPreviewInfo){
