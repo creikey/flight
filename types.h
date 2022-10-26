@@ -9,7 +9,7 @@
 #define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
 #define THRUSTER_FORCE 4.0f
-#define THRUSTER_SPICE_PER_SECOND 0.02f
+#define THRUSTER_ENERGY_USED_PER_SECOND 0.05f
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -67,7 +67,8 @@ enum BoxType
 {
     BoxHullpiece,
     BoxThruster,
-    BoxLast
+    BoxBattery,
+    BoxLast,
 };
 
 enum Rotation
@@ -133,6 +134,9 @@ struct GameState
 
             // thruster
             float thrust; // must be between 0 and 1
+            
+            // battery
+            float energy_used; // must be between 0 and 1
 
             cpShape *shape;
             float damage;

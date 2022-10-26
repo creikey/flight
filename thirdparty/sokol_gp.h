@@ -543,6 +543,7 @@ SOKOL_GP_API_DECL void sgp_reset_uniform(void);                             /* R
 SOKOL_GP_API_DECL void sgp_set_blend_mode(sgp_blend_mode blend_mode);       /* Sets current blend mode. */
 SOKOL_GP_API_DECL void sgp_reset_blend_mode(void);                          /* Resets current blend mode to default (no blending). */
 SOKOL_GP_API_DECL void sgp_set_color(float r, float g, float b, float a);   /* Sets current color modulation. */
+SOKOL_GP_API_DECL sgp_color sgp_get_color();                                /* Gets the current color modulation */
 SOKOL_GP_API_DECL void sgp_reset_color(void);                               /* Resets current color modulation to default (white). */
 SOKOL_GP_API_DECL void sgp_set_image(int channel, sg_image image);          /* Sets current bound texture in a texture channel. */
 SOKOL_GP_API_DECL void sgp_unset_image(int channel);                        /* Remove current bound texture in a texture channel (no texture). */
@@ -1620,6 +1621,13 @@ void sgp_set_color(float r, float g, float b, float a) {
         _sgp.state.uniform.content[2] = color.b;
         _sgp.state.uniform.content[3] = color.a;
     }
+}
+
+sgp_color sgp_get_color()
+{
+    SOKOL_ASSERT(_sgp.init_cookie == _SGP_INIT_COOKIE);
+    SOKOL_ASSERT(_sgp.cur_state > 0);
+    return _sgp.state.color;
 }
 
 void sgp_reset_color(void) {

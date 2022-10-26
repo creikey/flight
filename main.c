@@ -57,6 +57,10 @@ static struct BoxInfo
     {
         .type = BoxThruster,
         .image_path = "loaded/thruster.png",
+    },
+    {
+        .type = BoxBattery,
+        .image_path = "loaded/battery.png",
     }};
 const int boxes_len = sizeof(boxes) / sizeof(*boxes);
 
@@ -191,13 +195,6 @@ static void drawbox(V2 boxpos, float rot, float damage, enum BoxType type, enum 
     sgp_rotate_at(rotangle(rotation), boxpos.x, boxpos.y);
     sgp_draw_textured_rect(boxpos.x - halfbox, boxpos.y - halfbox, BOX_SIZE, BOX_SIZE);
     sgp_reset_image(0);
-
-    /*sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x - halfbox, bpos.y + halfbox); // left
-    sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y - halfbox); // top
-    sgp_draw_line(bpos.x + halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // right
-    sgp_draw_line(bpos.x - halfbox, bpos.y + halfbox, bpos.x + halfbox, bpos.y + halfbox); // bottom
-    sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // diagonal
-    */
 
     if (damage > 0.0f)
     {
@@ -553,7 +550,7 @@ static void frame(void)
                     {
                         SKIPNULL(g->boxes[ii].shape);
                         struct Box *b = &g->boxes[ii];
-                        sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
+                        sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
                         // debug draw force vectors for thrusters
                         if (false)
                         {
@@ -562,6 +559,14 @@ static void frame(void)
                                 dbg_rect(box_pos(b));
                                 dbg_line(box_pos(b), V2add(box_pos(b), V2scale(thruster_force(b), -1.0f)));
                             }
+                        }
+                        if(b->type == BoxBattery)
+                        {
+                            float cur_alpha = sgp_get_color().a;
+                            Color from = WHITE;
+                            Color to = colhex(255, 0, 0);
+                            Color result = Collerp(from, to, b->energy_used);
+                            sgp_set_color(result.r, result.g, result.b, cur_alpha);
                         }
                         drawbox(box_pos(b), grid_rotation(g), b->damage, b->type, b->rotation);
                     }

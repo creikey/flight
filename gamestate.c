@@ -324,6 +324,7 @@ void ser_grid(char **out, struct Grid *g)
             ser_int(out, g->boxes[i].type); // @Robust separate enum serialization that checks for out of bounds enum
             ser_int(out, g->boxes[i].rotation);
             ser_float(out, g->boxes[i].thrust);
+            ser_float(out, g->boxes[i].energy_used);
             ser_float(out, g->boxes[i].damage);
         }
     }
@@ -362,6 +363,7 @@ void des_grid(char **in, struct Grid *g, struct GameState *gs)
             des_int(in, (int *)&g->boxes[i].type);
             des_int(in, (int *)&g->boxes[i].rotation);
             des_float(in, &g->boxes[i].thrust);
+            des_float(in, &g->boxes[i].energy_used);
             des_float(in, &g->boxes[i].damage);
         }
     }
@@ -672,8 +674,7 @@ void process(struct GameState *gs, float dt)
                 V2 target_new_pos = V2lerp(p->pos, grid_com(g), dt * 20.0f);
                 p->vel = V2scale(V2sub(target_new_pos, p->pos), 1.0f / dt); // set vel correctly so newly built grids have the correct velocity copied from it
 
-                // set thruster forces from movement
-                float thruster_spice_consumption = 0.0f;
+                // set thruster thrust from movement
                 {
                     V2 target_direction = {0};
                     if (V2length(p->input.movement) > 0.0f)
@@ -688,14 +689,12 @@ void process(struct GameState *gs, float dt)
 
                         float wanted_thrust = -V2dot(target_direction, thruster_direction(&g->boxes[ii]));
                         wanted_thrust = clamp01(wanted_thrust);
-                        thruster_spice_consumption += wanted_thrust;
+
                         g->boxes[ii].thrust = wanted_thrust;
                     }
                 }
-
                 // cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->input.movement, 5.0f)), v2_to_cp(grid_com(g)));
                 // bigger the ship, the more efficient the spice usage
-                p->spice_taken_away += dt * thruster_spice_consumption * THRUSTER_SPICE_PER_SECOND;
             }
             p->pos = V2add(p->pos, V2scale(p->vel, dt));
         }
@@ -775,12 +774,44 @@ void process(struct GameState *gs, float dt)
     for (int i = 0; i < MAX_GRIDS; i++)
     {
         SKIPNULL(gs->grids[i].body);
+
+        struct Box *batteries[MAX_BOXES_PER_GRID] = {0};
+        int cur_battery = 0;
+        for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
+        {
+            SKIPNULL(gs->grids[i].boxes[ii].shape);
+            if (gs->grids[i].boxes[ii].type == BoxBattery)
+            {
+                assert(cur_battery < MAX_BOXES_PER_GRID);
+                batteries[cur_battery] = &gs->grids[i].boxes[ii];
+                cur_battery++;
+            }
+        }
+        int batteries_len = cur_battery;
+
+        float thruster_energy_consumption_per_second = 0.0f;
         for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
         {
             SKIPNULL(gs->grids[i].boxes[ii].shape);
             if (gs->grids[i].boxes[ii].type == BoxThruster)
             {
-                cpBodyApplyForceAtWorldPoint(gs->grids[i].body, v2_to_cp(thruster_force(&gs->grids[i].boxes[ii])), v2_to_cp(box_pos(&gs->grids[i].boxes[ii])));
+                float energy_to_consume = gs->grids[i].boxes[ii].thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
+                struct Box *max_capacity_battery = NULL;
+                float max_capacity_battery_energy_used = 1.0f;
+                for (int iii = 0; iii < batteries_len; iii++)
+                {
+                    if (batteries[iii]->energy_used < max_capacity_battery_energy_used)
+                    {
+                        max_capacity_battery = batteries[iii];
+                        max_capacity_battery_energy_used = batteries[iii]->energy_used;
+                    }
+                }
+
+                if (max_capacity_battery != NULL && (1.0f - max_capacity_battery->energy_used) > energy_to_consume)
+                {
+                    max_capacity_battery->energy_used += energy_to_consume;
+                    cpBodyApplyForceAtWorldPoint(gs->grids[i].body, v2_to_cp(thruster_force(&gs->grids[i].boxes[ii])), v2_to_cp(box_pos(&gs->grids[i].boxes[ii])));
+                }
             }
         }
     }
