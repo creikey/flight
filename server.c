@@ -17,16 +17,16 @@ void server(void *data)
     // box haven
     if (true)
     {
-        grid_new(&gs.grids[0], &gs, (V2){.x = 0.75f, .y = 0.0});
+        grid_new(&gs.grids[0], &gs, (V2){.x = BOX_SIZE*3.0, .y = 0.0});
         box_new(&gs.grids[0].boxes[0], &gs, &gs.grids[0], (V2){0});
-        box_new(&gs.grids[0].boxes[1], &gs, &gs.grids[0], (V2){0, 0.5f});
-        box_new(&gs.grids[0].boxes[2], &gs, &gs.grids[0], (V2){0, 1.0f});
-        box_new(&gs.grids[0].boxes[3], &gs, &gs.grids[0], (V2){0.5f, 1.0f});
+        box_new(&gs.grids[0].boxes[1], &gs, &gs.grids[0], (V2){0, BOX_SIZE});
+        box_new(&gs.grids[0].boxes[2], &gs, &gs.grids[0], (V2){0, BOX_SIZE*2.0});
+        box_new(&gs.grids[0].boxes[3], &gs, &gs.grids[0], (V2){BOX_SIZE, BOX_SIZE*2.0});
 
-        grid_new(&gs.grids[1], &gs, (V2){.x = -0.75f, .y = 0.0});
+        grid_new(&gs.grids[1], &gs, (V2){.x = -BOX_SIZE*1.5, .y = 0.0});
         box_new(&gs.grids[1].boxes[0], &gs, &gs.grids[1], (V2){0});
 
-        grid_new(&gs.grids[2], &gs, (V2){.x = -0.75f, .y = 0.5});
+        grid_new(&gs.grids[2], &gs, (V2){.x = -BOX_SIZE*1.5, .y = BOX_SIZE});
         box_new(&gs.grids[2].boxes[0], &gs, &gs.grids[2], (V2){0});
     }
 

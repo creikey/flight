@@ -11,9 +11,12 @@
 #include "sokol_time.h"
 #include <enet/enet.h>
 #include <process.h> // starting server thread
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 #include "types.h"
 
+#include <string.h> // errno error message on file open
 #include <inttypes.h>
 
 static struct GameState gs = {0};
@@ -36,6 +39,7 @@ static ENetHost *client;
 static ENetPeer *peer;
 static float zoom_target = 300.0f;
 static float zoom = 300.0f;
+static sg_image image_box;
 
 static void init(void)
 {
@@ -57,6 +61,34 @@ static void init(void)
     {
         fprintf(stderr, "Failed to create Sokol GP context: %s\n", sgp_get_error_message(sgp_get_last_error()));
         exit(-1);
+    }
+
+    // image loading
+    {
+        image_box = sg_alloc_image();
+
+        int x = 0;
+        int y = 0;
+        int comp = 0;
+        const int desired_channels = 4;
+        stbi_uc *image_data = stbi_load("loaded/box.png", &x, &y, &comp, desired_channels);
+        if (!image_data)
+        {
+            fprintf(stderr, "Failed to load image: %s\n", stbi_failure_reason());
+            exit(-1);
+        }
+        sg_init_image(image_box, &(sg_image_desc){
+                                     .width = x,
+                                     .height = y,
+                                     .pixel_format = SG_PIXELFORMAT_RGBA8,
+                                     .min_filter = SG_FILTER_NEAREST,
+                                     .mag_filter = SG_FILTER_NEAREST,
+                                     .data.subimage[0][0] = {
+                                         .ptr = image_data,
+                                         .size = (size_t)(x * y * desired_channels),
+                                     }});
+
+        stbi_image_free(image_data);
     }
 
     // socket initialization
@@ -119,11 +151,16 @@ static void drawbox(V2 gridpos, float rot, V2 bpos, float damage, bool offset_fr
     {
         sgp_rotate_at(rot, bpos.x, bpos.y);
     }
-    sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x - halfbox, bpos.y + halfbox); // left
+    sgp_set_image(0, image_box);
+    sgp_draw_textured_rect(bpos.x - halfbox, bpos.y -halfbox, BOX_SIZE, BOX_SIZE);
+    sgp_reset_image(0);
+
+    /*sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x - halfbox, bpos.y + halfbox); // left
     sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y - halfbox); // top
     sgp_draw_line(bpos.x + halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // right
     sgp_draw_line(bpos.x - halfbox, bpos.y + halfbox, bpos.x + halfbox, bpos.y + halfbox); // bottom
     sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x + halfbox, bpos.y + halfbox); // diagonal
+    */
 
     if (damage > 0.0f)
     {
@@ -230,7 +267,7 @@ static void frame(void)
     bool hand_at_arms_length = false;
     {
         // interpolate zoom
-        zoom = lerp(zoom, zoom_target, dt*12.0f);
+        zoom = lerp(zoom, zoom_target, dt * 12.0f);
 
         // calculate world position and camera
         {
@@ -401,33 +438,7 @@ static void frame(void)
 
         float halfbox = BOX_SIZE / 2.0f;
 
-        // player
-        for (int i = 0; i < MAX_PLAYERS; i++)
-        {
-            struct Player *p = &gs.players[i];
-            if (!p->connected)
-                continue;
-            static float opacities[MAX_PLAYERS] = {1.0f};
-            opacities[i] = lerp(opacities[i], p->currently_inhabiting_index == -1 ? 1.0f : 0.1f, dt * 7.0f);
-            Color col_to_draw = Collerp(WHITE, GOLD, p->goldness);
-            col_to_draw.a = opacities[i];
-
-            set_color(col_to_draw);
-            sgp_push_transform();
-            float psize = 0.1f;
-            sgp_draw_filled_rect(p->pos.x - psize / 2.0f, p->pos.y - psize / 2.0f, psize, psize);
-            sgp_pop_transform();
-            // sgp_rotate_at(grid_rotation(p->grid), grid_pos(p->grid).x, grid_pos(p->grid).y);
-            // V2 bpos = grid_pos(p->grid);
-            // sgp_draw_filled_rect(grid_pos(p->grid).x - halfbox, grid_pos(p->grid).y - halfbox, BOX_SIZE, BOX_SIZE);
-            // sgp_pop_transform();
-
-            // sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
-            // V2 vel = grid_vel(p->grid);
-            // V2 to = V2add(grid_pos(p->grid), vel);
-            // sgp_draw_line(grid_pos(p->grid).x, grid_pos(p->grid).y, to.x, to.y);
-        }
-
+        
         // mouse
         if (mouse_frozen)
         {
@@ -460,6 +471,34 @@ static void frame(void)
                 sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
             }
         }
+
+        // player
+        for (int i = 0; i < MAX_PLAYERS; i++)
+        {
+            struct Player *p = &gs.players[i];
+            if (!p->connected)
+                continue;
+            static float opacities[MAX_PLAYERS] = {1.0f};
+            opacities[i] = lerp(opacities[i], p->currently_inhabiting_index == -1 ? 1.0f : 0.1f, dt * 7.0f);
+            Color col_to_draw = Collerp(WHITE, GOLD, p->goldness);
+            col_to_draw.a = opacities[i];
+
+            set_color(col_to_draw);
+            sgp_push_transform();
+            float psize = 0.1f;
+            sgp_draw_filled_rect(p->pos.x - psize / 2.0f, p->pos.y - psize / 2.0f, psize, psize);
+            sgp_pop_transform();
+            // sgp_rotate_at(grid_rotation(p->grid), grid_pos(p->grid).x, grid_pos(p->grid).y);
+            // V2 bpos = grid_pos(p->grid);
+            // sgp_draw_filled_rect(grid_pos(p->grid).x - halfbox, grid_pos(p->grid).y - halfbox, BOX_SIZE, BOX_SIZE);
+            // sgp_pop_transform();
+
+            // sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
+            // V2 vel = grid_vel(p->grid);
+            // V2 to = V2add(grid_pos(p->grid), vel);
+            // sgp_draw_line(grid_pos(p->grid).x, grid_pos(p->grid).y, to.x, to.y);
+        }
+
 
         // gold target
         set_color(GOLD);
@@ -514,7 +553,7 @@ void event(const sapp_event *e)
         }
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        zoom_target *= 1.0f + (e->scroll_y/4.0f) * 0.1f;
+        zoom_target *= 1.0f + (e->scroll_y / 4.0f) * 0.1f;
         zoom_target = clamp(zoom_target, 0.5f, 900.0f);
         break;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
