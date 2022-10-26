@@ -41,6 +41,7 @@ static float zoom_target = 300.0f;
 static float zoom = 300.0f;
 static sg_image image_itemframe;
 static sg_image image_itemframe_selected;
+static sg_image image_thrusterburn;
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
 
@@ -133,6 +134,7 @@ static void init(void)
         {
             boxes[i].image = load_image(boxes[i].image_path);
         }
+        image_thrusterburn = load_image("loaded/thrusterburn.png");
         image_itemframe = load_image("loaded/itemframe.png");
         image_itemframe_selected = load_image("loaded/itemframe_selected.png");
     }
@@ -185,24 +187,37 @@ static void init(void)
     }
 }
 
-static void drawbox(V2 boxpos, float rot, float damage, enum BoxType type, enum Rotation rotation)
+// static void drawbox(V2 boxpos, float rot, float damage, enum BoxType type, enum Rotation rotation)
+// {
+
+//     sgp_push_transform();
+//     sgp_rotate_at(rot, boxpos.x, boxpos.y);
+
+//     sgp_set_image(0, boxinfo(type).image);
+//     sgp_rotate_at(rotangle(rotation), boxpos.x, boxpos.y);
+
+//     sgp_reset_image(0);
+
+//     if (damage > 0.0f)
+//     {
+//         sgp_set_color(0.5f, 0.1f, 0.1f, damage);
+
+//     }
+
+//     sgp_pop_transform();
+// }
+
+static void draw_color_rect_centered(V2 center, float size)
 {
-    float halfbox = BOX_SIZE / 2.0f;
-    sgp_push_transform();
-    sgp_rotate_at(rot, boxpos.x, boxpos.y);
+    float halfbox = size / 2.0f;
 
-    sgp_set_image(0, boxinfo(type).image);
-    sgp_rotate_at(rotangle(rotation), boxpos.x, boxpos.y);
-    sgp_draw_textured_rect(boxpos.x - halfbox, boxpos.y - halfbox, BOX_SIZE, BOX_SIZE);
-    sgp_reset_image(0);
+    sgp_draw_filled_rect(center.x - halfbox, center.y - halfbox, size, size);
+}
 
-    if (damage > 0.0f)
-    {
-        sgp_set_color(0.5f, 0.1f, 0.1f, damage);
-        sgp_draw_filled_rect(boxpos.x - halfbox, boxpos.y - halfbox, BOX_SIZE, BOX_SIZE);
-    }
-
-    sgp_pop_transform();
+static void draw_texture_centered(V2 center, float size)
+{
+    float halfbox = size / 2.0f;
+    sgp_draw_textured_rect(center.x - halfbox, center.y - halfbox, BOX_SIZE, BOX_SIZE);
 }
 
 static void draw_circle(V2 point, float radius)
@@ -435,12 +450,12 @@ static void frame(void)
             };
             cur_input_frame.movement = input;
             cur_input_frame.inhabit = keypressed[SAPP_KEYCODE_G].pressed;
-            cur_input_frame.dobuild = mouse_pressed;
-            cur_input_frame.grid_index = grid_index;
-            if (cur_input_frame.dobuild)
+            if (mouse_pressed && cur_editing_boxtype != -1)
             {
+                cur_input_frame.dobuild = mouse_pressed;
                 cur_input_frame.build_type = cur_editing_boxtype;
                 cur_input_frame.build_rotation = cur_editing_rotation;
+                cur_input_frame.grid_index = grid_index;
                 if (grid_index != -1)
                 {
                     cur_input_frame.build = grid_world_to_local(&gs.grids[cur_input_frame.grid_index], build_preview.pos);
@@ -535,9 +550,19 @@ static void frame(void)
             }
 
             // building preview
-            if(cur_editing_boxtype != -1){
+            if (cur_editing_boxtype != -1)
+            {
                 sgp_set_color(0.5f, 0.5f, 0.5f, (sin(time * 9.0f) + 1.0) / 3.0f + 0.2);
-                drawbox(build_preview.pos, build_preview.grid_rotation, 0.0f, cur_editing_boxtype, cur_editing_rotation);
+
+                sgp_push_transform();
+
+                sgp_set_image(0, boxinfo(cur_editing_boxtype).image);
+                sgp_rotate_at(build_preview.grid_rotation + rotangle(cur_editing_rotation), build_preview.pos.x, build_preview.pos.y);
+                draw_texture_centered(build_preview.pos, BOX_SIZE);
+                // drawbox(build_preview.pos, build_preview.grid_rotation, 0.0f, cur_editing_boxtype, cur_editing_rotation);
+                sgp_reset_image(0);
+
+                sgp_pop_transform();
             }
 
             // grids
@@ -560,7 +585,7 @@ static void frame(void)
                                 dbg_line(box_pos(b), V2add(box_pos(b), V2scale(thruster_force(b), -1.0f)));
                             }
                         }
-                        if(b->type == BoxBattery)
+                        if (b->type == BoxBattery)
                         {
                             float cur_alpha = sgp_get_color().a;
                             Color from = WHITE;
@@ -568,7 +593,36 @@ static void frame(void)
                             Color result = Collerp(from, to, b->energy_used);
                             sgp_set_color(result.r, result.g, result.b, cur_alpha);
                         }
-                        drawbox(box_pos(b), grid_rotation(g), b->damage, b->type, b->rotation);
+                        sgp_push_transform();
+
+                        sgp_rotate_at(grid_rotation(g) + rotangle(b->rotation), box_pos(b).x, box_pos(b).y);
+
+                        if (b->type == BoxThruster)
+                        {
+                            sgp_push_transform();
+                            sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+                            sgp_set_image(0, image_thrusterburn);
+                            // float scaling = 1.0 + (hash11(time*3.0)/2.0)*lerp(0.0, 0.07, b->thrust);
+                            // printf("%f\n", b->thrust);
+                            float scaling = 0.95 + lerp(0.0, 0.3,b->thrust);
+                            // float scaling = 1.1;
+                            // sgp_translate(-(scaling*BOX_SIZE - BOX_SIZE), 0.0);
+                            // sgp_scale(scaling, 1.0);
+                            sgp_scale_at(scaling, 1.0, box_pos(b).x, box_pos(b).y);
+                            draw_texture_centered(box_pos(b), BOX_SIZE);
+                            sgp_reset_image(0);
+                            sgp_pop_transform();
+                        }
+
+
+                        sgp_set_image(0, boxinfo(b->type).image);
+                        draw_texture_centered(box_pos(b), BOX_SIZE);
+                        sgp_reset_image(0);
+
+                        sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
+                        draw_color_rect_centered(box_pos(b), BOX_SIZE);
+
+                        sgp_pop_transform();
                     }
                     sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
                     V2 vel = grid_vel(&gs.grids[i]);
@@ -650,7 +704,7 @@ void event(const sapp_event *e)
         }
         int key_num = e->key_code - SAPP_KEYCODE_0;
         int target_box = key_num - 1;
-        if(target_box < BoxLast)
+        if (target_box < BoxLast)
         {
             cur_editing_boxtype = target_box;
         }

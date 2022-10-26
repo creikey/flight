@@ -21,12 +21,16 @@ void server(void *data)
         box_new(&gs.grids[0].boxes[0], &gs, &gs.grids[0], (V2){0});
         box_new(&gs.grids[0].boxes[1], &gs, &gs.grids[0], (V2){0, BOX_SIZE});
         box_new(&gs.grids[0].boxes[2], &gs, &gs.grids[0], (V2){0, BOX_SIZE*2.0});
+        gs.grids[0].boxes[2].type = BoxBattery;
+
         box_new(&gs.grids[0].boxes[3], &gs, &gs.grids[0], (V2){BOX_SIZE, BOX_SIZE*2.0});
         gs.grids[0].boxes[3].type = BoxThruster;
         gs.grids[0].boxes[3].rotation = Right;
+
         box_new(&gs.grids[0].boxes[4], &gs, &gs.grids[0], (V2){0, BOX_SIZE*3.0});
         gs.grids[0].boxes[4].type = BoxThruster;
         gs.grids[0].boxes[4].rotation = Up;
+
 
         grid_new(&gs.grids[1], &gs, (V2){.x = -BOX_SIZE*1.5, .y = 0.0});
         box_new(&gs.grids[1].boxes[0], &gs, &gs.grids[1], (V2){0});
@@ -158,7 +162,6 @@ void server(void *data)
                                     continue; // don't reprocess inputs already processed
                                 struct InputFrame cur_input = received.inputs[i];
                                 gs.players[player_slot].input.movement = cur_input.movement;
-                                gs.players[player_slot].input.grid_index = cur_input.grid_index;
 
                                 // for these "event" inputs, only modify the current input if the event is true.
                                 // while processing the gamestate, will mark it as false once processed. This
@@ -169,6 +172,7 @@ void server(void *data)
                                 }
                                 if (cur_input.dobuild)
                                 {
+                                    gs.players[player_slot].input.grid_index = cur_input.grid_index;
                                     gs.players[player_slot].input.build = cur_input.build;
                                     gs.players[player_slot].input.dobuild = cur_input.dobuild;
                                     gs.players[player_slot].input.build_type = cur_input.build_type;

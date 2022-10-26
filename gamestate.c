@@ -313,6 +313,8 @@ void ser_grid(char **out, struct Grid *g)
     ser_float(out, grid_rotation(g));
     ser_float(out, grid_angular_velocity(g));
 
+    ser_float(out, g->total_energy_capacity);
+
     for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
     {
         bool exists = g->boxes[i].shape != NULL;
@@ -349,6 +351,8 @@ void des_grid(char **in, struct Grid *g, struct GameState *gs)
     cpBodySetVelocity(g->body, v2_to_cp(vel));
     cpBodySetAngle(g->body, rot);
     cpBodySetAngularVelocity(g->body, angular_vel);
+
+    des_float(in, &g->total_energy_capacity);
 
     for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
     {
@@ -543,15 +547,6 @@ struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float ra
     return NULL;
 }
 
-// for random generation
-static float hash11(float p)
-{
-    p = fract(p * .1031);
-    p *= p + 33.33;
-    p *= p + p;
-    return fract(p);
-}
-
 V2 thruster_direction(struct Box *box)
 {
     assert(box->type == BoxThruster);
@@ -676,6 +671,8 @@ void process(struct GameState *gs, float dt)
 
                 // set thruster thrust from movement
                 {
+                    float energy_available = g->total_energy_capacity;
+
                     V2 target_direction = {0};
                     if (V2length(p->input.movement) > 0.0f)
                     {
@@ -690,7 +687,13 @@ void process(struct GameState *gs, float dt)
                         float wanted_thrust = -V2dot(target_direction, thruster_direction(&g->boxes[ii]));
                         wanted_thrust = clamp01(wanted_thrust);
 
-                        g->boxes[ii].thrust = wanted_thrust;
+                        float needed_energy = wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
+                        energy_available -= needed_energy;
+
+                        if(energy_available > 0.0f)
+                            g->boxes[ii].thrust = wanted_thrust;
+                        else
+                            g->boxes[ii].thrust = 0.0f;
                     }
                 }
                 // cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->input.movement, 5.0f)), v2_to_cp(grid_com(g)));
@@ -813,6 +816,12 @@ void process(struct GameState *gs, float dt)
                     cpBodyApplyForceAtWorldPoint(gs->grids[i].body, v2_to_cp(thruster_force(&gs->grids[i].boxes[ii])), v2_to_cp(box_pos(&gs->grids[i].boxes[ii])));
                 }
             }
+        }
+
+        gs->grids[i].total_energy_capacity = 0.0f;
+        for(int ii = 0; ii < batteries_len; ii++)
+        {
+            gs->grids[i].total_energy_capacity += 1.0f - batteries[ii]->energy_used; 
         }
     }
 

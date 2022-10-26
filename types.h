@@ -126,6 +126,7 @@ struct GameState
     struct Grid
     {
         cpBody *body;
+        float total_energy_capacity; // updated every frame by thruster logic
 
         struct Box
         {
@@ -336,6 +337,15 @@ static V2 V2lerp(V2 a, V2 b, float factor)
     to_return.y = lerp(a.y, b.y, factor);
 
     return to_return;
+}
+
+// for random generation
+static float hash11(float p)
+{
+    p = fract(p * .1031);
+    p *= p + 33.33;
+    p *= p + p;
+    return fract(p);
 }
 
 typedef struct Color
