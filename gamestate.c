@@ -217,7 +217,8 @@ float grid_angular_velocity(struct Grid *grid)
 V2 box_pos(struct Box *box)
 {
     struct Grid *g = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(box->shape));
-    return V2add(grid_pos(g), cp_to_v2(cpShapeGetCenterOfGravity(box->shape)));
+    V2 local_pos = cp_to_v2(cpShapeGetCenterOfGravity(box->shape));
+    return V2add(grid_pos(g), V2rotate(local_pos, grid_rotation(g)));
 }
 float box_rotation(struct Box *box)
 {
@@ -319,6 +320,10 @@ void ser_grid(char **out, struct Grid *g)
         if (exists)
         {
             ser_V2(out, cp_to_v2(cpShapeGetCenterOfGravity(g->boxes[i].shape)));
+
+            ser_int(out, g->boxes[i].type); // @Robust separate enum serialization that checks for out of bounds enum
+            ser_int(out, g->boxes[i].rotation);
+            ser_float(out, g->boxes[i].thrust);
             ser_float(out, g->boxes[i].damage);
         }
     }
@@ -353,6 +358,10 @@ void des_grid(char **in, struct Grid *g, struct GameState *gs)
             V2 pos = {0};
             des_V2(in, &pos);
             box_new(&g->boxes[i], gs, g, pos);
+
+            des_int(in, (int *)&g->boxes[i].type);
+            des_int(in, (int *)&g->boxes[i].rotation);
+            des_float(in, &g->boxes[i].thrust);
             des_float(in, &g->boxes[i].damage);
         }
     }
@@ -529,6 +538,22 @@ static float hash11(float p)
     return fract(p);
 }
 
+V2 thruster_direction(struct Box *box)
+{
+    assert(box->type == BoxThruster);
+    V2 to_return = (V2){.x = 1.0f, .y = 0.0f};
+
+    to_return = V2rotate(to_return, rotangle(box->rotation));
+    to_return = V2rotate(to_return, box_rotation(box));
+
+    return to_return;
+}
+
+V2 thruster_force(struct Box *box)
+{
+    return V2scale(thruster_direction(box), -box->thrust * THRUSTER_FORCE);
+}
+
 uint64_t tick(struct GameState *gs)
 {
     return (uint64_t)floor(gs->time / ((double)TIMESTEP));
@@ -618,6 +643,11 @@ void process(struct GameState *gs, float dt)
 
         // process movement
         {
+            // no cheating by making movement bigger than length 1
+            if (V2length(p->movement) != 0.0f)
+            {
+                p->movement = V2scale(V2normalize(p->movement), clamp(V2length(p->movement), 0.0f, 1.0f));
+            }
             if (p->currently_inhabiting_index == -1)
             {
                 // @Robust make sure movement vector is normalized so player can't cheat
@@ -628,10 +658,32 @@ void process(struct GameState *gs, float dt)
             {
                 struct Grid *g = &gs->grids[p->currently_inhabiting_index];
                 V2 target_new_pos = V2lerp(p->pos, grid_com(g), dt * 20.0f);
-                p->vel = V2scale(V2sub(target_new_pos, p->pos), 1.0f / dt);
-                cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->movement, 5.0f)), v2_to_cp(grid_com(g)));
+                p->vel = V2scale(V2sub(target_new_pos, p->pos), 1.0f / dt); // set vel correctly so newly built grids have the correct velocity copied from it
+
+                // set thruster forces from movement
+                float thruster_spice_consumption = 0.0f;
+                {
+                    V2 target_direction = {0};
+                    if (V2length(p->movement) > 0.0f)
+                    {
+                        target_direction = V2normalize(p->movement);
+                    }
+                    for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
+                    {
+                        SKIPNULL(g->boxes[ii].shape);
+                        if (g->boxes[ii].type != BoxThruster)
+                            continue;
+
+                        float wanted_thrust = -V2dot(target_direction, thruster_direction(&g->boxes[ii]));
+                        wanted_thrust = clamp01(wanted_thrust);
+                        thruster_spice_consumption += wanted_thrust;
+                        g->boxes[ii].thrust = wanted_thrust;
+                    }
+                }
+
+                // cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->movement, 5.0f)), v2_to_cp(grid_com(g)));
                 // bigger the ship, the more efficient the spice usage
-                p->spice_taken_away += dt * 0.15f / (cpBodyGetMass(g->body) * 2.0f) * V2length(p->movement);
+                p->spice_taken_away += dt * thruster_spice_consumption * THRUSTER_SPICE_PER_SECOND;
             }
             p->pos = V2add(p->pos, V2scale(p->vel, dt));
         }
@@ -700,6 +752,20 @@ void process(struct GameState *gs, float dt)
         }
 
         p->spice_taken_away = clamp01(p->spice_taken_away);
+    }
+
+    // add thrust from thruster blocks
+    for (int i = 0; i < MAX_GRIDS; i++)
+    {
+        SKIPNULL(gs->grids[i].body);
+        for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
+        {
+            SKIPNULL(gs->grids[i].boxes[ii].shape);
+            if (gs->grids[i].boxes[ii].type == BoxThruster)
+            {
+                cpBodyApplyForceAtWorldPoint(gs->grids[i].body, v2_to_cp(thruster_force(&gs->grids[i].boxes[ii])), v2_to_cp(box_pos(&gs->grids[i].boxes[ii])));
+            }
+        }
     }
 
     cpSpaceStep(gs->space, dt);

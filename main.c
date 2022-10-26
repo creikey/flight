@@ -39,8 +39,39 @@ static ENetHost *client;
 static ENetPeer *peer;
 static float zoom_target = 300.0f;
 static float zoom = 300.0f;
-static sg_image image_box;
+static sg_image image_hullpiece;
+static sg_image image_thruster;
 
+static sg_image load_image(const char *path)
+{
+    sg_image to_return = sg_alloc_image();
+
+    int x = 0;
+    int y = 0;
+    int comp = 0;
+    const int desired_channels = 4;
+    stbi_set_flip_vertically_on_load(true);
+    stbi_uc *image_data = stbi_load(path, &x, &y, &comp, desired_channels);
+    if (!image_data)
+    {
+        fprintf(stderr, "Failed to load image: %s\n", stbi_failure_reason());
+        exit(-1);
+    }
+    sg_init_image(to_return, &(sg_image_desc){
+                                 .width = x,
+                                 .height = y,
+                                 .pixel_format = SG_PIXELFORMAT_RGBA8,
+                                 .min_filter = SG_FILTER_NEAREST,
+                                 .mag_filter = SG_FILTER_NEAREST,
+                                 .data.subimage[0][0] = {
+                                     .ptr = image_data,
+                                     .size = (size_t)(x * y * desired_channels),
+                                 }});
+
+    stbi_image_free(image_data);
+
+    return to_return;
+}
 static void init(void)
 {
     // @BeforeShip make all fprintf into logging to file, warning dialog grids on failure instead of exit(-1), replace the macros in sokol with this as well, like assert
@@ -65,30 +96,8 @@ static void init(void)
 
     // image loading
     {
-        image_box = sg_alloc_image();
-
-        int x = 0;
-        int y = 0;
-        int comp = 0;
-        const int desired_channels = 4;
-        stbi_uc *image_data = stbi_load("loaded/box.png", &x, &y, &comp, desired_channels);
-        if (!image_data)
-        {
-            fprintf(stderr, "Failed to load image: %s\n", stbi_failure_reason());
-            exit(-1);
-        }
-        sg_init_image(image_box, &(sg_image_desc){
-                                     .width = x,
-                                     .height = y,
-                                     .pixel_format = SG_PIXELFORMAT_RGBA8,
-                                     .min_filter = SG_FILTER_NEAREST,
-                                     .mag_filter = SG_FILTER_NEAREST,
-                                     .data.subimage[0][0] = {
-                                         .ptr = image_data,
-                                         .size = (size_t)(x * y * desired_channels),
-                                     }});
-
-        stbi_image_free(image_data);
+        image_hullpiece = load_image("loaded/hullpiece.png");
+        image_thruster = load_image("loaded/thruster.png");
     }
 
     // socket initialization
@@ -139,20 +148,26 @@ static void init(void)
     }
 }
 
-static void drawbox(V2 gridpos, float rot, V2 bpos, float damage, bool offset_from_grid)
+static void drawbox(V2 boxpos, float rot, float damage, enum BoxType type, enum Rotation rotation)
 {
     float halfbox = BOX_SIZE / 2.0f;
     sgp_push_transform();
-    if (offset_from_grid)
+    sgp_rotate_at(rot, boxpos.x, boxpos.y);
+    
+    switch(type)
     {
-        sgp_rotate_at(rot, gridpos.x, gridpos.y);
+        case BoxHullpiece:
+            sgp_set_image(0, image_hullpiece);
+            break;
+        case BoxThruster:
+            sgp_set_image(0, image_thruster);
+            break;
+        default:
+            Log("Unknown image for box type of type %d\n", type);
+            break;
     }
-    else
-    {
-        sgp_rotate_at(rot, bpos.x, bpos.y);
-    }
-    sgp_set_image(0, image_box);
-    sgp_draw_textured_rect(bpos.x - halfbox, bpos.y -halfbox, BOX_SIZE, BOX_SIZE);
+    sgp_rotate_at( rotangle(rotation),boxpos.x,boxpos.y);
+    sgp_draw_textured_rect(boxpos.x - halfbox, boxpos.y - halfbox, BOX_SIZE, BOX_SIZE);
     sgp_reset_image(0);
 
     /*sgp_draw_line(bpos.x - halfbox, bpos.y - halfbox, bpos.x - halfbox, bpos.y + halfbox); // left
@@ -165,7 +180,7 @@ static void drawbox(V2 gridpos, float rot, V2 bpos, float damage, bool offset_fr
     if (damage > 0.0f)
     {
         sgp_set_color(0.5f, 0.1f, 0.1f, damage);
-        sgp_draw_filled_rect(bpos.x - halfbox, bpos.y - halfbox, BOX_SIZE, BOX_SIZE);
+        sgp_draw_filled_rect(boxpos.x - halfbox, boxpos.y - halfbox, BOX_SIZE, BOX_SIZE);
     }
 
     sgp_pop_transform();
@@ -438,7 +453,6 @@ static void frame(void)
 
         float halfbox = BOX_SIZE / 2.0f;
 
-        
         // mouse
         if (mouse_frozen)
         {
@@ -449,7 +463,7 @@ static void frame(void)
         // building preview
         {
             sgp_set_color(0.5f, 0.5f, 0.5f, (sin(time * 9.0f) + 1.0) / 3.0f + 0.2);
-            drawbox(build_preview.grid_pos, build_preview.grid_rotation, build_preview.pos, 0.0f, false);
+            drawbox(build_preview.pos, build_preview.grid_rotation, 0.0f, BoxHullpiece, Right);
         }
 
         // grids
@@ -463,7 +477,14 @@ static void frame(void)
                     SKIPNULL(g->boxes[ii].shape);
                     struct Box *b = &g->boxes[ii];
                     sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
-                    drawbox(grid_pos(g), grid_rotation(g), box_pos(b), b->damage, true);
+                    // debug draw force vectors for thrusters
+                    if (false){
+                        if(b->type == BoxThruster) {
+                            dbg_rect(box_pos(b));
+                            dbg_line(box_pos(b), V2add(box_pos(b), V2scale(thruster_force(b), -1.0f)));
+                        }
+                    }
+                    drawbox(box_pos(b), grid_rotation(g), b->damage, b->type, b->rotation);
                 }
                 sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
                 V2 vel = grid_vel(&gs.grids[i]);
@@ -498,7 +519,6 @@ static void frame(void)
             // V2 to = V2add(grid_pos(p->grid), vel);
             // sgp_draw_line(grid_pos(p->grid).x, grid_pos(p->grid).y, to.x, to.y);
         }
-
 
         // gold target
         set_color(GOLD);
