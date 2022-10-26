@@ -572,6 +572,7 @@ void process(struct GameState *gs, float dt)
 {
     assert(gs->space != NULL);
 
+    assert(dt == TIMESTEP); // @TODO fix tick being incremented every time
     gs->tick += 1;
     gs->time += dt;
 
