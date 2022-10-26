@@ -8,8 +8,8 @@
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
 #define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
-#define THRUSTER_FORCE 2.0f
-#define THRUSTER_SPICE_PER_SECOND 0.1f
+#define THRUSTER_FORCE 4.0f
+#define THRUSTER_SPICE_PER_SECOND 0.02f
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -22,7 +22,7 @@
 // @Robust remove this include somehow, needed for sqrt and cos
 #include <math.h>
 #include <stdint.h> // tick is unsigned integer
-#include <stdio.h> // logging on errors for functions
+#include <stdio.h>  // logging on errors for functions
 
 // including headers from headers bad
 #ifndef SOKOL_GP_INCLUDED
@@ -63,6 +63,36 @@ typedef sgp_point P2;
     fprintf(stdout, "%s:%d | ", __FILE__, __LINE__); \
     fprintf(stdout, __VA_ARGS__)
 
+enum BoxType
+{
+    BoxHullpiece,
+    BoxThruster,
+    BoxLast
+};
+
+enum Rotation
+{
+    Right,
+    Down,
+    Left,
+    Up,
+    RotationLast,
+};
+
+struct InputFrame
+{
+    uint64_t tick;
+    V2 movement;
+    bool inhabit;
+
+    // if grid_index != -1, this is in local coordinates to the grid
+    V2 build;
+    bool dobuild;
+    enum BoxType build_type;
+    enum Rotation build_rotation;
+    int grid_index;
+};
+
 // gotta update the serialization functions when this changes
 struct GameState
 {
@@ -86,13 +116,7 @@ struct GameState
         // input
         // @Cleanup make this a frameinput struct instead of copying over all the fields like this
 
-        V2 movement; // can be at maximum length 1.0
-        bool inhabit;
-
-        // if grid_index != -1, this is in local coordinates to the grid
-        V2 build; // @Robust this is messy, clean up?
-        bool dobuild;
-        int grid_index;
+        struct InputFrame input;
     } players[MAX_PLAYERS];
 
     // if body or shape is null, then that grid/box has been freed
@@ -104,19 +128,9 @@ struct GameState
 
         struct Box
         {
-            enum BoxType
-            {
-                BoxHullpiece,
-                BoxThruster,
-            } type;
-            enum Rotation
-            {
-                Right,
-                Down,
-                Left,
-                Up,
-            } rotation;
-            
+            enum BoxType type;
+            enum Rotation rotation;
+
             // thruster
             float thrust; // must be between 0 and 1
 
@@ -131,24 +145,24 @@ struct GameState
 // returns in radians
 static float rotangle(enum Rotation rot)
 {
-    switch(rot)
+    switch (rot)
     {
-        case Right:
-            return 0.0f;
-            break;
-        case Down:
-            return -PI/2.0f;
-            break;
-        case Left:
-            return -PI;
-            break;
-        case Up:
-            return -3.0f * PI/2.0f;
-            break;
-        default:
-            Log("Unknown rotation %d\n", rot);
-            return -0.0f;
-            break;
+    case Right:
+        return 0.0f;
+        break;
+    case Down:
+        return -PI / 2.0f;
+        break;
+    case Left:
+        return -PI;
+        break;
+    case Up:
+        return -3.0f * PI / 2.0f;
+        break;
+    default:
+        Log("Unknown rotation %d\n", rot);
+        return -0.0f;
+        break;
     }
 }
 
@@ -160,17 +174,7 @@ struct ServerToClient
 
 struct ClientToServer
 {
-    struct InputFrame
-    {
-        uint64_t tick;
-        V2 movement;
-        bool inhabit;
-
-        // if grid_index != -1, this is in local coordinates to the grid
-        V2 build;
-        bool dobuild;
-        int grid_index;
-    } inputs[INPUT_BUFFER];
+    struct InputFrame inputs[INPUT_BUFFER];
 };
 
 // server
@@ -218,6 +222,15 @@ void dbg_rect(V2 center);
 
 // all the math is static so that it can be defined in each compilation unit its included in
 
+typedef struct AABB
+{
+    float x, y, width, height;
+} AABB;
+
+static bool has_point(AABB aabb, V2 point)
+{
+    return point.x > aabb.x && point.x < aabb.x + aabb.width && point.y > aabb.y && point.y < aabb.y + aabb.height;
+}
 
 static V2 V2add(V2 a, V2 b)
 {

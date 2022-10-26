@@ -39,8 +39,37 @@ static ENetHost *client;
 static ENetPeer *peer;
 static float zoom_target = 300.0f;
 static float zoom = 300.0f;
-static sg_image image_hullpiece;
-static sg_image image_thruster;
+static sg_image image_itemframe;
+static sg_image image_itemframe_selected;
+static int cur_editing_boxtype = -1;
+static int cur_editing_rotation = 0;
+
+static struct BoxInfo
+{
+    enum BoxType type;
+    const char *image_path;
+    sg_image image;
+} boxes[] = { // if added to here will show up in toolbar, is placeable
+    {
+        .type = BoxHullpiece,
+        .image_path = "loaded/hullpiece.png",
+    },
+    {
+        .type = BoxThruster,
+        .image_path = "loaded/thruster.png",
+    }};
+const int boxes_len = sizeof(boxes) / sizeof(*boxes);
+
+struct BoxInfo boxinfo(enum BoxType type)
+{
+    for (int i = 0; i < boxes_len; i++)
+    {
+        if (boxes[i].type == type)
+            return boxes[i];
+    }
+    Log("No box info found for type %d\n", type);
+    return (struct BoxInfo){0};
+}
 
 static sg_image load_image(const char *path)
 {
@@ -96,8 +125,12 @@ static void init(void)
 
     // image loading
     {
-        image_hullpiece = load_image("loaded/hullpiece.png");
-        image_thruster = load_image("loaded/thruster.png");
+        for (int i = 0; i < boxes_len; i++)
+        {
+            boxes[i].image = load_image(boxes[i].image_path);
+        }
+        image_itemframe = load_image("loaded/itemframe.png");
+        image_itemframe_selected = load_image("loaded/itemframe_selected.png");
     }
 
     // socket initialization
@@ -153,20 +186,9 @@ static void drawbox(V2 boxpos, float rot, float damage, enum BoxType type, enum 
     float halfbox = BOX_SIZE / 2.0f;
     sgp_push_transform();
     sgp_rotate_at(rot, boxpos.x, boxpos.y);
-    
-    switch(type)
-    {
-        case BoxHullpiece:
-            sgp_set_image(0, image_hullpiece);
-            break;
-        case BoxThruster:
-            sgp_set_image(0, image_thruster);
-            break;
-        default:
-            Log("Unknown image for box type of type %d\n", type);
-            break;
-    }
-    sgp_rotate_at( rotangle(rotation),boxpos.x,boxpos.y);
+
+    sgp_set_image(0, boxinfo(type).image);
+    sgp_rotate_at(rotangle(rotation), boxpos.x, boxpos.y);
     sgp_draw_textured_rect(boxpos.x - halfbox, boxpos.y - halfbox, BOX_SIZE, BOX_SIZE);
     sgp_reset_image(0);
 
@@ -200,6 +222,69 @@ static void draw_circle(V2 point, float radius)
         lines[i].b = V2add(lines[i].b, point);
     }
     sgp_draw_lines(lines, POINTS);
+}
+
+static void ui(bool draw, float width, float height)
+{
+    // draw spice bar
+    if (draw && myplayer != -1)
+    {
+        sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
+        float margin = width * 0.1;
+        float bar_width = width - margin * 2.0f;
+        sgp_draw_filled_rect(margin, 80.0f, bar_width, 30.0f);
+        sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+        sgp_draw_filled_rect(margin, 80.0f, bar_width * (1.0f - gs.players[myplayer].spice_taken_away), 30.0f);
+    }
+
+    // draw item toolbar
+    {
+
+        int itemframe_width = sg_query_image_info(image_itemframe).width * 2.0f;
+        int itemframe_height = sg_query_image_info(image_itemframe).height * 2.0f;
+        int total_width = itemframe_width * boxes_len;
+        float item_width = itemframe_width * 0.75;
+        float item_height = itemframe_height * 0.75;
+        float item_offset_x = (itemframe_width - item_width) / 2.0f;
+        float item_offset_y = (itemframe_height - item_height) / 2.0f;
+
+        float x = width / 2.0 - total_width / 2.0;
+        float y = height - itemframe_height * 1.5;
+        for (int i = 0; i < boxes_len; i++)
+        {
+            if (has_point((AABB){
+                              .x = x,
+                              .y = y,
+                              .width = itemframe_width,
+                              .height = itemframe_height,
+                          },
+                          mouse_pos) &&
+                mouse_pressed)
+            {
+                // "handle" mouse pressed
+                mouse_pressed = false;
+                cur_editing_boxtype = i;
+            }
+            if (draw)
+            {
+                sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+                if (cur_editing_boxtype == i)
+                {
+                    sgp_set_image(0, image_itemframe_selected);
+                }
+                else
+                {
+                    sgp_set_image(0, image_itemframe);
+                }
+                sgp_draw_textured_rect(x, y, itemframe_width, itemframe_height);
+                sgp_set_image(0, boxinfo((enum BoxType)i).image);
+                sgp_draw_textured_rect(x + item_offset_x, y + item_offset_y, item_width, item_height);
+                sgp_reset_image(0);
+            }
+
+            x += itemframe_width;
+        }
+    }
 }
 
 static void frame(void)
@@ -269,6 +354,7 @@ static void frame(void)
     }
 
     // gameplay
+    ui(false, width, height); // handle events
     V2 build_target_pos = {0};
     float build_target_rotation = 0.0f;
     V2 camera_pos = {0};
@@ -356,6 +442,8 @@ static void frame(void)
             cur_input_frame.grid_index = grid_index;
             if (cur_input_frame.dobuild)
             {
+                cur_input_frame.build_type = cur_editing_boxtype;
+                cur_input_frame.build_rotation = cur_editing_rotation;
                 if (grid_index != -1)
                 {
                     cur_input_frame.build = grid_world_to_local(&gs.grids[cur_input_frame.grid_index], build_preview.pos);
@@ -410,122 +498,119 @@ static void frame(void)
         sgp_set_color(0.1f, 0.1f, 0.1f, 1.0f);
         sgp_clear();
 
-        // draw spice bar
-        if (myplayer != -1)
-        {
-            sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
-            float margin = width * 0.1;
-            float bar_width = width - margin * 2.0f;
-            sgp_draw_filled_rect(margin, 80.0f, bar_width, 30.0f);
-            sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-            sgp_draw_filled_rect(margin, 80.0f, bar_width * (1.0f - gs.players[myplayer].spice_taken_away), 30.0f);
-        }
-
         // sokol drawing library draw in world space
         // world space coordinates are +Y up, -Y down. Like normal cartesian coords
         {
+            sgp_push_transform();
             sgp_translate(width / 2, height / 2);
             sgp_scale_at(zoom, -zoom, 0.0f, 0.0f);
 
             // camera go to player
-
             sgp_translate(-camera_pos.x, -camera_pos.y);
-        }
 
-        if (myplayer != -1)
-        {
-            static float hand_reach_alpha = 1.0f;
-            hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt * 5.0);
-            sgp_set_color(1.0f, 1.0f, 1.0f, hand_reach_alpha);
-            draw_circle(gs.players[myplayer].pos, MAX_HAND_REACH);
-        }
-
-        // stars
-        sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-        const int num = 50;
-        for (int x = -num; x < num; x++)
-        {
-            for (int y = -num; y < num; y++)
+            // hand reached limit circle
+            if (myplayer != -1)
             {
-                sgp_draw_point((float)x * 0.1f, (float)y * 0.1f);
+                static float hand_reach_alpha = 1.0f;
+                hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt * 5.0);
+                sgp_set_color(1.0f, 1.0f, 1.0f, hand_reach_alpha);
+                draw_circle(gs.players[myplayer].pos, MAX_HAND_REACH);
             }
-        }
 
-        float halfbox = BOX_SIZE / 2.0f;
-
-        // mouse
-        if (mouse_frozen)
-        {
-            sgp_set_color(1.0f, 0.0f, 0.0f, 0.5f);
-            sgp_draw_filled_rect(world_mouse_pos.x, world_mouse_pos.y, 0.1f, 0.1f);
-        }
-
-        // building preview
-        {
-            sgp_set_color(0.5f, 0.5f, 0.5f, (sin(time * 9.0f) + 1.0) / 3.0f + 0.2);
-            drawbox(build_preview.pos, build_preview.grid_rotation, 0.0f, BoxHullpiece, Right);
-        }
-
-        // grids
-        {
-            for (int i = 0; i < MAX_GRIDS; i++)
+            // stars
+            sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+            const int num = 50;
+            for (int x = -num; x < num; x++)
             {
-                SKIPNULL(gs.grids[i].body);
-                struct Grid *g = &gs.grids[i];
-                for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
+                for (int y = -num; y < num; y++)
                 {
-                    SKIPNULL(g->boxes[ii].shape);
-                    struct Box *b = &g->boxes[ii];
-                    sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
-                    // debug draw force vectors for thrusters
-                    if (false){
-                        if(b->type == BoxThruster) {
-                            dbg_rect(box_pos(b));
-                            dbg_line(box_pos(b), V2add(box_pos(b), V2scale(thruster_force(b), -1.0f)));
-                        }
-                    }
-                    drawbox(box_pos(b), grid_rotation(g), b->damage, b->type, b->rotation);
+                    sgp_draw_point((float)x * 0.1f, (float)y * 0.1f);
                 }
-                sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
-                V2 vel = grid_vel(&gs.grids[i]);
-                V2 to = V2add(grid_com(g), vel);
-                sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
             }
-        }
 
-        // player
-        for (int i = 0; i < MAX_PLAYERS; i++)
-        {
-            struct Player *p = &gs.players[i];
-            if (!p->connected)
-                continue;
-            static float opacities[MAX_PLAYERS] = {1.0f};
-            opacities[i] = lerp(opacities[i], p->currently_inhabiting_index == -1 ? 1.0f : 0.1f, dt * 7.0f);
-            Color col_to_draw = Collerp(WHITE, GOLD, p->goldness);
-            col_to_draw.a = opacities[i];
+            float halfbox = BOX_SIZE / 2.0f;
 
-            set_color(col_to_draw);
-            sgp_push_transform();
-            float psize = 0.1f;
-            sgp_draw_filled_rect(p->pos.x - psize / 2.0f, p->pos.y - psize / 2.0f, psize, psize);
+            // mouse
+            if (mouse_frozen)
+            {
+                sgp_set_color(1.0f, 0.0f, 0.0f, 0.5f);
+                sgp_draw_filled_rect(world_mouse_pos.x, world_mouse_pos.y, 0.1f, 0.1f);
+            }
+
+            // building preview
+            if(cur_editing_boxtype != -1){
+                sgp_set_color(0.5f, 0.5f, 0.5f, (sin(time * 9.0f) + 1.0) / 3.0f + 0.2);
+                drawbox(build_preview.pos, build_preview.grid_rotation, 0.0f, cur_editing_boxtype, cur_editing_rotation);
+            }
+
+            // grids
+            {
+                for (int i = 0; i < MAX_GRIDS; i++)
+                {
+                    SKIPNULL(gs.grids[i].body);
+                    struct Grid *g = &gs.grids[i];
+                    for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
+                    {
+                        SKIPNULL(g->boxes[ii].shape);
+                        struct Box *b = &g->boxes[ii];
+                        sgp_set_color(0.5f, 0.5f, 0.5f, 1.0f);
+                        // debug draw force vectors for thrusters
+                        if (false)
+                        {
+                            if (b->type == BoxThruster)
+                            {
+                                dbg_rect(box_pos(b));
+                                dbg_line(box_pos(b), V2add(box_pos(b), V2scale(thruster_force(b), -1.0f)));
+                            }
+                        }
+                        drawbox(box_pos(b), grid_rotation(g), b->damage, b->type, b->rotation);
+                    }
+                    sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
+                    V2 vel = grid_vel(&gs.grids[i]);
+                    V2 to = V2add(grid_com(g), vel);
+                    sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
+                }
+            }
+
+            // player
+            for (int i = 0; i < MAX_PLAYERS; i++)
+            {
+                struct Player *p = &gs.players[i];
+                if (!p->connected)
+                    continue;
+                static float opacities[MAX_PLAYERS] = {1.0f};
+                opacities[i] = lerp(opacities[i], p->currently_inhabiting_index == -1 ? 1.0f : 0.1f, dt * 7.0f);
+                Color col_to_draw = Collerp(WHITE, GOLD, p->goldness);
+                col_to_draw.a = opacities[i];
+
+                set_color(col_to_draw);
+                sgp_push_transform();
+                float psize = 0.1f;
+                sgp_draw_filled_rect(p->pos.x - psize / 2.0f, p->pos.y - psize / 2.0f, psize, psize);
+                sgp_pop_transform();
+                // sgp_rotate_at(grid_rotation(p->grid), grid_pos(p->grid).x, grid_pos(p->grid).y);
+                // V2 bpos = grid_pos(p->grid);
+                // sgp_draw_filled_rect(grid_pos(p->grid).x - halfbox, grid_pos(p->grid).y - halfbox, BOX_SIZE, BOX_SIZE);
+                // sgp_pop_transform();
+
+                // sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
+                // V2 vel = grid_vel(p->grid);
+                // V2 to = V2add(grid_pos(p->grid), vel);
+                // sgp_draw_line(grid_pos(p->grid).x, grid_pos(p->grid).y, to.x, to.y);
+            }
+
+            // gold target
+            set_color(GOLD);
+            sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
+
+            sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+            dbg_drawall();
+
             sgp_pop_transform();
-            // sgp_rotate_at(grid_rotation(p->grid), grid_pos(p->grid).x, grid_pos(p->grid).y);
-            // V2 bpos = grid_pos(p->grid);
-            // sgp_draw_filled_rect(grid_pos(p->grid).x - halfbox, grid_pos(p->grid).y - halfbox, BOX_SIZE, BOX_SIZE);
-            // sgp_pop_transform();
-
-            // sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
-            // V2 vel = grid_vel(p->grid);
-            // V2 to = V2add(grid_pos(p->grid), vel);
-            // sgp_draw_line(grid_pos(p->grid).x, grid_pos(p->grid).y, to.x, to.y);
         }
 
-        // gold target
-        set_color(GOLD);
-        sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
-
-        sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-        dbg_drawall();
+        // UI drawn in screen space
+        ui(true, width, height);
 
         sg_pass_action pass_action = {0};
         sg_begin_default_pass(&pass_action, width, height);
@@ -553,6 +638,18 @@ void event(const sapp_event *e)
         {
             mouse_frozen = !mouse_frozen;
         }
+        if (e->key_code == SAPP_KEYCODE_R)
+        {
+            cur_editing_rotation += 1;
+            cur_editing_rotation %= RotationLast;
+        }
+        int key_num = e->key_code - SAPP_KEYCODE_0;
+        int target_box = key_num - 1;
+        if(target_box < BoxLast)
+        {
+            cur_editing_boxtype = target_box;
+        }
+
         if (!mouse_frozen)
         {
             keydown[e->key_code] = true;

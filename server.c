@@ -157,20 +157,22 @@ void server(void *data)
                                 if(received.inputs[i].tick <= latest_tick)
                                     continue; // don't reprocess inputs already processed
                                 struct InputFrame cur_input = received.inputs[i];
-                                gs.players[player_slot].movement = cur_input.movement;
-                                gs.players[player_slot].grid_index = cur_input.grid_index;
+                                gs.players[player_slot].input.movement = cur_input.movement;
+                                gs.players[player_slot].input.grid_index = cur_input.grid_index;
 
-                                // for these "event" inputs, only modify the game state if the event is true.
+                                // for these "event" inputs, only modify the current input if the event is true.
                                 // while processing the gamestate, will mark it as false once processed. This
                                 // prevents setting the event input to false before it's been processed.
                                 if (cur_input.inhabit)
                                 {
-                                    gs.players[player_slot].inhabit = cur_input.inhabit;
+                                    gs.players[player_slot].input.inhabit = cur_input.inhabit;
                                 }
                                 if (cur_input.dobuild)
                                 {
-                                    gs.players[player_slot].build = cur_input.build;
-                                    gs.players[player_slot].dobuild = cur_input.dobuild;
+                                    gs.players[player_slot].input.build = cur_input.build;
+                                    gs.players[player_slot].input.dobuild = cur_input.dobuild;
+                                    gs.players[player_slot].input.build_type = cur_input.build_type;
+                                    gs.players[player_slot].input.build_rotation = cur_input.build_rotation;
                                 }
                             }
                             player_to_latest_tick_processed[player_slot] = received.inputs[0].tick;

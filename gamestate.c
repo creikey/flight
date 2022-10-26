@@ -367,6 +367,30 @@ void des_grid(char **in, struct Grid *g, struct GameState *gs)
     }
 }
 
+void ser_inputframe(char **out, struct InputFrame *i)
+{
+    ser_V2(out, i->movement);
+    ser_bool(out, i->inhabit);
+
+    ser_V2(out, i->build);
+    ser_bool(out, i->dobuild);
+    ser_int(out, i->build_type);
+    ser_int(out, i->build_rotation);
+    ser_int(out, i->grid_index);
+}
+
+void des_inputframe(char **in, struct InputFrame *i)
+{
+    des_V2(in, &i->movement);
+    des_bool(in, &i->inhabit);
+
+    des_V2(in, &i->build);
+    des_bool(in, &i->dobuild);
+    des_int(in, (int *)&i->build_type);
+    des_int(in, (int *)&i->build_rotation);
+    des_int(in, &i->grid_index);
+}
+
 void ser_player(char **out, struct Player *p)
 {
     ser_bool(out, p->connected);
@@ -378,13 +402,7 @@ void ser_player(char **out, struct Player *p)
         ser_float(out, p->spice_taken_away);
         ser_float(out, p->goldness);
 
-        // input
-        ser_V2(out, p->movement);
-        ser_bool(out, p->inhabit);
-
-        ser_V2(out, p->build);
-        ser_bool(out, p->dobuild);
-        ser_int(out, p->grid_index);
+        ser_inputframe(out, &p->input);
     }
 }
 
@@ -399,13 +417,7 @@ void des_player(char **in, struct Player *p, struct GameState *gs)
         des_float(in, &p->spice_taken_away);
         des_float(in, &p->goldness);
 
-        // input
-        des_V2(in, &p->movement);
-        des_bool(in, &p->inhabit);
-
-        des_V2(in, &p->build);
-        des_bool(in, &p->dobuild);
-        des_int(in, &p->grid_index);
+        des_inputframe(in, &p->input);
     }
 }
 
@@ -586,9 +598,9 @@ void process(struct GameState *gs, float dt)
             p->currently_inhabiting_index = -1;
         }
 
-        if (p->inhabit)
+        if (p->input.inhabit)
         {
-            p->inhabit = false; // "handle" the input
+            p->input.inhabit = false; // "handle" the input
             if (p->currently_inhabiting_index == -1)
             {
 
@@ -644,15 +656,15 @@ void process(struct GameState *gs, float dt)
         // process movement
         {
             // no cheating by making movement bigger than length 1
-            if (V2length(p->movement) != 0.0f)
+            if (V2length(p->input.movement) != 0.0f)
             {
-                p->movement = V2scale(V2normalize(p->movement), clamp(V2length(p->movement), 0.0f, 1.0f));
+                p->input.movement = V2scale(V2normalize(p->input.movement), clamp(V2length(p->input.movement), 0.0f, 1.0f));
             }
             if (p->currently_inhabiting_index == -1)
             {
                 // @Robust make sure movement vector is normalized so player can't cheat
-                p->vel = V2add(p->vel, V2scale(p->movement, dt * 0.5f));
-                p->spice_taken_away += dt * 0.15f * V2length(p->movement);
+                p->vel = V2add(p->vel, V2scale(p->input.movement, dt * 0.5f));
+                p->spice_taken_away += dt * 0.15f * V2length(p->input.movement);
             }
             else
             {
@@ -664,9 +676,9 @@ void process(struct GameState *gs, float dt)
                 float thruster_spice_consumption = 0.0f;
                 {
                     V2 target_direction = {0};
-                    if (V2length(p->movement) > 0.0f)
+                    if (V2length(p->input.movement) > 0.0f)
                     {
-                        target_direction = V2normalize(p->movement);
+                        target_direction = V2normalize(p->input.movement);
                     }
                     for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
                     {
@@ -681,23 +693,23 @@ void process(struct GameState *gs, float dt)
                     }
                 }
 
-                // cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->movement, 5.0f)), v2_to_cp(grid_com(g)));
+                // cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->input.movement, 5.0f)), v2_to_cp(grid_com(g)));
                 // bigger the ship, the more efficient the spice usage
                 p->spice_taken_away += dt * thruster_spice_consumption * THRUSTER_SPICE_PER_SECOND;
             }
             p->pos = V2add(p->pos, V2scale(p->vel, dt));
         }
 
-        if (p->dobuild)
+        if (p->input.dobuild)
         {
-            p->dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
+            p->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
 
             cpPointQueryInfo info = {0};
             // @Robust make sure to query only against boxes...
-            V2 world_build = p->build;
-            if (p->grid_index != -1)
+            V2 world_build = p->input.build;
+            if (p->input.grid_index != -1)
             {
-                world_build = grid_local_to_world(&gs->grids[p->grid_index], p->build);
+                world_build = grid_local_to_world(&gs->grids[p->input.grid_index], p->input.build);
             }
             cpShape *nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES), &info);
             if (nearest != NULL)
@@ -707,7 +719,7 @@ void process(struct GameState *gs, float dt)
                 grid_remove_box(gs->space, cur_grid, cur_box);
                 p->spice_taken_away -= 0.1f;
             }
-            else if (p->grid_index == -1)
+            else if (p->input.grid_index == -1)
             {
                 // @Robust better memory mgmt
                 struct Grid *empty_grid = NULL;
@@ -719,15 +731,18 @@ void process(struct GameState *gs, float dt)
                         break;
                     }
                 }
+                // @Robust cleanly fail when not enough grids
                 assert(empty_grid != NULL);
                 p->spice_taken_away += 0.2f;
                 grid_new(empty_grid, gs, world_build);
                 box_new(&empty_grid->boxes[0], gs, empty_grid, (V2){0});
+                empty_grid->boxes[0].type = p->input.build_type;
+                empty_grid->boxes[0].rotation = p->input.build_rotation;
                 cpBodySetVelocity(empty_grid->body, v2_to_cp(p->vel));
             }
             else
             {
-                struct Grid *g = &gs->grids[p->grid_index];
+                struct Grid *g = &gs->grids[p->input.grid_index];
 
                 struct Box *empty_box = NULL;
                 for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
@@ -742,6 +757,8 @@ void process(struct GameState *gs, float dt)
                 assert(empty_box != NULL);
                 p->spice_taken_away += 0.1f;
                 box_new(empty_box, gs, g, grid_world_to_local(g, world_build));
+                empty_box->type = p->input.build_type;
+                empty_box->rotation = p->input.build_rotation;
             }
         }
 
