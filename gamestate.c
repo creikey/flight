@@ -35,6 +35,23 @@ static struct Box *getbox(cpShape *shape)
     return (struct Box *)cpShapeGetUserData(shape);
 }
 
+static struct Grid *find_empty_grid(struct GameState *gs)
+{
+    // @Robust better memory mgmt
+    struct Grid *empty_grid = NULL;
+    for (int ii = 0; ii < MAX_GRIDS; ii++)
+    {
+        if (gs->grids[ii].body == NULL)
+        {
+            empty_grid = &gs->grids[ii];
+            break;
+        }
+    }
+    // @Robust cleanly fail when not enough grids
+    assert(empty_grid != NULL);
+    return empty_grid;
+}
+
 static int grid_num_boxes(struct Grid *g)
 {
     int to_return = 0;
@@ -69,14 +86,187 @@ void grid_destroy(cpSpace *space, struct Grid *grid)
     grid->body = NULL;
 }
 
+// removes boxe from grid, then ensures that the rule that grids must not have
+// holes in them is applied.
+// uses these forward declared serialization functions to duplicate a box
+void ser_box(char **out, struct Box *b);
+void des_box(char **in, struct Box *new_box, struct GameState *gs, struct Grid *g);
 static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
 {
     box_destroy(space, box);
 
-    if (grid_num_boxes(grid) == 0)
+    struct GameState *gs = (struct GameState *)cpSpaceGetUserData(space);
+    int num_boxes = grid_num_boxes(grid);
+    if (num_boxes == 0)
     {
         grid_destroy(space, grid);
+        return;
     }
+    if (num_boxes == 1)
+        return;
+
+        // could be a gap between boxes in the grid, separate into multiple grids
+
+        // goal: create list of "real grids" from this grid that have boxes which are
+        // ONLY connected horizontally and vertically. whichever one of these "real grids"
+        // has the most blocks stays the current grid, so
+        // if a player is inhabiting this ship it stays that ship.
+        // The other "real grids" are allocated as new grids
+
+#define MAX_SEPARATE_GRIDS 8
+    struct Box *separate_grids[MAX_SEPARATE_GRIDS][MAX_BOXES_PER_GRID] = {0};
+    int cur_separate_grid_index = 0;
+    int processed_boxes = 0;
+
+    struct Box **biggest_separate_grid = separate_grids[0];
+    int biggest_separate_grid_length = 0;
+
+    // process all boxes into separate, but correctly connected, grids
+    while (processed_boxes < num_boxes)
+    {
+        // grab an unprocessed box, one not in separate_grids, to start the flood fill
+        struct Box *unprocessed = NULL;
+        for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
+        {
+            SKIPNULL(grid->boxes[i].shape);
+            struct Box *cur = &grid->boxes[i];
+            bool cur_has_been_processed = false;
+            for (int sep_i = 0; sep_i < MAX_SEPARATE_GRIDS; sep_i++)
+            {
+                for (int sep_box_i = 0; sep_box_i < MAX_BOXES_PER_GRID; sep_box_i++)
+                {
+                    if (cur == separate_grids[sep_i][sep_box_i])
+                    {
+                        cur_has_been_processed = true;
+                        break;
+                    }
+                }
+                if (cur_has_been_processed)
+                    break;
+            }
+            if (!cur_has_been_processed)
+            {
+                unprocessed = cur;
+                break;
+            }
+        }
+        assert(unprocessed != NULL);
+
+        // flood fill from this unprocessed box, adding each result to a new separate grid
+        // https://en.wikipedia.org/wiki/Flood_fill
+        struct Box **cur_separate_grid = separate_grids[cur_separate_grid_index];
+        cur_separate_grid_index++;
+        int separate_grid_i = 0;
+        {
+            // queue stuff @Robust use factored datastructure
+            struct Box *Q[MAX_BOXES_PER_GRID] = {0};
+            int Q_i = 0;
+
+            Q[Q_i] = unprocessed;
+            Q_i++;
+            struct Box *N = NULL;
+            while (Q_i > 0)
+            {
+                N = Q[Q_i - 1];
+                Q_i--;
+                if (true) // if node "inside", this is always true
+                {
+                    cur_separate_grid[separate_grid_i] = N;
+                    separate_grid_i++;
+                    processed_boxes++;
+
+                    V2 cur_local_pos = box_local_pos(N);
+                    const V2 dirs[] = {
+                        (V2){.x = -1.0f, .y = 0.0f},
+                        (V2){.x = 1.0f, .y = 0.0f},
+                        (V2){.x = 0.0f, .y = 1.0f},
+                        (V2){.x = 0.0f, .y = -1.0f},
+                    };
+                    int num_dirs = sizeof(dirs) / sizeof(*dirs);
+
+                    for (int ii = 0; ii < num_dirs; ii++)
+                    {
+                        V2 dir = dirs[ii];
+                        // @Robust faster method, not O(N^2), of getting the box
+                        // in the direction currently needed
+                        V2 wanted_local_pos = V2add(cur_local_pos, V2scale(dir, BOX_SIZE));
+                        struct Box *box_in_direction = NULL;
+                        for (int iii = 0; iii < MAX_BOXES_PER_GRID; iii++)
+                        {
+                            SKIPNULL(grid->boxes[iii].shape);
+                            if (V2cmp(box_local_pos(&grid->boxes[iii]), wanted_local_pos, 0.01f))
+                            {
+                                box_in_direction = &grid->boxes[iii];
+                                break;
+                            }
+                        }
+                        if (box_in_direction != NULL)
+                        {
+                            // make sure not already added to the separate grid
+                            bool already_in_separate_grid = false;
+                            for (int sepgrid_i = 0; sepgrid_i < MAX_BOXES_PER_GRID; sepgrid_i++)
+                            {
+                                if (cur_separate_grid[sepgrid_i] == NULL)
+                                    break; // assumed to be end of the current separate grid list
+                                if (cur_separate_grid[sepgrid_i] == box_in_direction)
+                                {
+                                    already_in_separate_grid = true;
+                                    break;
+                                }
+                            }
+                            if (!already_in_separate_grid)
+                            {
+                                Q[Q_i] = box_in_direction;
+                                Q_i++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (separate_grid_i > biggest_separate_grid_length)
+        {
+            biggest_separate_grid_length = separate_grid_i;
+            biggest_separate_grid = cur_separate_grid;
+        }
+    }
+
+    float ang_vel_per_mass = cpBodyGetAngularVelocity(grid->body) / cpBodyGetMass(grid->body);
+
+    // create new grids for all lists of boxes except for the biggest one.
+    // delete the boxes out of the current grid as I pull boxes into separate ones
+    // which are no longer connected
+    for (int sepgrid_i = 0; sepgrid_i < MAX_SEPARATE_GRIDS; sepgrid_i++)
+    {
+        if (separate_grids[sepgrid_i] == biggest_separate_grid)
+            continue; // leave the boxes of the biggest separate untouched
+        struct Box **cur_separate_grid = separate_grids[sepgrid_i];
+        int cur_sepgrid_i = 0;
+        if (cur_separate_grid[cur_sepgrid_i] == NULL)
+            continue; // this separate grid is empty
+
+        struct Grid *new_grid = find_empty_grid(gs);
+        grid_new(new_grid, gs, grid_pos(grid)); // all grids have same pos but different center of mass (com)
+        cpBodySetAngle(new_grid->body, grid_rotation(grid));
+        cpBodySetVelocity(new_grid->body, cpBodyGetVelocity(grid->body));
+        int new_grid_box_i = 0;
+        while (cur_separate_grid[cur_sepgrid_i] != NULL)
+        {
+            char box_bytes[128];
+            char * cur = box_bytes;
+            // duplicate the box by serializing it then deserializing it
+            ser_box(&cur, cur_separate_grid[cur_sepgrid_i]);
+            box_destroy(space, cur_separate_grid[cur_sepgrid_i]);
+            cur = box_bytes;
+            des_box(&cur,&new_grid->boxes[new_grid_box_i],gs, new_grid);
+
+            cur_sepgrid_i++;
+            new_grid_box_i++;
+        }
+        cpBodySetAngularVelocity(new_grid->body, ang_vel_per_mass * cpBodyGetMass(new_grid->body));
+    }
+    cpBodySetAngularVelocity(grid->body, ang_vel_per_mass * cpBodyGetMass(grid->body));
 }
 
 static void postStepRemove(cpSpace *space, void *key, void *data)
@@ -111,6 +301,7 @@ static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
 void initialize(struct GameState *gs)
 {
     gs->space = cpSpaceNew();
+    cpSpaceSetUserData(gs->space, (cpDataPointer)gs);                          // needed in the handler
     cpCollisionHandler *handler = cpSpaceAddCollisionHandler(gs->space, 0, 0); // @Robust limit collision type to just blocks that can be damaged
     // handler->beginFunc = begin;
     handler->postSolveFunc = on_damage;
@@ -214,11 +405,17 @@ float grid_angular_velocity(struct Grid *grid)
 {
     return cpBodyGetAngularVelocity(grid->body);
 }
+struct Grid *box_grid(struct Box *box)
+{
+    return (struct Grid *)cpBodyGetUserData(cpShapeGetBody(box->shape));
+}
+V2 box_local_pos(struct Box *box)
+{
+    return cp_to_v2(cpShapeGetCenterOfGravity(box->shape));
+}
 V2 box_pos(struct Box *box)
 {
-    struct Grid *g = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(box->shape));
-    V2 local_pos = cp_to_v2(cpShapeGetCenterOfGravity(box->shape));
-    return V2add(grid_pos(g), V2rotate(local_pos, grid_rotation(g)));
+    return V2add(grid_pos(box_grid(box)), V2rotate(box_local_pos(box), grid_rotation(box_grid(box))));
 }
 float box_rotation(struct Box *box)
 {
@@ -303,6 +500,30 @@ void des_V2(char **in, V2 *v)
     des_float(in, &v->y);
 }
 
+void ser_box(char **out, struct Box *b)
+{
+    ser_V2(out, cp_to_v2(cpShapeGetCenterOfGravity(b->shape)));
+
+    ser_int(out, b->type); // @Robust separate enum serialization that checks for out of bounds enum
+    ser_int(out, b->rotation);
+    ser_float(out, b->thrust);
+    ser_float(out, b->energy_used);
+    ser_float(out, b->damage);
+}
+
+void des_box(char **in, struct Box *new_box, struct GameState *gs, struct Grid *g)
+{
+    V2 pos = {0};
+    des_V2(in, &pos);
+    box_new(new_box, gs, g, pos);
+
+    des_int(in, (int *)&new_box->type);
+    des_int(in, (int *)&new_box->rotation);
+    des_float(in, &new_box->thrust);
+    des_float(in, &new_box->energy_used);
+    des_float(in, &new_box->damage);
+}
+
 void ser_grid(char **out, struct Grid *g)
 {
     // grid must not be null, dummy!
@@ -321,13 +542,7 @@ void ser_grid(char **out, struct Grid *g)
         ser_bool(out, exists);
         if (exists)
         {
-            ser_V2(out, cp_to_v2(cpShapeGetCenterOfGravity(g->boxes[i].shape)));
-
-            ser_int(out, g->boxes[i].type); // @Robust separate enum serialization that checks for out of bounds enum
-            ser_int(out, g->boxes[i].rotation);
-            ser_float(out, g->boxes[i].thrust);
-            ser_float(out, g->boxes[i].energy_used);
-            ser_float(out, g->boxes[i].damage);
+            ser_box(out, &g->boxes[i]);
         }
     }
 }
@@ -354,21 +569,14 @@ void des_grid(char **in, struct Grid *g, struct GameState *gs)
 
     des_float(in, &g->total_energy_capacity);
 
+    // iterate over every box like this so box index is preserved on deserialization
     for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
     {
         bool exists = false;
         des_bool(in, &exists);
         if (exists)
         {
-            V2 pos = {0};
-            des_V2(in, &pos);
-            box_new(&g->boxes[i], gs, g, pos);
-
-            des_int(in, (int *)&g->boxes[i].type);
-            des_int(in, (int *)&g->boxes[i].rotation);
-            des_float(in, &g->boxes[i].thrust);
-            des_float(in, &g->boxes[i].energy_used);
-            des_float(in, &g->boxes[i].damage);
+            des_box(in, &g->boxes[i], gs, g);
         }
     }
 }
@@ -691,7 +899,7 @@ void process(struct GameState *gs, float dt)
                         float needed_energy = wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
                         energy_available -= needed_energy;
 
-                        if(energy_available > 0.0f)
+                        if (energy_available > 0.0f)
                             g->boxes[ii].thrust = wanted_thrust;
                         else
                             g->boxes[ii].thrust = 0.0f;
@@ -724,18 +932,7 @@ void process(struct GameState *gs, float dt)
             }
             else if (p->input.grid_index == -1)
             {
-                // @Robust better memory mgmt
-                struct Grid *empty_grid = NULL;
-                for (int ii = 0; ii < MAX_GRIDS; ii++)
-                {
-                    if (gs->grids[ii].body == NULL)
-                    {
-                        empty_grid = &gs->grids[ii];
-                        break;
-                    }
-                }
-                // @Robust cleanly fail when not enough grids
-                assert(empty_grid != NULL);
+                struct Grid *empty_grid = find_empty_grid(gs);
                 p->spice_taken_away += 0.2f;
                 grid_new(empty_grid, gs, world_build);
                 box_new(&empty_grid->boxes[0], gs, empty_grid, (V2){0});
@@ -820,9 +1017,9 @@ void process(struct GameState *gs, float dt)
         }
 
         gs->grids[i].total_energy_capacity = 0.0f;
-        for(int ii = 0; ii < batteries_len; ii++)
+        for (int ii = 0; ii < batteries_len; ii++)
         {
-            gs->grids[i].total_energy_capacity += 1.0f - batteries[ii]->energy_used; 
+            gs->grids[i].total_energy_capacity += 1.0f - batteries[ii]->energy_used;
         }
     }
 

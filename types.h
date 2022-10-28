@@ -131,11 +131,11 @@ struct GameState
         struct Box
         {
             enum BoxType type;
-            enum Rotation rotation;
+            enum Rotation rotation; // @Robust rename to compass_rotation
 
             // thruster
             float thrust; // must be between 0 and 1
-            
+
             // battery
             float energy_used; // must be between 0 and 1
 
@@ -208,6 +208,7 @@ V2 grid_snapped_box_pos(struct Grid *grid, V2 world); // returns the snapped pos
 float grid_rotation(struct Grid *grid);
 float grid_angular_velocity(struct Grid *grid);
 void box_new(struct Box *to_modify, struct GameState *gs, struct Grid *grid, V2 pos);
+V2 box_local_pos(struct Box *box);
 V2 box_pos(struct Box *box);
 float box_rotation(struct Box *box);
 
