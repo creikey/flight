@@ -595,7 +595,7 @@ static void frame(void)
                         }
                         sgp_push_transform();
 
-                        sgp_rotate_at(grid_rotation(g) + rotangle(b->rotation), box_pos(b).x, box_pos(b).y);
+                        sgp_rotate_at(grid_rotation(g) + rotangle(b->compass_rotation), box_pos(b).x, box_pos(b).y);
 
                         if (b->type == BoxThruster)
                         {

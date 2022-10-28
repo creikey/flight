@@ -25,11 +25,11 @@ void server(void *data)
 
         box_new(&gs.grids[0].boxes[3], &gs, &gs.grids[0], (V2){BOX_SIZE, BOX_SIZE*2.0});
         gs.grids[0].boxes[3].type = BoxThruster;
-        gs.grids[0].boxes[3].rotation = Right;
+        gs.grids[0].boxes[3].compass_rotation = Right;
 
         box_new(&gs.grids[0].boxes[4], &gs, &gs.grids[0], (V2){0, BOX_SIZE*3.0});
         gs.grids[0].boxes[4].type = BoxThruster;
-        gs.grids[0].boxes[4].rotation = Up;
+        gs.grids[0].boxes[4].compass_rotation = Up;
 
 
         grid_new(&gs.grids[1], &gs, (V2){.x = -BOX_SIZE*1.5, .y = 0.0});

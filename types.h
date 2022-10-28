@@ -71,7 +71,7 @@ enum BoxType
     BoxLast,
 };
 
-enum Rotation
+enum CompassRotation
 {
     Right,
     Down,
@@ -90,7 +90,7 @@ struct InputFrame
     V2 build;
     bool dobuild;
     enum BoxType build_type;
-    enum Rotation build_rotation;
+    enum CompassRotation build_rotation;
     int grid_index;
 };
 
@@ -131,7 +131,7 @@ struct GameState
         struct Box
         {
             enum BoxType type;
-            enum Rotation rotation; // @Robust rename to compass_rotation
+            enum CompassRotation compass_rotation; // @Robust rename to compass_rotation
 
             // thruster
             float thrust; // must be between 0 and 1
@@ -148,7 +148,7 @@ struct GameState
 #define PI 3.14159f
 
 // returns in radians
-static float rotangle(enum Rotation rot)
+static float rotangle(enum CompassRotation rot)
 {
     switch (rot)
     {

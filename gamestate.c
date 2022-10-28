@@ -505,7 +505,7 @@ void ser_box(char **out, struct Box *b)
     ser_V2(out, cp_to_v2(cpShapeGetCenterOfGravity(b->shape)));
 
     ser_int(out, b->type); // @Robust separate enum serialization that checks for out of bounds enum
-    ser_int(out, b->rotation);
+    ser_int(out, b->compass_rotation);
     ser_float(out, b->thrust);
     ser_float(out, b->energy_used);
     ser_float(out, b->damage);
@@ -518,7 +518,7 @@ void des_box(char **in, struct Box *new_box, struct GameState *gs, struct Grid *
     box_new(new_box, gs, g, pos);
 
     des_int(in, (int *)&new_box->type);
-    des_int(in, (int *)&new_box->rotation);
+    des_int(in, (int *)&new_box->compass_rotation);
     des_float(in, &new_box->thrust);
     des_float(in, &new_box->energy_used);
     des_float(in, &new_box->damage);
@@ -760,7 +760,7 @@ V2 thruster_direction(struct Box *box)
     assert(box->type == BoxThruster);
     V2 to_return = (V2){.x = 1.0f, .y = 0.0f};
 
-    to_return = V2rotate(to_return, rotangle(box->rotation));
+    to_return = V2rotate(to_return, rotangle(box->compass_rotation));
     to_return = V2rotate(to_return, box_rotation(box));
 
     return to_return;
@@ -937,7 +937,7 @@ void process(struct GameState *gs, float dt)
                 grid_new(empty_grid, gs, world_build);
                 box_new(&empty_grid->boxes[0], gs, empty_grid, (V2){0});
                 empty_grid->boxes[0].type = p->input.build_type;
-                empty_grid->boxes[0].rotation = p->input.build_rotation;
+                empty_grid->boxes[0].compass_rotation = p->input.build_rotation;
                 cpBodySetVelocity(empty_grid->body, v2_to_cp(p->vel));
             }
             else
@@ -958,7 +958,7 @@ void process(struct GameState *gs, float dt)
                 p->spice_taken_away += 0.1f;
                 box_new(empty_box, gs, g, grid_world_to_local(g, world_build));
                 empty_box->type = p->input.build_type;
-                empty_box->rotation = p->input.build_rotation;
+                empty_box->compass_rotation = p->input.build_rotation;
             }
         }
 
