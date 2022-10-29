@@ -232,8 +232,6 @@ static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
         }
     }
 
-    float ang_vel_per_mass = cpBodyGetAngularVelocity(grid->body) / cpBodyGetMass(grid->body);
-
     // create new grids for all lists of boxes except for the biggest one.
     // delete the boxes out of the current grid as I pull boxes into separate ones
     // which are no longer connected
@@ -249,24 +247,30 @@ static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
         struct Grid *new_grid = find_empty_grid(gs);
         grid_new(new_grid, gs, grid_pos(grid)); // all grids have same pos but different center of mass (com)
         cpBodySetAngle(new_grid->body, grid_rotation(grid));
-        cpBodySetVelocity(new_grid->body, cpBodyGetVelocity(grid->body));
+
         int new_grid_box_i = 0;
         while (cur_separate_grid[cur_sepgrid_i] != NULL)
         {
             char box_bytes[128];
-            char * cur = box_bytes;
+            char *cur = box_bytes;
             // duplicate the box by serializing it then deserializing it
             ser_box(&cur, cur_separate_grid[cur_sepgrid_i]);
-            box_destroy(space, cur_separate_grid[cur_sepgrid_i]);
             cur = box_bytes;
-            des_box(&cur,&new_grid->boxes[new_grid_box_i],gs, new_grid);
+            des_box(&cur, &new_grid->boxes[new_grid_box_i], gs, new_grid);
 
             cur_sepgrid_i++;
             new_grid_box_i++;
         }
-        cpBodySetAngularVelocity(new_grid->body, ang_vel_per_mass * cpBodyGetMass(new_grid->body));
+
+        cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(grid_com(new_grid))));
+        cpBodySetAngularVelocity(new_grid->body, grid_angular_velocity(grid));
+        cur_sepgrid_i = 0;
+        while (cur_separate_grid[cur_sepgrid_i] != NULL)
+        {
+            box_destroy(space, cur_separate_grid[cur_sepgrid_i]);
+            cur_sepgrid_i++;
+        }
     }
-    cpBodySetAngularVelocity(grid->body, ang_vel_per_mass * cpBodyGetMass(grid->body));
 }
 
 static void postStepRemove(cpSpace *space, void *key, void *data)
