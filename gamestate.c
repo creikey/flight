@@ -89,8 +89,14 @@ void grid_destroy(cpSpace *space, struct Grid *grid)
 // removes boxe from grid, then ensures that the rule that grids must not have
 // holes in them is applied.
 // uses these forward declared serialization functions to duplicate a box
-void ser_box(char **out, struct Box *b);
-void des_box(char **in, struct Box *new_box, struct GameState *gs, struct Grid *g);
+typedef struct SerState
+{
+    char *bytes;
+    bool serializing;
+    int cursor; // points to next available byte, is the size of current message after serializing something
+    int max_size;
+} SerState;
+void ser_box(SerState *ser, struct Box *var, struct GameState *gs, struct Grid *g);
 static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
 {
     box_destroy(space, box);
@@ -252,11 +258,19 @@ static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
         while (cur_separate_grid[cur_sepgrid_i] != NULL)
         {
             char box_bytes[128];
+
             char *cur = box_bytes;
             // duplicate the box by serializing it then deserializing it
-            ser_box(&cur, cur_separate_grid[cur_sepgrid_i]);
-            cur = box_bytes;
-            des_box(&cur, &new_grid->boxes[new_grid_box_i], gs, new_grid);
+            SerState ser = (SerState){
+                .bytes = cur,
+                .cursor = 0,
+                .max_size = 128,
+                .serializing = true,
+            };
+            ser_box(&ser, cur_separate_grid[cur_sepgrid_i], gs, grid);
+            ser.cursor = 0;
+            ser.serializing = false;
+            ser_box(&ser, &new_grid->boxes[new_grid_box_i], gs, new_grid);
 
             cur_sepgrid_i++;
             new_grid_box_i++;
@@ -426,301 +440,221 @@ float box_rotation(struct Box *box)
     return cpBodyGetAngle(cpShapeGetBody(box->shape));
 }
 
-#define memwrite(out, variable)                 \
-    for (char b = 0; b < sizeof(variable); b++) \
-    {                                           \
-        **out = ((char *)&variable)[b];         \
-        *out += 1;                              \
+#define WRITE_VARNAMES false // good for debugging
+#include <string.h>
+// assumes SerState *var defined
+#define SER_VAR(var_pointer)                                                                                      \
+    {                                                                                                             \
+        const char *var_name = #var_pointer;                                                                      \
+        size_t var_name_len = 0;                                                                                  \
+        if (WRITE_VARNAMES)                                                                                       \
+        {                                                                                                         \
+            var_name_len = strlen(var_name);                                                                      \
+        }                                                                                                         \
+        if (ser->serializing)                                                                                     \
+        {                                                                                                         \
+            if (WRITE_VARNAMES)                                                                                   \
+            {                                                                                                     \
+                memcpy(ser->bytes + ser->cursor, var_name, var_name_len);                                         \
+                ser->cursor += var_name_len;                                                                      \
+            }                                                                                                     \
+            for (int b = 0; b < sizeof(*var_pointer); b++)                                                        \
+            {                                                                                                     \
+                ser->bytes[ser->cursor] = ((char *)var_pointer)[b];                                               \
+                ser->cursor += 1;                                                                                 \
+                assert(ser->cursor < ser->max_size);                                                              \
+            }                                                                                                     \
+        }                                                                                                         \
+        else                                                                                                      \
+        {                                                                                                         \
+            if (WRITE_VARNAMES)                                                                                   \
+            {                                                                                                     \
+                char *read_name = malloc(sizeof *read_name * (var_name_len + 1));                                 \
+                for (int i = 0; i < var_name_len; i++)                                                            \
+                {                                                                                                 \
+                    read_name[i] = ser->bytes[ser->cursor];                                                       \
+                    ser->cursor += 1;                                                                             \
+                    assert(ser->cursor < ser->max_size);                                                          \
+                }                                                                                                 \
+                read_name[var_name_len] = '\0';                                                                   \
+                if (strcmp(read_name, var_name) != 0)                                                             \
+                {                                                                                                 \
+                    printf("%s:%d | Expected variable %s but got %s\n", __FILE__, __LINE__, var_name, read_name); \
+                }                                                                                                 \
+                free(read_name);                                                                                  \
+            }                                                                                                     \
+            for (int b = 0; b < sizeof(*var_pointer); b++)                                                        \
+            {                                                                                                     \
+                ((char *)var_pointer)[b] = ser->bytes[ser->cursor];                                               \
+                ser->cursor += 1;                                                                                 \
+                assert(ser->cursor < ser->max_size);                                                              \
+            }                                                                                                     \
+        }                                                                                                         \
     }
 
-#define memread(in, variable_pointer)                    \
-    for (char b = 0; b < sizeof(*variable_pointer); b++) \
-    {                                                    \
-        ((char *)variable_pointer)[b] = **in;            \
-        *in += 1;                                        \
+void ser_V2(SerState *ser, V2 *var)
+{
+    SER_VAR(&var->x);
+    SER_VAR(&var->y);
+}
+
+void ser_box(SerState *ser, struct Box *var, struct GameState *gs, struct Grid *g)
+{
+    {
+        V2 pos;
+        if (ser->serializing)
+        {
+            pos = cp_to_v2(cpShapeGetCenterOfGravity(var->shape));
+        }
+        ser_V2(ser, &pos);
+        if (!ser->serializing)
+        {
+            box_new(var, gs, g, pos);
+        }
     }
 
-void ser_float(char **out, float f)
-{
-    memwrite(out, f);
+    SER_VAR(&var->type); // @Rovarust separate enum serialization that checks for out of varounds enum
+    SER_VAR(&var->compass_rotation);
+    SER_VAR(&var->thrust);
+    SER_VAR(&var->energy_used);
+    SER_VAR(&var->damage);
 }
 
-void des_float(char **in, float *f)
+void ser_grid(SerState *ser, struct GameState *gs, struct Grid *g)
 {
-    memread(in, f);
-}
+    if (ser->serializing)
+        assert(g->body != NULL);
+    else
+        assert(g->body == NULL);
 
-void ser_double(char **out, double d)
-{
-    memwrite(out, d);
-}
+    {
+        V2 pos = {0};
+        V2 vel = {0};
+        float rot = 0.0f;
+        float angular_vel = 0.0f;
+        if (ser->serializing)
+        {
+            pos = grid_pos(g);
+            vel = grid_vel(g);
+            rot = grid_rotation(g);
+            angular_vel = grid_angular_velocity(g);
+        }
+        SER_VAR(&pos);
+        SER_VAR(&vel);
+        SER_VAR(&rot);
+        SER_VAR(&angular_vel);
+        if (!ser->serializing)
+        {
+            grid_new(g, gs, pos);
+            cpBodySetVelocity(g->body, v2_to_cp(vel));
+            cpBodySetAngle(g->body, rot);
+            cpBodySetAngularVelocity(g->body, angular_vel);
+        }
+    }
 
-void des_double(char **in, double *d)
-{
-    memread(in, d);
-}
-
-void ser_int(char **out, int i)
-{
-    memwrite(out, i);
-}
-
-void des_int(char **in, int *i)
-{
-    memread(in, i);
-}
-
-void ser_uint64(char **out, uint64_t i)
-{
-    memwrite(out, i);
-}
-
-void des_uint64(char **in, uint64_t *i)
-{
-    memread(in, i);
-}
-
-void ser_bool(char **out, bool b)
-{
-    **out = (char)b;
-    *out += 1;
-}
-
-void des_bool(char **in, bool *b)
-{
-    *b = (bool)**in;
-    *in += 1;
-}
-
-void ser_V2(char **out, V2 v)
-{
-    ser_float(out, v.x);
-    ser_float(out, v.y);
-}
-
-void des_V2(char **in, V2 *v)
-{
-    des_float(in, &v->x);
-    des_float(in, &v->y);
-}
-
-void ser_box(char **out, struct Box *b)
-{
-    ser_V2(out, cp_to_v2(cpShapeGetCenterOfGravity(b->shape)));
-
-    ser_int(out, b->type); // @Robust separate enum serialization that checks for out of bounds enum
-    ser_int(out, b->compass_rotation);
-    ser_float(out, b->thrust);
-    ser_float(out, b->energy_used);
-    ser_float(out, b->damage);
-}
-
-void des_box(char **in, struct Box *new_box, struct GameState *gs, struct Grid *g)
-{
-    V2 pos = {0};
-    des_V2(in, &pos);
-    box_new(new_box, gs, g, pos);
-
-    des_int(in, (int *)&new_box->type);
-    des_int(in, (int *)&new_box->compass_rotation);
-    des_float(in, &new_box->thrust);
-    des_float(in, &new_box->energy_used);
-    des_float(in, &new_box->damage);
-}
-
-void ser_grid(char **out, struct Grid *g)
-{
-    // grid must not be null, dummy!
-    assert(g->body != NULL);
-
-    ser_V2(out, grid_pos(g));
-    ser_V2(out, grid_vel(g));
-    ser_float(out, grid_rotation(g));
-    ser_float(out, grid_angular_velocity(g));
-
-    ser_float(out, g->total_energy_capacity);
+    SER_VAR(&g->total_energy_capacity);
 
     for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
     {
-        bool exists = g->boxes[i].shape != NULL;
-        ser_bool(out, exists);
+        bool exists;
+        if (ser->serializing)
+            exists = g->boxes[i].shape != NULL;
+        SER_VAR(&exists);
         if (exists)
         {
-            ser_box(out, &g->boxes[i]);
+            ser_box(ser, &g->boxes[i], gs, g);
         }
     }
 }
 
-// takes gamestate as argument to place box in the gamestates space
-void des_grid(char **in, struct Grid *g, struct GameState *gs)
+void ser_inputframe(SerState *ser, struct InputFrame *i)
 {
-    assert(g->body == NULL); // destroy the grid before deserializing into it
+    SER_VAR(&i->movement);
+    SER_VAR(&i->inhabit);
+    SER_VAR(&i->build);
+    SER_VAR(&i->dobuild);
+    SER_VAR(&i->build_type);
+    SER_VAR(&i->build_rotation);
+    SER_VAR(&i->grid_index);
+}
 
-    V2 pos = {0};
-    V2 vel = {0};
-    float rot = 0.0f;
-    float angular_vel = 0.0f;
-
-    des_V2(in, &pos);
-    des_V2(in, &vel);
-    des_float(in, &rot);
-    des_float(in, &angular_vel);
-
-    grid_new(g, gs, pos);
-    cpBodySetVelocity(g->body, v2_to_cp(vel));
-    cpBodySetAngle(g->body, rot);
-    cpBodySetAngularVelocity(g->body, angular_vel);
-
-    des_float(in, &g->total_energy_capacity);
-
-    // iterate over every box like this so box index is preserved on deserialization
-    for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
+void ser_player(SerState *ser, struct Player *p)
+{
+    SER_VAR(&p->connected);
+    if (p->connected)
     {
-        bool exists = false;
-        des_bool(in, &exists);
+        SER_VAR(&p->currently_inhabiting_index);
+        ser_V2(ser, &p->pos);
+        ser_V2(ser, &p->vel);
+        SER_VAR(&p->spice_taken_away);
+        SER_VAR(&p->goldness);
+        ser_inputframe(ser, &p->input);
+    }
+}
+
+void ser_server_to_client(SerState *ser, ServerToClient *s)
+{
+    struct GameState *gs = s->cur_gs;
+
+    if (!ser->serializing)
+    {
+        destroy(gs);
+        initialize(gs);
+    }
+
+    SER_VAR(&s->your_player);
+    SER_VAR(&gs->tick);
+    SER_VAR(&gs->time);
+
+    ser_V2(ser, &gs->goldpos);
+
+    for (int i = 0; i < MAX_PLAYERS; i++)
+    {
+        ser_player(ser, &gs->players[i]);
+    }
+
+    for (int i = 0; i < MAX_GRIDS; i++)
+    {
+        bool exists;
+        if (ser->serializing)
+            exists = gs->grids[i].body != NULL;
+        SER_VAR(&exists);
         if (exists)
         {
-            des_box(in, &g->boxes[i], gs, g);
+            ser_grid(ser, gs, &gs->grids[i]);
         }
     }
 }
-
-void ser_inputframe(char **out, struct InputFrame *i)
-{
-    ser_V2(out, i->movement);
-    ser_bool(out, i->inhabit);
-
-    ser_V2(out, i->build);
-    ser_bool(out, i->dobuild);
-    ser_int(out, i->build_type);
-    ser_int(out, i->build_rotation);
-    ser_int(out, i->grid_index);
-}
-
-void des_inputframe(char **in, struct InputFrame *i)
-{
-    des_V2(in, &i->movement);
-    des_bool(in, &i->inhabit);
-
-    des_V2(in, &i->build);
-    des_bool(in, &i->dobuild);
-    des_int(in, (int *)&i->build_type);
-    des_int(in, (int *)&i->build_rotation);
-    des_int(in, &i->grid_index);
-}
-
-void ser_player(char **out, struct Player *p)
-{
-    ser_bool(out, p->connected);
-    if (p->connected)
-    {
-        ser_int(out, p->currently_inhabiting_index);
-        ser_V2(out, p->pos);
-        ser_V2(out, p->vel);
-        ser_float(out, p->spice_taken_away);
-        ser_float(out, p->goldness);
-
-        ser_inputframe(out, &p->input);
-    }
-}
-
-void des_player(char **in, struct Player *p, struct GameState *gs)
-{
-    des_bool(in, &p->connected);
-    if (p->connected)
-    {
-        des_int(in, &p->currently_inhabiting_index);
-        des_V2(in, &p->pos);
-        des_V2(in, &p->vel);
-        des_float(in, &p->spice_taken_away);
-        des_float(in, &p->goldness);
-
-        des_inputframe(in, &p->input);
-    }
-}
-
-// @Robust really think about if <= makes more sense than < here...
-#define LEN_CHECK() assert(bytes - original_bytes <= max_len)
 
 void into_bytes(struct ServerToClient *msg, char *bytes, int *out_len, int max_len)
 {
     assert(msg->cur_gs != NULL);
     assert(msg != NULL);
-    struct GameState *gs = msg->cur_gs;
-    char *original_bytes = bytes;
 
-    ser_int(&bytes, msg->your_player);
-    LEN_CHECK();
+    SerState ser = (SerState){
+        .bytes = bytes,
+        .serializing = true,
+        .cursor = 0,
+        .max_size = max_len,
+    };
 
-    ser_uint64(&bytes, gs->tick);
-
-    ser_double(&bytes, gs->time);
-    LEN_CHECK();
-
-    ser_V2(&bytes, gs->goldpos);
-    LEN_CHECK();
-
-    for (int i = 0; i < MAX_PLAYERS; i++)
-    {
-        ser_player(&bytes, &gs->players[i]);
-        LEN_CHECK();
-    }
-
-    // @Robust invalid message on num boxes bigger than max boxes
-
-    for (int i = 0; i < MAX_GRIDS; i++)
-    {
-        bool exists = gs->grids[i].body != NULL;
-        ser_bool(&bytes, exists);
-        LEN_CHECK();
-        if (exists)
-        {
-            ser_grid(&bytes, &gs->grids[i]);
-            LEN_CHECK();
-        }
-    }
-
-    *out_len = bytes - original_bytes;
+    ser_server_to_client(&ser, msg);
+    *out_len = ser.cursor + 1; // @Robust not sure why I need to add one to cursor, ser.cursor should be the length..
 }
 
 void from_bytes(struct ServerToClient *msg, char *bytes, int max_len)
 {
-    struct GameState *gs = msg->cur_gs;
+    assert(msg->cur_gs != NULL);
+    assert(msg != NULL);
 
-    char *original_bytes = bytes;
+    SerState ser = (SerState){
+        .bytes = bytes,
+        .serializing = false,
+        .cursor = 0,
+        .max_size = max_len,
+    };
 
-    destroy(gs);
-    initialize(gs);
-
-    des_int(&bytes, &msg->your_player);
-    LEN_CHECK();
-
-    des_uint64(&bytes, &gs->tick);
-    LEN_CHECK();
-
-    des_double(&bytes, &gs->time);
-    LEN_CHECK();
-
-    des_V2(&bytes, &gs->goldpos);
-    LEN_CHECK();
-
-    for (int i = 0; i < MAX_PLAYERS; i++)
-    {
-        des_player(&bytes, &gs->players[i], gs);
-        LEN_CHECK();
-    }
-
-    for (int i = 0; i < MAX_GRIDS; i++)
-    {
-        bool exists = false;
-        des_bool(&bytes, &exists);
-        LEN_CHECK();
-        if (exists)
-        {
-            des_grid(&bytes, &gs->grids[i], gs);
-            LEN_CHECK();
-        }
-    }
+    ser_server_to_client(&ser, msg);
 }
 
 // has to be global var because can only get this information

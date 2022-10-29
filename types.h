@@ -171,11 +171,11 @@ static float rotangle(enum CompassRotation rot)
     }
 }
 
-struct ServerToClient
+typedef struct ServerToClient
 {
     struct GameState *cur_gs;
     int your_player;
-};
+} ServerToClient;
 
 struct ClientToServer
 {
