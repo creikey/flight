@@ -1,12 +1,15 @@
 #pragma once
 
 #define MAX_PLAYERS 4
+#define MAX_ENTITIES 1024
 #define BOX_SIZE 0.25f
+#define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
+#define PLAYER_MASS 0.5f
+#define PLAYER_JETPACK_FORCE 1.0f
+#define PLAYER_JETPACK_SPICE_PER_SECOND 0.1f
 #define MAX_HAND_REACH 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
-#define MAX_GRIDS 32
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
-#define MAX_BOXES_PER_GRID 32
 #define BOX_MASS 1.0f
 #define THRUSTER_FORCE 4.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.05f
@@ -68,6 +71,7 @@ enum BoxType
     BoxHullpiece,
     BoxThruster,
     BoxBattery,
+    BoxCockpit,
     BoxLast,
 };
 
@@ -80,6 +84,13 @@ enum CompassRotation
     RotationLast,
 };
 
+// when generation is 0, invalid ID
+typedef struct
+{
+    unsigned int generation; // if 0 then EntityID points to nothing, generation >= 1
+    unsigned int index;      // index into the entity arena
+} EntityID;
+
 struct InputFrame
 {
     uint64_t tick;
@@ -91,15 +102,49 @@ struct InputFrame
     bool dobuild;
     enum BoxType build_type;
     enum CompassRotation build_rotation;
-    int grid_index;
+    EntityID grid_to_build_on;
 };
 
+typedef struct Entity
+{
+    bool exists;
+    EntityID next_free_entity;
+    unsigned int generation;
+
+    float damage;   // used by box and player
+    cpBody *body;   // used by grid, player, and box
+    cpShape *shape; // must be a box so shape_size can be set appropriately, and serialized
+
+    // for serializing the shape
+    EntityID shape_parent_entity; // can't be zero if shape is nonzero
+    V2 shape_size;
+
+    // player
+    bool is_player;
+    EntityID currently_piloting_seat;
+    float spice_taken_away; // at 1.0, out of spice
+    float goldness;         // how much the player is a winner
+
+    // grids
+    bool is_grid;
+    float total_energy_capacity;
+    EntityID boxes;
+
+    // boxes
+    bool is_box;
+    enum BoxType box_type;
+    EntityID next_box;
+    EntityID prev_box; // doubly linked so can remove in middle of chain
+    enum CompassRotation compass_rotation;
+    float thrust;      // must be between 0 and 1
+    float energy_used; // battery
+} Entity;
+
 // gotta update the serialization functions when this changes
-struct GameState
+typedef struct GameState
 {
     cpSpace *space;
 
-    uint64_t tick;
     double time;
 
     V2 goldpos;
@@ -107,43 +152,19 @@ struct GameState
     struct Player
     {
         bool connected;
-
-        int currently_inhabiting_index; // is equal to -1 when not inhabiting a grid
-        V2 pos;
-        V2 vel;
-        float spice_taken_away; // at 1.0, out of spice
-        float goldness;         // how much the player is a winner
-
-        // input
-        // @Cleanup make this a frameinput struct instead of copying over all the fields like this
-
+        EntityID entity;
         struct InputFrame input;
     } players[MAX_PLAYERS];
 
-    // if body or shape is null, then that grid/box has been freed
-
-    // important that this memory does not move around, each box shape in it has a pointer to its grid struct, stored in the box's shapes user_data
-    struct Grid
-    {
-        cpBody *body;
-        float total_energy_capacity; // updated every frame by thruster logic
-
-        struct Box
-        {
-            enum BoxType type;
-            enum CompassRotation compass_rotation; // @Robust rename to compass_rotation
-
-            // thruster
-            float thrust; // must be between 0 and 1
-
-            // battery
-            float energy_used; // must be between 0 and 1
-
-            cpShape *shape;
-            float damage;
-        } boxes[MAX_BOXES_PER_GRID]; // @Robust this needs to be dynamically allocated, huge disparity in how many blocks a body can have...
-    } grids[MAX_GRIDS];
-};
+    // Entity arena
+    // ent:ity pointers can't move around because of how the physics engine handles user data.
+    // if you really need this, potentially refactor to store entity IDs instead of pointers
+    // in the shapes and bodies of chipmunk. Would require editing the library I think
+    Entity *entities;
+    int max_entities;    // maximum number of entities possible in the entities list
+    int cur_next_entity; // next entity to pass on request of a new entity if the free list is empty
+    EntityID free_list;
+} GameState;
 
 #define PI 3.14159f
 
@@ -186,35 +207,44 @@ struct ClientToServer
 void server(void *data); // data parameter required from thread api...
 
 // gamestate
-void initialize(struct GameState *gs); // must do this to place boxes into it and process
+void initialize(struct GameState *gs, void *entity_arena, int entity_arena_size);
 void destroy(struct GameState *gs);
 void process(struct GameState *gs, float dt); // does in place
-struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius);
+Entity *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius);
 uint64_t tick(struct GameState *gs);
 void into_bytes(struct ServerToClient *gs, char *out_bytes, int *out_len, int max_len);
 void from_bytes(struct ServerToClient *gs, char *bytes, int max_len);
 
+// entities
+Entity *get_entity(struct GameState *gs, EntityID id);
+Entity *new_entity(struct GameState *gs);
+EntityID get_id(struct GameState *gs, Entity *e);
+V2 entity_pos(Entity *e); 
+void entity_set_pos(Entity *e, V2 pos);
+float entity_rotation(Entity *e);
+#define BOX_CHAIN_ITER(gs, cur, starting_box) for (Entity *cur = get_entity(gs, starting_box); cur != NULL; cur = get_entity(gs, cur->next_box))
+#define BOXES_ITER(gs, cur, grid_entity_ptr) BOX_CHAIN_ITER(gs, cur, (grid_entity_ptr)->boxes)
+
 // player
-void reset_player(struct Player *p);
+void player_destroy(struct Player *p);
+void player_new(struct Player *p);
 
 // grid
-void grid_new(struct Grid *to_modify, struct GameState *gs, V2 pos);
-V2 grid_com(struct Grid *grid);
-V2 grid_pos(struct Grid *grid);
-V2 grid_vel(struct Grid *grid);
-V2 grid_local_to_world(struct Grid *grid, V2 local);
-V2 grid_world_to_local(struct Grid *grid, V2 world);
-V2 grid_snapped_box_pos(struct Grid *grid, V2 world); // returns the snapped pos in world coords
-float grid_rotation(struct Grid *grid);
-float grid_angular_velocity(struct Grid *grid);
-void box_new(struct Box *to_modify, struct GameState *gs, struct Grid *grid, V2 pos);
-V2 box_local_pos(struct Box *box);
-V2 box_pos(struct Box *box);
-float box_rotation(struct Box *box);
+void grid_create(struct GameState *gs, Entity *e);
+void box_create(struct GameState *gs, Entity *new_box, Entity *grid, V2 pos);
+V2 grid_com(Entity *grid);
+V2 grid_vel(Entity *grid);
+V2 grid_local_to_world(Entity *grid, V2 local);
+V2 grid_world_to_local(Entity *grid, V2 world);
+V2 grid_snapped_box_pos(Entity *grid, V2 world); // returns the snapped pos in world coords
+float grid_angular_velocity(Entity *grid);
+V2 entity_shape_pos(Entity *box);
+V2 box_pos(Entity *box);
+float box_rotation(Entity *box);
 
 // thruster
-V2 thruster_direction(struct Box *box);
-V2 thruster_force(struct Box *box);
+V2 thruster_direction(Entity *box);
+V2 thruster_force(Entity *box);
 
 // debug draw
 void dbg_drawall();

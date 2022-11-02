@@ -3,6 +3,7 @@
 #include <enet/enet.h>
 #include <stdio.h>
 #include <inttypes.h> // int64 printing
+#include <stdlib.h>
 
 // started in a thread from host
 void server(void *data)
@@ -12,48 +13,20 @@ void server(void *data)
     stm_setup();
 
     struct GameState gs = {0};
-    initialize(&gs);
-
-    // box haven
-    if (true)
-    {
-        grid_new(&gs.grids[0], &gs, (V2){.x = BOX_SIZE*3.0, .y = 0.0});
-        box_new(&gs.grids[0].boxes[0], &gs, &gs.grids[0], (V2){0});
-        box_new(&gs.grids[0].boxes[1], &gs, &gs.grids[0], (V2){0, BOX_SIZE});
-        box_new(&gs.grids[0].boxes[2], &gs, &gs.grids[0], (V2){0, BOX_SIZE*2.0});
-        gs.grids[0].boxes[2].type = BoxBattery;
-
-        box_new(&gs.grids[0].boxes[3], &gs, &gs.grids[0], (V2){BOX_SIZE, BOX_SIZE*2.0});
-        gs.grids[0].boxes[3].type = BoxThruster;
-        gs.grids[0].boxes[3].compass_rotation = Right;
-
-        box_new(&gs.grids[0].boxes[4], &gs, &gs.grids[0], (V2){0, BOX_SIZE*3.0});
-        gs.grids[0].boxes[4].type = BoxThruster;
-        gs.grids[0].boxes[4].compass_rotation = Up;
-
-
-        grid_new(&gs.grids[1], &gs, (V2){.x = -BOX_SIZE*1.5, .y = 0.0});
-        box_new(&gs.grids[1].boxes[0], &gs, &gs.grids[1], (V2){0});
-
-        grid_new(&gs.grids[2], &gs, (V2){.x = -BOX_SIZE*1.5, .y = BOX_SIZE});
-        box_new(&gs.grids[2].boxes[0], &gs, &gs.grids[2], (V2){0});
-    }
-
-    // two boxes
-    if (false)
-    {
-        grid_new(&gs.grids[0], &gs, (V2){.x = 0.75f, .y = 0.0});
-        box_new(&gs.grids[0].boxes[0], &gs, &gs.grids[0], (V2){0});
-
-        grid_new(&gs.grids[1], &gs, (V2){.x = -1.75f, .y = 0.0});
-        box_new(&gs.grids[1].boxes[1], &gs, &gs.grids[1], (V2){1});
-    }
+    size_t entities_size = (sizeof(Entity) * MAX_ENTITIES);
+    Entity *entity_data = malloc(entities_size);
+    initialize(&gs, entity_data, entities_size);
+    Log("Allocated %zu bytes for entities\n", entities_size);
 
     // one box policy
-    if (false)
+    if (true)
     {
-        grid_new(&gs.grids[0], &gs, (V2){.x = 0.75f, .y = 0.0});
-        box_new(&gs.grids[0].boxes[0], &gs, &gs.grids[0], (V2){0});
+        Entity * grid = new_entity(&gs);
+        grid_create(&gs, grid);
+        entity_set_pos(grid, (V2){-BOX_SIZE*2, 0.0f});
+        Entity * box = new_entity(&gs);
+        box_create(&gs, box, grid, (V2){0});
+
     }
 
     if (enet_initialize() != 0)
@@ -126,11 +99,7 @@ void server(void *data)
                     else
                     {
                         event.peer->data = (void *)player_slot;
-                        reset_player(&gs.players[player_slot]);
-                        // gs.players[player_slot].box = box_new(&gs, (V2){
-                        //                                                .x = 0.0f,
-                        //                                                .y = 1.0f * (float)player_slot,
-                        //                                            });
+                        gs.players[player_slot] = (struct Player){0};
                         gs.players[player_slot].connected = true;
                     }
 
@@ -158,7 +127,7 @@ void server(void *data)
                             {
                                 if (received.inputs[i].tick == 0) // empty input
                                     continue;
-                                if(received.inputs[i].tick <= latest_tick)
+                                if (received.inputs[i].tick <= latest_tick)
                                     continue; // don't reprocess inputs already processed
                                 struct InputFrame cur_input = received.inputs[i];
                                 gs.players[player_slot].input.movement = cur_input.movement;
@@ -172,7 +141,7 @@ void server(void *data)
                                 }
                                 if (cur_input.dobuild)
                                 {
-                                    gs.players[player_slot].input.grid_index = cur_input.grid_index;
+                                    gs.players[player_slot].input.grid_to_build_on = cur_input.grid_to_build_on;
                                     gs.players[player_slot].input.build = cur_input.build;
                                     gs.players[player_slot].input.dobuild = cur_input.dobuild;
                                     gs.players[player_slot].input.build_type = cur_input.build_type;
@@ -234,6 +203,7 @@ void server(void *data)
     }
 
     destroy(&gs);
+    free(entity_data);
     enet_host_destroy(server);
     enet_deinitialize();
 }

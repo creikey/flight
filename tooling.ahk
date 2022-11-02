@@ -4,6 +4,9 @@ SendMode, Input
 SetBatchLines, -1
 SetWorkingDir, %A_ScriptDir%
 
+; Fuck windows for having this hardcoded
+^Esc::return 
+
 ^b::
 WinKill, Flight
 Sleep, 20

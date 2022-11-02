@@ -51,6 +51,7 @@
         "xmemory": "c",
         "xtr1common": "c",
         "xtree": "c",
-        "stdint.h": "c"
+        "stdint.h": "c",
+        "ipsettings.h": "c"
     }
 }

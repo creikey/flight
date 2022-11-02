@@ -13,6 +13,7 @@ pushd thirdparty\Chipmunk2D\src
   for %%x in (*.c) do set MUNKSRC=!MUNKSRC! thirdparty\Chipmunk2D\src\%%x
 popd
 
+@REM /DENET_DEBUG=1^
 cl /MP /Zi /Fd"flight.pdb"  /Fe"flight"^
   /I"thirdparty" /I"thirdparty\enet\include" /I"thirdparty\Chipmunk2D\include\chipmunk" /I"thirdparty\Chipmunk2D\include"^
   main.c gamestate.c server.c debugdraw.c^

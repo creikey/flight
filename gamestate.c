@@ -1,7 +1,8 @@
 #include <chipmunk.h>
 #include "types.h"
 
-#include <stdio.h> // assert logging
+#include <stdio.h>  // assert logging
+#include <string.h> // memset
 
 // do not use any global variables to process gamestate
 
@@ -9,6 +10,12 @@
 // gamestate its own portable submodule. If need to link to other stuff document here:
 // - debug.c for debug drawing
 // - chipmunk
+
+enum
+{
+    PLAYERS = 1 << 0,
+    BOXES = 1 << 1,
+};
 
 void __assert(bool cond, const char *file, int line, const char *cond_string)
 {
@@ -30,82 +37,246 @@ static cpVect v2_to_cp(V2 v)
     return cpv(v.x, v.y);
 }
 
-static struct Box *getbox(cpShape *shape)
+bool was_entity_deleted(struct GameState *gs, EntityID id)
 {
-    return (struct Box *)cpShapeGetUserData(shape);
+    if(id.generation == 0) return false; // generation 0 means null entity ID, not a deleted entity
+    Entity *the_entity = &gs->entities[id.index];
+    return (!the_entity->exists || the_entity->generation != id.generation);
 }
 
-static struct Grid *find_empty_grid(struct GameState *gs)
+// may return null if it doesn't exist anymore
+Entity *get_entity(struct GameState *gs, EntityID id)
 {
-    // @Robust better memory mgmt
-    struct Grid *empty_grid = NULL;
-    for (int ii = 0; ii < MAX_GRIDS; ii++)
+    if (id.generation == 0)
     {
-        if (gs->grids[ii].body == NULL)
-        {
-            empty_grid = &gs->grids[ii];
-            break;
-        }
+        return NULL;
     }
-    // @Robust cleanly fail when not enough grids
-    assert(empty_grid != NULL);
-    return empty_grid;
-}
-
-static int grid_num_boxes(struct Grid *g)
-{
-    int to_return = 0;
-    for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
-    {
-        SKIPNULL(g->boxes[i].shape);
-        to_return++;
-    }
+    assert(id.index < gs->cur_next_entity);
+    assert(id.index < gs->max_entities);
+    Entity *to_return = &gs->entities[id.index];
+    if (was_entity_deleted(gs, id))
+        return NULL;
     return to_return;
 }
 
-static void box_destroy(cpSpace *space, struct Box *box)
+EntityID get_id(struct GameState *gs, Entity *e)
 {
-    cpSpaceRemoveShape(space, box->shape);
-    cpShapeFree(box->shape);
-    box->shape = NULL;
+    if (e == NULL)
+        return (EntityID){0};
+
+    int index = e - gs->entities;
+    assert(index >= 0);
+    assert(index < gs->cur_next_entity);
+
+    return (EntityID){
+        .generation = e->generation,
+        .index = index,
+    };
 }
 
-// space should be from gamestate, doesn't accept gamestate parameter so collision
-// callbacks can use it
-void grid_destroy(cpSpace *space, struct Grid *grid)
+static Entity *cp_shape_entity(cpShape *shape)
 {
-    for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
-    {
-        SKIPNULL(grid->boxes[i].shape);
+    return (Entity *)cpShapeGetUserData(shape);
+}
 
-        box_destroy(space, &grid->boxes[i]);
+static Entity *cp_body_entity(cpBody *body)
+{
+    return (Entity *)cpBodyGetUserData(body);
+}
+
+static struct GameState *cp_space_gs(cpSpace *space)
+{
+    return (struct GameState *)cpSpaceGetUserData(space);
+}
+
+int grid_num_boxes(struct GameState *gs, Entity *e)
+{
+    assert(e->is_grid);
+    int to_return = 0;
+
+    BOXES_ITER(gs, cur, e)
+    to_return++;
+
+    return to_return;
+}
+
+void box_remove_from_boxes(GameState *gs, Entity *box)
+{
+    assert(box->is_box);
+    Entity *prev_box = get_entity(gs, box->prev_box);
+    Entity *next_box = get_entity(gs, box->next_box);
+    if (prev_box != NULL)
+    {
+        if (prev_box->is_box)
+            prev_box->next_box = get_id(gs, next_box);
+        else if (prev_box->is_grid)
+            prev_box->boxes = get_id(gs, next_box);
+    }
+    if (next_box != NULL)
+    {
+        assert(next_box->is_box);
+        next_box->prev_box = get_id(gs, prev_box);
+    }
+    box->next_box = (EntityID){0};
+    box->prev_box = (EntityID){0};
+}
+
+void entity_destroy(GameState *gs, Entity *e)
+{
+    assert(e->exists);
+
+    if (e->is_grid)
+    {
+        BOXES_ITER(gs, cur, e)
+        entity_destroy(gs, cur);
+    }
+    if (e->is_box)
+    {
+        box_remove_from_boxes(gs, e);
     }
 
-    cpSpaceRemoveBody(space, grid->body);
-    cpBodyFree(grid->body);
-    grid->body = NULL;
+    if (e->body != NULL)
+    {
+        cpSpaceRemoveBody(gs->space, e->body);
+        cpBodyFree(e->body);
+    }
+    if (e->shape != NULL)
+    {
+        cpSpaceRemoveShape(gs->space, e->shape);
+        cpShapeFree(e->shape);
+    }
+    e->body = NULL;
+    e->shape = NULL;
+
+    Entity *front_of_free_list = get_entity(gs, gs->free_list);
+    if (front_of_free_list != NULL)
+        assert(!front_of_free_list->exists);
+    int gen = e->generation;
+    *e = (Entity){0};
+    e->generation = gen;
+    e->next_free_entity = gs->free_list;
+    gs->free_list = get_id(gs, e);
 }
 
-// removes boxe from grid, then ensures that the rule that grids must not have
-// holes in them is applied.
-// uses these forward declared serialization functions to duplicate a box
-typedef struct SerState
+Entity *new_entity(struct GameState *gs)
 {
-    char *bytes;
-    bool serializing;
-    int cursor; // points to next available byte, is the size of current message after serializing something
-    int max_size;
-} SerState;
-void ser_box(SerState *ser, struct Box *var, struct GameState *gs, struct Grid *g);
-static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
-{
-    box_destroy(space, box);
+    Entity *to_return = NULL;
+    if (get_entity(gs, gs->free_list) != NULL)
+    {
+        to_return = get_entity(gs, gs->free_list);
+        assert(!to_return->exists);
+        gs->free_list = to_return->next_free_entity;
+    }
+    else
+    {
+        assert(gs->cur_next_entity < gs->max_entities); // too many entities if fails
+        to_return = &gs->entities[gs->cur_next_entity];
+        gs->cur_next_entity++;
+    }
 
-    struct GameState *gs = (struct GameState *)cpSpaceGetUserData(space);
-    int num_boxes = grid_num_boxes(grid);
+    to_return->generation++;
+    to_return->exists = true;
+    return to_return;
+}
+
+void create_body(struct GameState *gs, Entity *e)
+{
+    assert(gs->space != NULL);
+
+    if (e->body != NULL)
+    {
+        cpSpaceRemoveBody(gs->space, e->body);
+        cpBodyFree(e->body);
+        e->body = NULL;
+    }
+
+    cpBody *body = cpSpaceAddBody(gs->space, cpBodyNew(0.0, 0.0)); // zeros for mass/moment of inertia means automatically calculated from its collision shapes
+    e->body = body;
+    cpBodySetUserData(e->body, (void *)e);
+}
+
+void grid_create(struct GameState *gs, Entity *e)
+{
+    e->is_grid = true;
+    create_body(gs, e);
+}
+
+void entity_set_pos(Entity *e, V2 pos)
+{
+    assert(e->is_grid);
+    assert(e->body != NULL);
+    cpBodySetPosition(e->body, v2_to_cp(pos));
+}
+
+// size is (1/2 the width, 1/2 the height)
+void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, V2 pos, V2 size, float mass)
+{
+    if (e->shape != NULL)
+    {
+        cpSpaceRemoveShape(gs->space, e->shape);
+        cpShapeFree(e->shape);
+        e->shape = NULL;
+    }
+
+    cpBB box = cpBBNew(-size.x + pos.x, -size.y + pos.y, size.x + pos.x, size.y + pos.y);
+    cpVect verts[4] = {
+        cpv(box.r, box.b),
+        cpv(box.r, box.t),
+        cpv(box.l, box.t),
+        cpv(box.l, box.b),
+    };
+
+    e->shape_size = size;
+    e->shape_parent_entity = get_id(gs, parent);
+    e->shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), parent->body, 4, verts, 0.0f); // this cast is done in chipmunk, not sure why it works
+    cpShapeSetUserData(e->shape, (void *)e);
+    cpShapeSetMass(e->shape, mass);
+    cpSpaceAddShape(gs->space, e->shape);
+}
+
+void create_player(struct GameState *gs, Entity *e)
+{
+    e->is_player = true;
+    create_body(gs, e);
+    create_rectangle_shape(gs, e, e, (V2){0}, V2scale(PLAYER_SIZE, 0.5f), PLAYER_MASS);
+    cpShapeSetFilter(e->shape, cpShapeFilterNew(CP_NO_GROUP, PLAYERS, CP_ALL_CATEGORIES));
+}
+
+// box must be passed as a parameter as the box added to chipmunk uses this pointer in its
+// user data. pos is in local coordinates. Adds the box to the grid's chain of boxes
+void box_create(struct GameState *gs, Entity *new_box, Entity *grid, V2 pos)
+{
+    new_box->is_box = true;
+    assert(gs->space != NULL);
+    assert(grid->is_grid);
+
+    float halfbox = BOX_SIZE / 2.0f;
+
+    create_rectangle_shape(gs, new_box, grid, pos, (V2){halfbox, halfbox}, 1.0f);
+
+    cpShapeSetFilter(new_box->shape, cpShapeFilterNew(CP_NO_GROUP, BOXES, CP_ALL_CATEGORIES));
+
+    new_box->next_box = get_id(gs, get_entity(gs, grid->boxes));
+    new_box->prev_box = get_id(gs, grid);
+    if (get_entity(gs, new_box->next_box) != NULL)
+    {
+        get_entity(gs, new_box->next_box)->prev_box = get_id(gs, new_box);
+    }
+    grid->boxes = get_id(gs, new_box);
+}
+
+// removes boxes from grid, then ensures that the rule that grids must not have
+// holes in them is applied.
+static void grid_remove_box(struct GameState *gs, struct Entity *grid, struct Entity *box)
+{
+    assert(grid->is_grid);
+    assert(box->is_box);
+    entity_destroy(gs, box);
+
+    int num_boxes = grid_num_boxes(gs, grid);
     if (num_boxes == 0)
     {
-        grid_destroy(space, grid);
+        entity_destroy(gs, grid);
         return;
     }
     if (num_boxes == 1)
@@ -120,68 +291,45 @@ static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
         // The other "real grids" are allocated as new grids
 
 #define MAX_SEPARATE_GRIDS 8
-    struct Box *separate_grids[MAX_SEPARATE_GRIDS][MAX_BOXES_PER_GRID] = {0};
+    EntityID separate_grids[MAX_SEPARATE_GRIDS] = {0};
     int cur_separate_grid_index = 0;
+    int cur_separate_grid_size = 0;
     int processed_boxes = 0;
 
-    struct Box **biggest_separate_grid = separate_grids[0];
+    int biggest_separate_grid_index = 0;
     int biggest_separate_grid_length = 0;
 
     // process all boxes into separate, but correctly connected, grids
     while (processed_boxes < num_boxes)
     {
         // grab an unprocessed box, one not in separate_grids, to start the flood fill
-        struct Box *unprocessed = NULL;
-        for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
-        {
-            SKIPNULL(grid->boxes[i].shape);
-            struct Box *cur = &grid->boxes[i];
-            bool cur_has_been_processed = false;
-            for (int sep_i = 0; sep_i < MAX_SEPARATE_GRIDS; sep_i++)
-            {
-                for (int sep_box_i = 0; sep_box_i < MAX_BOXES_PER_GRID; sep_box_i++)
-                {
-                    if (cur == separate_grids[sep_i][sep_box_i])
-                    {
-                        cur_has_been_processed = true;
-                        break;
-                    }
-                }
-                if (cur_has_been_processed)
-                    break;
-            }
-            if (!cur_has_been_processed)
-            {
-                unprocessed = cur;
-                break;
-            }
-        }
+        Entity *unprocessed = get_entity(gs, grid->boxes);
         assert(unprocessed != NULL);
+        assert(unprocessed->is_box);
+        box_remove_from_boxes(gs, unprocessed); // no longer in the boxes list of the grid
 
-        // flood fill from this unprocessed box, adding each result to a new separate grid
+        // flood fill from this unprocessed box, adding each result to cur_separate_grid_index,
+        // removing each block from the grid
         // https://en.wikipedia.org/wiki/Flood_fill
-        struct Box **cur_separate_grid = separate_grids[cur_separate_grid_index];
-        cur_separate_grid_index++;
-        int separate_grid_i = 0;
         {
             // queue stuff @Robust use factored datastructure
-            struct Box *Q[MAX_BOXES_PER_GRID] = {0};
-            int Q_i = 0;
-
-            Q[Q_i] = unprocessed;
-            Q_i++;
-            struct Box *N = NULL;
-            while (Q_i > 0)
+            EntityID Q = get_id(gs, unprocessed);
+            Entity *N = NULL;
+            while (true)
             {
-                N = Q[Q_i - 1];
-                Q_i--;
+                assert(!was_entity_deleted(gs, Q));
+                N = get_entity(gs, Q);
+                if (N == NULL) // must mean that the queue is empty
+                    break;
+                Q = N->next_box;
                 if (true) // if node "inside", this is always true
                 {
-                    cur_separate_grid[separate_grid_i] = N;
-                    separate_grid_i++;
+                    N->next_box = separate_grids[cur_separate_grid_index];
+                    separate_grids[cur_separate_grid_index] = get_id(gs, N);
+                    cur_separate_grid_size++;
                     processed_boxes++;
 
-                    V2 cur_local_pos = box_local_pos(N);
+                    V2 cur_local_pos = entity_shape_pos(N);
                     const V2 dirs[] = {
                         (V2){.x = -1.0f, .y = 0.0f},
                         (V2){.x = 1.0f, .y = 0.0f},
@@ -193,49 +341,39 @@ static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
                     for (int ii = 0; ii < num_dirs; ii++)
                     {
                         V2 dir = dirs[ii];
-                        // @Robust faster method, not O(N^2), of getting the box
+                        // @Robust @Speed faster method, not O(N^2), of getting the box
                         // in the direction currently needed
                         V2 wanted_local_pos = V2add(cur_local_pos, V2scale(dir, BOX_SIZE));
-                        struct Box *box_in_direction = NULL;
-                        for (int iii = 0; iii < MAX_BOXES_PER_GRID; iii++)
+                        EntityID box_in_direction = (EntityID){0};
+                        BOXES_ITER(gs, cur, grid)
                         {
-                            SKIPNULL(grid->boxes[iii].shape);
-                            if (V2cmp(box_local_pos(&grid->boxes[iii]), wanted_local_pos, 0.01f))
+                            if (V2cmp(entity_shape_pos(cur), wanted_local_pos, 0.01f))
                             {
-                                box_in_direction = &grid->boxes[iii];
+                                box_in_direction = get_id(gs, cur);
                                 break;
                             }
                         }
-                        if (box_in_direction != NULL)
+
+                        Entity *newbox = get_entity(gs, box_in_direction);
+                        if (newbox != NULL)
                         {
-                            // make sure not already added to the separate grid
-                            bool already_in_separate_grid = false;
-                            for (int sepgrid_i = 0; sepgrid_i < MAX_BOXES_PER_GRID; sepgrid_i++)
-                            {
-                                if (cur_separate_grid[sepgrid_i] == NULL)
-                                    break; // assumed to be end of the current separate grid list
-                                if (cur_separate_grid[sepgrid_i] == box_in_direction)
-                                {
-                                    already_in_separate_grid = true;
-                                    break;
-                                }
-                            }
-                            if (!already_in_separate_grid)
-                            {
-                                Q[Q_i] = box_in_direction;
-                                Q_i++;
-                            }
+                            box_remove_from_boxes(gs, newbox);
+                            newbox->next_box = Q;
+                            Q = box_in_direction;
                         }
                     }
                 }
             }
         }
 
-        if (separate_grid_i > biggest_separate_grid_length)
+        if (cur_separate_grid_size > biggest_separate_grid_length)
         {
-            biggest_separate_grid_length = separate_grid_i;
-            biggest_separate_grid = cur_separate_grid;
+            biggest_separate_grid_length = cur_separate_grid_size;
+            biggest_separate_grid_index = cur_separate_grid_index;
         }
+        cur_separate_grid_index++;
+        assert(cur_separate_grid_index < MAX_SEPARATE_GRIDS);
+        cur_separate_grid_size = 0;
     }
 
     // create new grids for all lists of boxes except for the biggest one.
@@ -243,56 +381,45 @@ static void grid_remove_box(cpSpace *space, struct Grid *grid, struct Box *box)
     // which are no longer connected
     for (int sepgrid_i = 0; sepgrid_i < MAX_SEPARATE_GRIDS; sepgrid_i++)
     {
-        if (separate_grids[sepgrid_i] == biggest_separate_grid)
-            continue; // leave the boxes of the biggest separate untouched
-        struct Box **cur_separate_grid = separate_grids[sepgrid_i];
-        int cur_sepgrid_i = 0;
-        if (cur_separate_grid[cur_sepgrid_i] == NULL)
+        EntityID cur_separate_grid = separate_grids[sepgrid_i];
+        if (get_entity(gs, cur_separate_grid) == NULL)
             continue; // this separate grid is empty
-
-        struct Grid *new_grid = find_empty_grid(gs);
-        grid_new(new_grid, gs, grid_pos(grid)); // all grids have same pos but different center of mass (com)
-        cpBodySetAngle(new_grid->body, grid_rotation(grid));
-
-        int new_grid_box_i = 0;
-        while (cur_separate_grid[cur_sepgrid_i] != NULL)
+    
+        Entity *new_grid;
+        if (sepgrid_i == biggest_separate_grid_index)
         {
-            char box_bytes[128];
+            new_grid = grid;
+        }
+        else
+        {
+            new_grid = new_entity(gs);
+            grid_create(gs, new_grid);
+            cpBodySetPosition(new_grid->body, cpBodyGetPosition(grid->body));
+            cpBodySetAngle(new_grid->body, cpBodyGetAngle(grid->body));
+        }
 
-            char *cur = box_bytes;
-            // duplicate the box by serializing it then deserializing it
-            SerState ser = (SerState){
-                .bytes = cur,
-                .cursor = 0,
-                .max_size = 128,
-                .serializing = true,
-            };
-            ser_box(&ser, cur_separate_grid[cur_sepgrid_i], gs, grid);
-            ser.cursor = 0;
-            ser.serializing = false;
-            ser_box(&ser, &new_grid->boxes[new_grid_box_i], gs, new_grid);
-
-            cur_sepgrid_i++;
-            new_grid_box_i++;
+        Entity *cur = get_entity(gs, cur_separate_grid);
+        while (cur != NULL)
+        {
+            Entity *next = get_entity(gs, cur->next_box);
+            box_create(gs, cur, new_grid, entity_shape_pos(cur)); // destroys next/prev fields on cur
+            cur = next;
         }
 
         cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(grid_com(new_grid))));
         cpBodySetAngularVelocity(new_grid->body, grid_angular_velocity(grid));
-        cur_sepgrid_i = 0;
-        while (cur_separate_grid[cur_sepgrid_i] != NULL)
-        {
-            box_destroy(space, cur_separate_grid[cur_sepgrid_i]);
-            cur_sepgrid_i++;
-        }
     }
 }
 
 static void postStepRemove(cpSpace *space, void *key, void *data)
 {
     cpShape *b = (cpShape *)key;
-    if (getbox(b)->damage > 1.0f)
+    Entity *e = cp_shape_entity(b);
+    // @Robust why not just do these deletions in the update loop? save on a lot of complexity
+    if (e->damage > 1.0f)
     {
-        grid_remove_box(space, (struct Grid *)cpBodyGetUserData(cpShapeGetBody(b)), getbox(b));
+        if (e->is_box)
+            grid_remove_box(cp_space_gs(space), cp_body_entity(cpShapeGetBody(b)), e);
     }
 }
 
@@ -301,12 +428,16 @@ static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
     cpShape *a, *b;
     cpArbiterGetShapes(arb, &a, &b);
 
+    Entity *entity_a, *entity_b;
+    entity_a = cp_shape_entity(a);
+    entity_b = cp_shape_entity(b);
+
     float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * 0.25f;
     if (damage > 0.05f)
     {
         // Log("Collision with damage %f\n", damage);
-        getbox(a)->damage += damage;
-        getbox(b)->damage += damage;
+        entity_a->damage += damage;
+        entity_b->damage += damage;
     }
 
     // b must be the key passed into the post step removed, the key is cast into its shape
@@ -316,94 +447,54 @@ static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
     return true; // keep colliding
 }
 
-void initialize(struct GameState *gs)
+void initialize(struct GameState *gs, void *entity_arena, int entity_arena_size)
 {
+    *gs = (struct GameState){0};
+    memset(entity_arena, 0, entity_arena_size); // SUPER critical. Random vals in the entity data causes big problem
+    gs->entities = (Entity *)entity_arena;
+    gs->max_entities = entity_arena_size / sizeof(Entity);
     gs->space = cpSpaceNew();
     cpSpaceSetUserData(gs->space, (cpDataPointer)gs);                          // needed in the handler
     cpCollisionHandler *handler = cpSpaceAddCollisionHandler(gs->space, 0, 0); // @Robust limit collision type to just blocks that can be damaged
-    // handler->beginFunc = begin;
     handler->postSolveFunc = on_damage;
-    // handler->postSolveFunc = postStepRemove;
-    for (int i = 0; i < MAX_PLAYERS; i++)
-    {
-        reset_player(&gs->players[i]);
-    }
 }
 void destroy(struct GameState *gs)
 {
-    for (int i = 0; i < MAX_GRIDS; i++)
+    // can't zero out gs data because the entity memory arena is reused
+    // on deserialization
+    for (int i = 0; i < gs->max_entities; i++)
     {
-        SKIPNULL(gs->grids[i].body);
-        grid_destroy(gs->space, &gs->grids[i]);
+        if (gs->entities[i].exists)
+            entity_destroy(gs, &gs->entities[i]);
     }
-
     cpSpaceFree(gs->space);
     gs->space = NULL;
+    gs->cur_next_entity = 0;
 }
-
-void reset_player(struct Player *p)
-{
-    *p = (struct Player){0};
-    p->currently_inhabiting_index = -1;
-}
-
-// box must be passed as a parameter as the box added to chipmunk uses this pointer in its
-// user data. pos is in local coordinates
-void box_new(struct Box *to_modify, struct GameState *gs, struct Grid *grid, V2 pos)
-{
-    *to_modify = (struct Box){0};
-    float halfbox = BOX_SIZE / 2.0f;
-    cpBB box = cpBBNew(-halfbox + pos.x, -halfbox + pos.y, halfbox + pos.x, halfbox + pos.y);
-    cpVect verts[4] = {
-        cpv(box.r, box.b),
-        cpv(box.r, box.t),
-        cpv(box.l, box.t),
-        cpv(box.l, box.b),
-    };
-
-    to_modify->shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), grid->body, 4, verts, 0.0f); // this cast is done in chipmunk, not sure why it works
-
-    // assumed to be grid in inhabit code as well
-    cpShapeSetUserData(to_modify->shape, (void *)to_modify);
-    cpShapeSetMass(to_modify->shape, BOX_MASS);
-    cpSpaceAddShape(gs->space, to_modify->shape);
-}
-
-// the grid pointer passed gets referenced by the body
-void grid_new(struct Grid *to_modify, struct GameState *gs, V2 pos)
-{
-    assert(gs->space != NULL);
-    float halfbox = BOX_SIZE / 2.0f;
-
-    cpBody *body = cpSpaceAddBody(gs->space, cpBodyNew(0.0, 0.0)); // zeros for mass/moment of inertia means automatically calculated from its collision shapes
-    to_modify->body = body;
-    cpBodySetPosition(body, v2_to_cp(pos));
-    cpBodySetUserData(to_modify->body, (void *)to_modify);
-}
-
 // center of mass, not the literal position
-V2 grid_com(struct Grid *grid)
+V2 grid_com(Entity *grid)
 {
     return cp_to_v2(cpBodyLocalToWorld(grid->body, cpBodyGetCenterOfGravity(grid->body)));
 }
-V2 grid_pos(struct Grid *grid)
+
+V2 entity_pos(Entity *grid)
 {
     return cp_to_v2(cpBodyGetPosition(grid->body));
 }
-V2 grid_vel(struct Grid *grid)
+V2 grid_vel(Entity *grid)
 {
     return cp_to_v2(cpBodyGetVelocity(grid->body));
 }
-V2 grid_world_to_local(struct Grid *grid, V2 world)
+V2 grid_world_to_local(Entity *grid, V2 world)
 {
     return cp_to_v2(cpBodyWorldToLocal(grid->body, v2_to_cp(world)));
 }
-V2 grid_local_to_world(struct Grid *grid, V2 local)
+V2 grid_local_to_world(Entity *grid, V2 local)
 {
     return cp_to_v2(cpBodyLocalToWorld(grid->body, v2_to_cp(local)));
 }
 // returned snapped position is in world coordinates
-V2 grid_snapped_box_pos(struct Grid *grid, V2 world)
+V2 grid_snapped_box_pos(Entity *grid, V2 world)
 {
     V2 local = grid_world_to_local(grid, world);
     local.x /= BOX_SIZE;
@@ -415,37 +506,73 @@ V2 grid_snapped_box_pos(struct Grid *grid, V2 world)
 
     return cp_to_v2(cpBodyLocalToWorld(grid->body, v2_to_cp(local)));
 }
-float grid_rotation(struct Grid *grid)
+float entity_rotation(Entity *grid)
 {
     return cpBodyGetAngle(grid->body);
 }
-float grid_angular_velocity(struct Grid *grid)
+float grid_angular_velocity(Entity *grid)
 {
     return cpBodyGetAngularVelocity(grid->body);
 }
-struct Grid *box_grid(struct Box *box)
+Entity *box_grid(Entity *box)
 {
-    return (struct Grid *)cpBodyGetUserData(cpShapeGetBody(box->shape));
+    return (Entity *)cpBodyGetUserData(cpShapeGetBody(box->shape));
 }
-V2 box_local_pos(struct Box *box)
+// in local space
+V2 entity_shape_pos(Entity *box)
 {
     return cp_to_v2(cpShapeGetCenterOfGravity(box->shape));
 }
-V2 box_pos(struct Box *box)
+float entity_shape_mass(Entity *box)
 {
-    return V2add(grid_pos(box_grid(box)), V2rotate(box_local_pos(box), grid_rotation(box_grid(box))));
+    assert(box->shape != NULL);
+    return cpShapeGetMass(box->shape);
 }
-float box_rotation(struct Box *box)
+V2 box_pos(Entity *box)
+{
+    assert(box->is_box);
+    return V2add(entity_pos(box_grid(box)), V2rotate(entity_shape_pos(box), entity_rotation(box_grid(box))));
+}
+float box_rotation(Entity *box)
 {
     return cpBodyGetAngle(cpShapeGetBody(box->shape));
 }
 
-#define WRITE_VARNAMES false // good for debugging
-#include <string.h>
-// assumes SerState *var defined
-#define SER_VAR(var_pointer)                                                                                      \
+struct BodyData
+{
+    V2 pos;
+    V2 vel;
+    float rotation;
+    float angular_velocity;
+};
+
+void populate(cpBody *body, struct BodyData *data)
+{
+    data->pos = cp_to_v2(cpBodyGetPosition(body));
+    data->vel = cp_to_v2(cpBodyGetVelocity(body));
+    data->rotation = (float)cpBodyGetAngle(body);
+    data->angular_velocity = (float)cpBodyGetAngularVelocity(body);
+}
+
+void update_from(cpBody *body, struct BodyData *data)
+{
+    cpBodySetPosition(body, v2_to_cp(data->pos));
+    cpBodySetVelocity(body, v2_to_cp(data->vel));
+    cpBodySetAngle(body, data->rotation);
+    cpBodySetAngularVelocity(body, data->angular_velocity);
+}
+
+#define WRITE_VARNAMES true // debugging feature horrible for network
+typedef struct SerState
+{
+    char *bytes;
+    bool serializing;
+    int cursor; // points to next available byte, is the size of current message after serializing something
+    int max_size;
+} SerState;
+#define SER_VAR_NAME(var_pointer, name)                                                                                      \
     {                                                                                                             \
-        const char *var_name = #var_pointer;                                                                      \
+        const char *var_name = name;                                                                      \
         size_t var_name_len = 0;                                                                                  \
         if (WRITE_VARNAMES)                                                                                       \
         {                                                                                                         \
@@ -491,6 +618,7 @@ float box_rotation(struct Box *box)
             }                                                                                                     \
         }                                                                                                         \
     }
+#define SER_VAR(var_pointer) SER_VAR_NAME(var_pointer, #var_pointer)
 
 void ser_V2(SerState *ser, V2 *var)
 {
@@ -498,73 +626,18 @@ void ser_V2(SerState *ser, V2 *var)
     SER_VAR(&var->y);
 }
 
-void ser_box(SerState *ser, struct Box *var, struct GameState *gs, struct Grid *g)
+void ser_bodydata(SerState *ser, struct BodyData *data)
 {
-    {
-        V2 pos;
-        if (ser->serializing)
-        {
-            pos = cp_to_v2(cpShapeGetCenterOfGravity(var->shape));
-        }
-        ser_V2(ser, &pos);
-        if (!ser->serializing)
-        {
-            box_new(var, gs, g, pos);
-        }
-    }
-
-    SER_VAR(&var->type); // @Rovarust separate enum serialization that checks for out of varounds enum
-    SER_VAR(&var->compass_rotation);
-    SER_VAR(&var->thrust);
-    SER_VAR(&var->energy_used);
-    SER_VAR(&var->damage);
+    ser_V2(ser, &data->pos);
+    ser_V2(ser, &data->vel);
+    SER_VAR(&data->rotation);
+    SER_VAR(&data->angular_velocity);
 }
 
-void ser_grid(SerState *ser, struct GameState *gs, struct Grid *g)
+void ser_entityid(SerState *ser, EntityID *id)
 {
-    if (ser->serializing)
-        assert(g->body != NULL);
-    else
-        assert(g->body == NULL);
-
-    {
-        V2 pos = {0};
-        V2 vel = {0};
-        float rot = 0.0f;
-        float angular_vel = 0.0f;
-        if (ser->serializing)
-        {
-            pos = grid_pos(g);
-            vel = grid_vel(g);
-            rot = grid_rotation(g);
-            angular_vel = grid_angular_velocity(g);
-        }
-        SER_VAR(&pos);
-        SER_VAR(&vel);
-        SER_VAR(&rot);
-        SER_VAR(&angular_vel);
-        if (!ser->serializing)
-        {
-            grid_new(g, gs, pos);
-            cpBodySetVelocity(g->body, v2_to_cp(vel));
-            cpBodySetAngle(g->body, rot);
-            cpBodySetAngularVelocity(g->body, angular_vel);
-        }
-    }
-
-    SER_VAR(&g->total_energy_capacity);
-
-    for (int i = 0; i < MAX_BOXES_PER_GRID; i++)
-    {
-        bool exists;
-        if (ser->serializing)
-            exists = g->boxes[i].shape != NULL;
-        SER_VAR(&exists);
-        if (exists)
-        {
-            ser_box(ser, &g->boxes[i], gs, g);
-        }
-    }
+    SER_VAR(&id->generation);
+    SER_VAR(&id->index);
 }
 
 void ser_inputframe(SerState *ser, struct InputFrame *i)
@@ -575,7 +648,7 @@ void ser_inputframe(SerState *ser, struct InputFrame *i)
     SER_VAR(&i->dobuild);
     SER_VAR(&i->build_type);
     SER_VAR(&i->build_rotation);
-    SER_VAR(&i->grid_index);
+    ser_entityid(ser, &i->grid_to_build_on);
 }
 
 void ser_player(SerState *ser, struct Player *p)
@@ -583,12 +656,86 @@ void ser_player(SerState *ser, struct Player *p)
     SER_VAR(&p->connected);
     if (p->connected)
     {
-        SER_VAR(&p->currently_inhabiting_index);
-        ser_V2(ser, &p->pos);
-        ser_V2(ser, &p->vel);
-        SER_VAR(&p->spice_taken_away);
-        SER_VAR(&p->goldness);
+        ser_entityid(ser, &p->entity);
         ser_inputframe(ser, &p->input);
+    }
+}
+
+void ser_entity(SerState *ser, struct GameState *gs, Entity *e)
+{
+    SER_VAR(&e->generation);
+    SER_VAR(&e->damage);
+
+    bool has_body = ser->serializing && e->body != NULL;
+    SER_VAR(&has_body);
+
+    if (has_body)
+    {
+        struct BodyData body_data;
+        if (ser->serializing)
+            populate(e->body, &body_data);
+        ser_bodydata(ser, &body_data);
+        if (!ser->serializing)
+        {
+            create_body(gs, e);
+            update_from(e->body, &body_data);
+        }
+    }
+
+    bool has_shape = ser->serializing && e->shape != NULL;
+    SER_VAR(&has_shape);
+
+    if (has_shape)
+    {
+        SER_VAR(&e->shape_size);
+        ser_entityid(ser, &e->shape_parent_entity);
+
+
+        V2 shape_pos;
+        if (ser->serializing)
+            shape_pos = entity_shape_pos(e);
+        SER_VAR(&shape_pos);
+
+        float shape_mass;
+        if (ser->serializing)
+            shape_mass = entity_shape_mass(e);
+        SER_VAR(&shape_mass)
+
+        Entity * parent = get_entity(gs, e->shape_parent_entity);
+        if(parent == NULL)
+        {
+            printf("Null shape parent\n");
+        }
+        if (!ser->serializing)
+        {
+            create_rectangle_shape(gs, e, parent , shape_pos, e->shape_size, shape_mass);
+        }
+    }
+
+    SER_VAR(&e->is_player);
+    if (e->is_player)
+    {
+        ser_entityid(ser, &e->currently_piloting_seat);
+        SER_VAR(&e->spice_taken_away);
+        SER_VAR(&e->goldness);
+    }
+
+    SER_VAR(&e->is_grid);
+    if (e->is_grid)
+    {
+        SER_VAR(&e->total_energy_capacity);
+        ser_entityid(ser, &e->boxes);
+    }
+
+    SER_VAR(&e->is_box);
+    if (e->is_box)
+    {
+        SER_VAR(&e->box_type);
+        ser_entityid(ser, &e->next_box);
+        ser_entityid(ser, &e->prev_box);
+        SER_VAR(&e->compass_rotation);
+        SER_VAR(&e->thrust);
+        SER_VAR(&e->energy_used);
     }
 }
 
@@ -596,14 +743,20 @@ void ser_server_to_client(SerState *ser, ServerToClient *s)
 {
     struct GameState *gs = s->cur_gs;
 
+    int cur_next_entity = 0;
+    if (ser->serializing)
+        cur_next_entity = gs->cur_next_entity;
+    SER_VAR(&cur_next_entity);
+
     if (!ser->serializing)
     {
         destroy(gs);
-        initialize(gs);
+        memset((void *)gs->entities, 0, sizeof(*gs->entities) * gs->max_entities);
+        initialize(gs, gs->entities, gs->max_entities * sizeof(*gs->entities));
+        gs->cur_next_entity = cur_next_entity;
     }
 
     SER_VAR(&s->your_player);
-    SER_VAR(&gs->tick);
     SER_VAR(&gs->time);
 
     ser_V2(ser, &gs->goldpos);
@@ -613,15 +766,58 @@ void ser_server_to_client(SerState *ser, ServerToClient *s)
         ser_player(ser, &gs->players[i]);
     }
 
-    for (int i = 0; i < MAX_GRIDS; i++)
+    if (ser->serializing)
     {
-        bool exists;
-        if (ser->serializing)
-            exists = gs->grids[i].body != NULL;
-        SER_VAR(&exists);
-        if (exists)
+        for (int i = 0; i < gs->cur_next_entity; i++)
         {
-            ser_grid(ser, gs, &gs->grids[i]);
+            Entity *e = &gs->entities[i];
+            if (e->exists)
+            {
+                if(e->is_player)
+                {
+                    SER_VAR(&i);
+                    ser_entity(ser, gs, e);
+                }
+                else if(e->is_grid)
+                {
+                    // serialize boxes always after bodies, so that by the time the boxes
+                    // are loaded in the parent body is loaded in and can be referenced.
+                    SER_VAR(&i);
+                    ser_entity(ser, gs, e);
+                    BOXES_ITER(gs, cur, e)
+                    {
+                        EntityID cur_id = get_id(gs, cur);
+                        SER_VAR_NAME(&cur_id.index, "&i");
+                        ser_entity(ser, gs, cur);
+                    }
+                }
+            }
+        }
+        int end_of_entities = -1;
+        SER_VAR_NAME(&end_of_entities, "&i");
+    }
+    else
+    {
+        while (true)
+        {
+            int next_index;
+            SER_VAR_NAME(&next_index, "&i");
+            if (next_index == -1)
+                break;
+            assert(next_index < gs->max_entities);
+            Entity *e = &gs->entities[next_index];
+            e->exists = true;
+            ser_entity(ser, gs, e);
+            gs->cur_next_entity = max(gs->cur_next_entity, next_index + 1);
+        }
+        for (int i = 0; i < gs->cur_next_entity; i++)
+        {
+            Entity *e = &gs->entities[i];
+            if (!e->exists)
+            {
+                e->next_free_entity = gs->free_list;
+                gs->free_list = get_id(gs, e);
+            }
         }
     }
 }
@@ -663,6 +859,8 @@ static float closest_to_point_in_radius_result_largest_dist = 0.0f;
 static void closest_point_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
 {
     assert(points->count == 1);
+    if (!cp_shape_entity(shape)->is_box)
+        return;
     float dist = V2length(cp_to_v2(cpvsub(points->points[0].pointA, points->points[0].pointB)));
     // float dist = -points->points[0].distance;
     if (dist > closest_to_point_in_radius_result_largest_dist)
@@ -672,7 +870,7 @@ static void closest_point_callback_func(cpShape *shape, cpContactPointSet *point
     }
 }
 
-struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius)
+Entity *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius)
 {
     closest_to_point_in_radius_result = NULL;
     closest_to_point_in_radius_result_largest_dist = 0.0f;
@@ -687,15 +885,15 @@ struct Grid *closest_to_point_in_radius(struct GameState *gs, V2 point, float ra
     if (closest_to_point_in_radius_result != NULL)
     {
         // @Robust query here for only boxes that are part of ships, could get nasty...
-        return (struct Grid *)cpBodyGetUserData(cpShapeGetBody(closest_to_point_in_radius_result));
+        return cp_body_entity(cpShapeGetBody(closest_to_point_in_radius_result));
     }
 
     return NULL;
 }
 
-V2 thruster_direction(struct Box *box)
+V2 thruster_direction(Entity *box)
 {
-    assert(box->type == BoxThruster);
+    assert(box->is_box && box->box_type == BoxThruster);
     V2 to_return = (V2){.x = 1.0f, .y = 0.0f};
 
     to_return = V2rotate(to_return, rotangle(box->compass_rotation));
@@ -704,7 +902,7 @@ V2 thruster_direction(struct Box *box)
     return to_return;
 }
 
-V2 thruster_force(struct Box *box)
+V2 thruster_force(Entity *box)
 {
     return V2scale(thruster_direction(box), -box->thrust * THRUSTER_FORCE);
 }
@@ -719,29 +917,38 @@ void process(struct GameState *gs, float dt)
     assert(gs->space != NULL);
 
     assert(dt == TIMESTEP); // @TODO fix tick being incremented every time
-    gs->tick += 1;
     gs->time += dt;
 
     // process input
     for (int i = 0; i < MAX_PLAYERS; i++)
     {
-        struct Player *p = &gs->players[i];
-        if (!p->connected)
+        struct Player *player = &gs->players[i];
+        if (!player->connected)
             continue;
+        Entity *p = get_entity(gs, player->entity);
+        if (p == NULL)
+        {
+            p = new_entity(gs);
+            create_player(gs, p);
+            player->entity = get_id(gs, p);
+        }
+        assert(p->is_player);
 
         // update gold win condition
-        if (V2length(V2sub(p->pos, gs->goldpos)) < GOLD_COLLECT_RADIUS)
+        if (V2length(V2sub(cp_to_v2(cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
         {
             p->goldness += 0.1;
             p->spice_taken_away = 0.0f;
             gs->goldpos = (V2){.x = hash11(gs->time) * 20.0f, .y = hash11(gs->time - 13.6f) * 20.0f};
         }
 
-        if (gs->grids[p->currently_inhabiting_index].body == NULL)
+        if (get_entity(gs, p->currently_piloting_seat) == NULL)
         {
-            p->currently_inhabiting_index = -1;
+            p->currently_piloting_seat = (EntityID){0};
         }
 
+// @Todo do getting inside pilot seat
+#if 0
         if (p->input.inhabit)
         {
             p->input.inhabit = false; // "handle" the input
@@ -796,21 +1003,20 @@ void process(struct GameState *gs, float dt)
                 p->currently_inhabiting_index = -1;
             }
         }
+#endif
 
         // process movement
         {
             // no cheating by making movement bigger than length 1
-            if (V2length(p->input.movement) != 0.0f)
+            float movement_strength = V2length(player->input.movement);
+            if (movement_strength != 0.0f)
             {
-                p->input.movement = V2scale(V2normalize(p->input.movement), clamp(V2length(p->input.movement), 0.0f, 1.0f));
+                player->input.movement = V2scale(V2normalize(player->input.movement), clamp(V2length(player->input.movement), 0.0f, 1.0f));
             }
-            if (p->currently_inhabiting_index == -1)
-            {
-                // @Robust make sure movement vector is normalized so player can't cheat
-                p->vel = V2add(p->vel, V2scale(p->input.movement, dt * 0.5f));
-                p->spice_taken_away += dt * 0.15f * V2length(p->input.movement);
-            }
-            else
+            cpBodyApplyForceAtWorldPoint(p->body, v2_to_cp(V2scale(player->input.movement, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
+            p->spice_taken_away += movement_strength * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
+// @Todo do pilot seat
+#if 0
             {
                 struct Grid *g = &gs->grids[p->currently_inhabiting_index];
                 V2 target_new_pos = V2lerp(p->pos, grid_com(g), dt * 20.0f);
@@ -846,70 +1052,64 @@ void process(struct GameState *gs, float dt)
                 // cpBodyApplyForceAtWorldPoint(g->body, v2_to_cp(V2scale(p->input.movement, 5.0f)), v2_to_cp(grid_com(g)));
                 // bigger the ship, the more efficient the spice usage
             }
-            p->pos = V2add(p->pos, V2scale(p->vel, dt));
+#endif
         }
 
-        if (p->input.dobuild)
+#if 1 // building 
+        if (player->input.dobuild)
         {
-            p->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
+            player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
 
             cpPointQueryInfo info = {0};
-            // @Robust make sure to query only against boxes...
-            V2 world_build = p->input.build;
-            if (p->input.grid_index != -1)
+            V2 world_build = player->input.build;
+
+            // @Robust sanitize this input so player can't build on any grid in the world
+            Entity *target_grid = get_entity(gs, player->input.grid_to_build_on);
+            if (target_grid != NULL)
             {
-                world_build = grid_local_to_world(&gs->grids[p->input.grid_index], p->input.build);
+                world_build = grid_local_to_world(target_grid, player->input.build);
             }
-            cpShape *nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES), &info);
+            cpShape *nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
             if (nearest != NULL)
             {
-                struct Box *cur_box = (struct Box *)cpShapeGetUserData(nearest);
-                struct Grid *cur_grid = (struct Grid *)cpBodyGetUserData(cpShapeGetBody(nearest));
-                grid_remove_box(gs->space, cur_grid, cur_box);
+                Entity *cur_box = cp_shape_entity(nearest);
+                Entity *cur_grid = cp_body_entity(cpShapeGetBody(nearest));
+                grid_remove_box(gs, cur_grid, cur_box);
                 p->spice_taken_away -= 0.1f;
             }
-            else if (p->input.grid_index == -1)
+            else if (target_grid == NULL)
             {
-                struct Grid *empty_grid = find_empty_grid(gs);
+                Entity *new_grid = new_entity(gs);
+                grid_create(gs, new_grid);
                 p->spice_taken_away += 0.2f;
-                grid_new(empty_grid, gs, world_build);
-                box_new(&empty_grid->boxes[0], gs, empty_grid, (V2){0});
-                empty_grid->boxes[0].type = p->input.build_type;
-                empty_grid->boxes[0].compass_rotation = p->input.build_rotation;
-                cpBodySetVelocity(empty_grid->body, v2_to_cp(p->vel));
+                entity_set_pos(new_grid, world_build);
+
+                Entity *new_box = new_entity(gs);
+                box_create(gs, new_box, new_grid, (V2){0});
+                new_box->box_type = player->input.build_type;
+                new_box->compass_rotation = player->input.build_rotation;
+                cpBodySetVelocity(new_grid->body, cpBodyGetVelocity(p->body));
             }
             else
             {
-                struct Grid *g = &gs->grids[p->input.grid_index];
-
-                struct Box *empty_box = NULL;
-                for (int ii = 0; ii < MAX_BOXES_PER_GRID; ii++)
-                {
-                    if (g->boxes[ii].shape == NULL)
-                    {
-                        empty_box = &g->boxes[ii];
-                        break;
-                    }
-                }
-                // @Robust cleanly fail when not enough boxes
-                assert(empty_box != NULL);
-                p->spice_taken_away += 0.1f;
-                box_new(empty_box, gs, g, grid_world_to_local(g, world_build));
-                empty_box->type = p->input.build_type;
-                empty_box->compass_rotation = p->input.build_rotation;
+                Entity *new_box = new_entity(gs);
+                box_create(gs, new_box, target_grid, grid_world_to_local(target_grid, world_build));
+                new_box->box_type = player->input.build_type;
+                new_box->compass_rotation = player->input.build_rotation;
             }
         }
-
+#endif
         if (p->spice_taken_away >= 1.0f)
         {
-            reset_player(p);
-            p->connected = true;
+            entity_destroy(gs, p);
+            player->entity = (EntityID){0};
         }
 
         p->spice_taken_away = clamp01(p->spice_taken_away);
     }
 
-    // add thrust from thruster blocks
+// @Todo add thrust from thruster blocks
+#if 0
     for (int i = 0; i < MAX_GRIDS; i++)
     {
         SKIPNULL(gs->grids[i].body);
@@ -960,6 +1160,7 @@ void process(struct GameState *gs, float dt)
             gs->grids[i].total_energy_capacity += 1.0f - batteries[ii]->energy_used;
         }
     }
+#endif
 
     cpSpaceStep(gs->space, dt);
 }
