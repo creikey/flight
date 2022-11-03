@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{5a0edc10-f875-4cd0-af1d-cc7e13336af6}</ProjectGuid>
+    <RootNamespace>Flight</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>C:\Users\Cameron\Documents\flight\thirdparty\enet\include;C:\Users\Cameron\Documents\flight\thirdparty\Chipmunk2D\include\chipmunk;C:\Users\Cameron\Documents\flight\thirdparty;C:\Users\Cameron\Documents\flight\thirdparty\Chipmunk2D\include</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);Ws2_32.lib;winmm.lib</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="debugdraw.c" />
+    <ClCompile Include="gamestate.c" />
+    <ClCompile Include="main.c" />
+    <ClCompile Include="server.c" />
+    <ClCompile Include="sokol_impl.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\chipmunk.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpArbiter.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpArray.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpBBTree.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpBody.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpCollision.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpConstraint.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpDampedRotarySpring.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpDampedSpring.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpGearJoint.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpGrooveJoint.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpHashSet.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpHastySpace.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpMarch.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpPinJoint.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpPivotJoint.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpPolyline.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpPolyShape.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpRatchetJoint.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpRobust.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpRotaryLimitJoint.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpShape.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSimpleMotor.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSlideJoint.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpace.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceComponent.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceDebug.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceHash.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceQuery.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceStep.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpatialIndex.c" />
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSweep1D.c" />
+    <ClCompile Include="thirdparty\enet\callbacks.c" />
+    <ClCompile Include="thirdparty\enet\compress.c" />
+    <ClCompile Include="thirdparty\enet\host.c" />
+    <ClCompile Include="thirdparty\enet\list.c" />
+    <ClCompile Include="thirdparty\enet\packet.c" />
+    <ClCompile Include="thirdparty\enet\peer.c" />
+    <ClCompile Include="thirdparty\enet\protocol.c" />
+    <ClCompile Include="thirdparty\enet\win32.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ipsettings.h" />
+    <ClInclude Include="thirdparty\sokol_app.h" />
+    <ClInclude Include="thirdparty\sokol_gfx.h" />
+    <ClInclude Include="thirdparty\sokol_glue.h" />
+    <ClInclude Include="thirdparty\sokol_gp.h" />
+    <ClInclude Include="thirdparty\sokol_time.h" />
+    <ClInclude Include="thirdparty\stb_image.h" />
+    <ClInclude Include="triangle.gen.h" />
+    <ClInclude Include="types.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="thirdparty\enet\enet_dll.cbp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

@@ -1,5 +1,7 @@
 ipsettings.h
 
+.vs/
+x64/
 *.exe
 *.obj
 *.pdb

@@ -121,6 +121,7 @@ void box_remove_from_boxes(GameState *gs, Entity *box)
     box->prev_box = (EntityID){0};
 }
 
+void on_entity_child_shape(cpBody* body, cpShape* shape, void* data);
 void entity_destroy(GameState *gs, Entity *e)
 {
     assert(e->exists);
@@ -135,15 +136,18 @@ void entity_destroy(GameState *gs, Entity *e)
         box_remove_from_boxes(gs, e);
     }
 
-    if (e->body != NULL)
-    {
-        cpSpaceRemoveBody(gs->space, e->body);
-        cpBodyFree(e->body);
-    }
     if (e->shape != NULL)
     {
         cpSpaceRemoveShape(gs->space, e->shape);
         cpShapeFree(e->shape);
+        e->shape = NULL;
+    }
+    if (e->body != NULL)
+    {
+        cpBodyEachShape(e->body, on_entity_child_shape, (void*)gs);
+        cpSpaceRemoveBody(gs->space, e->body);
+        cpBodyFree(e->body);
+        e->body = NULL;
     }
     e->body = NULL;
     e->shape = NULL;
@@ -156,6 +160,11 @@ void entity_destroy(GameState *gs, Entity *e)
     e->generation = gen;
     e->next_free_entity = gs->free_list;
     gs->free_list = get_id(gs, e);
+}
+
+void on_entity_child_shape(cpBody* body, cpShape* shape, void* data)
+{
+    entity_destroy((GameState*)data, cp_shape_entity(shape));
 }
 
 Entity *new_entity(struct GameState *gs)
@@ -1081,7 +1090,7 @@ void process(struct GameState *gs, float dt)
             {
                 Entity *new_grid = new_entity(gs);
                 grid_create(gs, new_grid);
-                p->spice_taken_away += 0.2f;
+                p->spice_taken_away += 0.1f;
                 entity_set_pos(new_grid, world_build);
 
                 Entity *new_box = new_entity(gs);
@@ -1096,6 +1105,7 @@ void process(struct GameState *gs, float dt)
                 box_create(gs, new_box, target_grid, grid_world_to_local(target_grid, world_build));
                 new_box->box_type = player->input.build_type;
                 new_box->compass_rotation = player->input.build_rotation;
+                p->spice_taken_away += 0.1f;
             }
         }
 #endif

@@ -699,8 +699,8 @@ static void frame(void)
 
 void cleanup(void)
 {
-    free(gs.entities);
     destroy(&gs);
+    free(gs.entities);
     sgp_shutdown();
     sg_shutdown();
     enet_deinitialize();
