@@ -353,7 +353,7 @@ static void frame(void)
                     // and other validation instead of just casting to a struct
                     // "Alignment of structure members can be different even among different compilers on the same platform, let alone different platforms."
                     // ^^ need serialization strategy that accounts for this if multiple platforms is happening https://stackoverflow.com/questions/28455163/how-can-i-portably-send-a-c-struct-through-a-network-socket
-                    struct ServerToClient msg = {
+                    ServerToClient msg = (ServerToClient){
                         .cur_gs = &gs,
                     };
                     // @Robust @BeforeShip maximum acceptable message size?

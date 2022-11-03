@@ -161,8 +161,8 @@ typedef struct GameState
     // if you really need this, potentially refactor to store entity IDs instead of pointers
     // in the shapes and bodies of chipmunk. Would require editing the library I think
     Entity *entities;
-    int max_entities;    // maximum number of entities possible in the entities list
-    int cur_next_entity; // next entity to pass on request of a new entity if the free list is empty
+    unsigned int max_entities;    // maximum number of entities possible in the entities list
+    unsigned int cur_next_entity; // next entity to pass on request of a new entity if the free list is empty
     EntityID free_list;
 } GameState;
 
@@ -212,8 +212,8 @@ void destroy(struct GameState *gs);
 void process(struct GameState *gs, float dt); // does in place
 Entity *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius);
 uint64_t tick(struct GameState *gs);
-void into_bytes(struct ServerToClient *gs, char *out_bytes, int *out_len, int max_len);
-void from_bytes(struct ServerToClient *gs, char *bytes, int max_len);
+void into_bytes(struct ServerToClient *gs, char *out_bytes, size_t * out_len, size_t max_len);
+void from_bytes(struct ServerToClient *gs, char *bytes, size_t max_len);
 
 // entities
 Entity *get_entity(struct GameState *gs, EntityID id);
@@ -237,7 +237,7 @@ V2 grid_vel(Entity *grid);
 V2 grid_local_to_world(Entity *grid, V2 local);
 V2 grid_world_to_local(Entity *grid, V2 world);
 V2 grid_snapped_box_pos(Entity *grid, V2 world); // returns the snapped pos in world coords
-float grid_angular_velocity(Entity *grid);
+float entity_angular_velocity(Entity *grid);
 V2 entity_shape_pos(Entity *box);
 V2 box_pos(Entity *box);
 float box_rotation(Entity *box);
@@ -313,8 +313,8 @@ static V2 V2project(V2 vec, V2 onto)
 static V2 V2rotate(V2 vec, float theta)
 {
     return (V2){
-        .x = vec.x * cos(theta) - vec.y * sin(theta),
-        .y = vec.x * sin(theta) + vec.y * cos(theta),
+        .x = vec.x * cosf(theta) - vec.y * sinf(theta),
+        .y = vec.x * sinf(theta) + vec.y * cosf(theta),
     };
 }
 
@@ -339,7 +339,7 @@ static bool V2cmp(V2 a, V2 b, float eps)
 
 static inline float clamp01(float f)
 {
-    return fmax(0.0f, fmin(f, 1.0f));
+    return fmaxf(0.0f, fminf(f, 1.0f));
 }
 
 static inline float clamp(float f, float minimum, float maximum)
@@ -373,8 +373,8 @@ static V2 V2lerp(V2 a, V2 b, float factor)
 // for random generation
 static float hash11(float p)
 {
-    p = fract(p * .1031);
-    p *= p + 33.33;
+    p = fract(p * .1031f);
+    p *= p + 33.33f;
     p *= p + p;
     return fract(p);
 }
@@ -387,9 +387,9 @@ typedef struct Color
 static Color colhex(int r, int g, int b)
 {
     return (Color){
-        .r = (float)r / 255.0,
-        .g = (float)g / 255.0,
-        .b = (float)b / 255.0,
+        .r = (float)r / 255.0f,
+        .g = (float)g / 255.0f,
+        .b = (float)b / 255.0f,
         .a = 1.0f,
     };
 }
