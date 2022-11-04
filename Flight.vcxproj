@@ -105,6 +105,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>C:\Users\Cameron\Documents\flight\thirdparty\enet\include;C:\Users\Cameron\Documents\flight\thirdparty\Chipmunk2D\include\chipmunk;C:\Users\Cameron\Documents\flight\thirdparty;C:\Users\Cameron\Documents\flight\thirdparty\Chipmunk2D\include</AdditionalIncludeDirectories>
+      <TreatWarningAsError>true</TreatWarningAsError>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

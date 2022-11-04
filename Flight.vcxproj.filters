@@ -15,174 +15,172 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\debugdraw.c">
+    <ClCompile Include="debugdraw.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\gamestate.c">
+    <ClCompile Include="gamestate.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\main.c">
+    <ClCompile Include="main.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\server.c">
+    <ClCompile Include="server.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\sokol_impl.c">
+    <ClCompile Include="sokol_impl.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\chipmunk.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\chipmunk.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpArbiter.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpArbiter.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpArray.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpArray.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpBBTree.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpBBTree.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpBody.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpBody.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpCollision.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpCollision.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpConstraint.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpConstraint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpDampedRotarySpring.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpDampedRotarySpring.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpDampedSpring.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpDampedSpring.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpGearJoint.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpGearJoint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpGrooveJoint.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpGrooveJoint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpHashSet.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpHashSet.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpHastySpace.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpHastySpace.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpMarch.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpMarch.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpPinJoint.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpPinJoint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpPivotJoint.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpPivotJoint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpPolyline.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpPolyline.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpPolyShape.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpPolyShape.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpRatchetJoint.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpRatchetJoint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpRobust.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpRobust.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpRotaryLimitJoint.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpRotaryLimitJoint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpShape.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpShape.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSimpleMotor.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSimpleMotor.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSlideJoint.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSlideJoint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSpace.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpace.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSpaceComponent.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceComponent.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSpaceDebug.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceDebug.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSpaceHash.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceHash.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSpaceQuery.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceQuery.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSpaceStep.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpaceStep.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSpatialIndex.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpatialIndex.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\Chipmunk2D\src\cpSweep1D.c">
+    <ClCompile Include="thirdparty\Chipmunk2D\src\cpSweep1D.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\enet\callbacks.c">
+    <ClCompile Include="thirdparty\enet\callbacks.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\enet\compress.c">
+    <ClCompile Include="thirdparty\enet\compress.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\enet\host.c">
+    <ClCompile Include="thirdparty\enet\host.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\enet\list.c">
+    <ClCompile Include="thirdparty\enet\list.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\enet\packet.c">
+    <ClCompile Include="thirdparty\enet\packet.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\enet\peer.c">
+    <ClCompile Include="thirdparty\enet\peer.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\enet\protocol.c">
+    <ClCompile Include="thirdparty\enet\protocol.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\thirdparty\enet\win32.c">
+    <ClCompile Include="thirdparty\enet\win32.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\ipsettings.h">
+    <ClInclude Include="ipsettings.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\triangle.gen.h">
+    <ClInclude Include="thirdparty\sokol_app.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\types.h">
+    <ClInclude Include="thirdparty\sokol_gfx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\thirdparty\sokol_app.h">
+    <ClInclude Include="thirdparty\sokol_glue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\thirdparty\sokol_gfx.h">
+    <ClInclude Include="thirdparty\sokol_gp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\thirdparty\sokol_glue.h">
+    <ClInclude Include="thirdparty\sokol_time.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\thirdparty\sokol_gp.h">
+    <ClInclude Include="thirdparty\stb_image.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\thirdparty\sokol_time.h">
+    <ClInclude Include="triangle.gen.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\thirdparty\stb_image.h">
+    <ClInclude Include="types.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\thirdparty\enet\enet_dll.cbp">
-      <Filter>Source Files</Filter>
-    </None>
+    <None Include="thirdparty\enet\enet_dll.cbp" />
   </ItemGroup>
 </Project>

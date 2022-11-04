@@ -60,7 +60,7 @@ void server(void* data)
 	ENetEvent event;
 	uint64_t last_processed_time = stm_now();
 	float total_time = 0.0f;
-	uint64_t player_to_latest_tick_processed[MAX_PLAYERS] = { 0 };
+	size_t player_to_latest_id_processed[MAX_PLAYERS] = { 0 };
 	while (true)
 	{
 		// @Speed handle enet messages and simulate gamestate in parallel, then sync... must clone gamestate for this
@@ -123,36 +123,36 @@ void server(void* data)
 						struct ClientToServer received = { 0 };
 						memcpy(&received, event.packet->data, length);
 						int64_t player_slot = (int64_t)event.peer->data;
-						uint64_t latest_tick = player_to_latest_tick_processed[player_slot];
+						size_t latest_id = player_to_latest_id_processed[player_slot];
 
-						if (received.inputs[0].tick > latest_tick)
+						if (received.inputs[0].id > latest_id)
 						{
 							for (int i = INPUT_BUFFER - 1; i >= 0; i--)
 							{
 								if (received.inputs[i].tick == 0) // empty input
 									continue;
-								if (received.inputs[i].tick <= latest_tick)
+								if (received.inputs[i].id <= latest_id)
 									continue; // don't reprocess inputs already processed
 								struct InputFrame cur_input = received.inputs[i];
 								gs.players[player_slot].input.movement = cur_input.movement;
+								gs.players[player_slot].input.hand_pos = cur_input.hand_pos;
 
 								// for these "event" inputs, only modify the current input if the event is true.
 								// while processing the gamestate, will mark it as false once processed. This
 								// prevents setting the event input to false before it's been processed.
-								if (cur_input.inhabit)
+								if (cur_input.seat_action)
 								{
-									gs.players[player_slot].input.inhabit = cur_input.inhabit;
+									gs.players[player_slot].input.seat_action = cur_input.seat_action;
 								}
 								if (cur_input.dobuild)
 								{
 									gs.players[player_slot].input.grid_to_build_on = cur_input.grid_to_build_on;
-									gs.players[player_slot].input.build = cur_input.build;
 									gs.players[player_slot].input.dobuild = cur_input.dobuild;
 									gs.players[player_slot].input.build_type = cur_input.build_type;
 									gs.players[player_slot].input.build_rotation = cur_input.build_rotation;
 								}
 							}
-							player_to_latest_tick_processed[player_slot] = received.inputs[0].tick;
+							player_to_latest_id_processed[player_slot] = received.inputs[0].id;
 						}
 					}
 
@@ -165,7 +165,7 @@ void server(void* data)
 
 				case ENET_EVENT_TYPE_DISCONNECT:
 				{
-					int player_index = (int64_t)event.peer->data;
+					int player_index = (int)(int64_t)event.peer->data;
 					Log("%" PRId64 " disconnected player index %d.\n", (int64_t)event.peer->data, player_index);
 					gs.players[player_index].connected = false;
 					// box_destroy(&gs.players[player_index].box);
@@ -203,7 +203,7 @@ void server(void* data)
 				to_send.cur_gs = &gs;
 				to_send.your_player = (int)(int64_t)server->peers[i].data;
 
-				int len = 0;
+				size_t len = 0;
 				into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE);
 
 				ENetPacket* gamestate_packet = enet_packet_create((void*)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
