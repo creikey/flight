@@ -301,12 +301,8 @@ void box_create(GameState* gs, Entity* new_box, Entity* grid, V2 pos)
 
 // removes boxes from grid, then ensures that the rule that grids must not have
 // holes in them is applied.
-static void grid_remove_box(GameState* gs, struct Entity* grid, struct Entity* box)
+static void grid_correct_for_holes(GameState* gs, struct Entity* grid)
 {
-	assert(grid->is_grid);
-	assert(box->is_box);
-	entity_destroy(gs, box);
-
 	int num_boxes = grid_num_boxes(gs, grid);
 	if (num_boxes == 0)
 	{
@@ -451,6 +447,14 @@ static void grid_remove_box(GameState* gs, struct Entity* grid, struct Entity* b
 		cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(grid_com(new_grid))));
 		cpBodySetAngularVelocity(new_grid->body, entity_angular_velocity(grid));
 	}
+}
+
+static void grid_remove_box(GameState* gs, struct Entity* grid, struct Entity* box)
+{
+	assert(grid->is_grid);
+	assert(box->is_box);
+	entity_destroy(gs, box);
+	grid_correct_for_holes(gs, grid);
 }
 
 static cpBool on_damage(cpArbiter* arb, cpSpace* space, cpDataPointer userData)
@@ -1124,6 +1128,7 @@ void process(GameState* gs, float dt)
 			{
 				Entity* new_box = new_entity(gs);
 				box_create(gs, new_box, target_grid, grid_world_to_local(target_grid, world_build));
+				grid_correct_for_holes(gs, target_grid); // no holey ship for you!
 				new_box->box_type = player->input.build_type;
 				new_box->compass_rotation = player->input.build_rotation;
 				p->spice_taken_away += 0.1f;
