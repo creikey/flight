@@ -259,7 +259,7 @@ V2 box_pos(Entity* box); // returns in world coords
 float box_rotation(Entity* box);
 
 // thruster
-V2 thruster_direction(Entity* box);
+V2 box_facing_vector(Entity* box);
 V2 thruster_force(Entity* box);
 
 // debug draw

@@ -1,6 +1,8 @@
 #include <chipmunk.h>
 #include "types.h"
 
+#include "ipsettings.h" // debug/developer settings
+
 #include <stdio.h>  // assert logging
 #include <string.h> // memset
 
@@ -951,9 +953,9 @@ Entity* closest_to_point_in_radius(GameState* gs, V2 point, float radius)
 	return NULL;
 }
 
-V2 thruster_direction(Entity* box)
+V2 box_facing_vector(Entity* box)
 {
-	assert(box->is_box && box->box_type == BoxThruster);
+	assert(box->is_box);
 	V2 to_return = (V2){ .x = 1.0f, .y = 0.0f };
 
 	to_return = V2rotate(to_return, rotangle(box->compass_rotation));
@@ -964,7 +966,7 @@ V2 thruster_direction(Entity* box)
 
 V2 thruster_force(Entity* box)
 {
-	return V2scale(thruster_direction(box), -box->thrust * THRUSTER_FORCE);
+	return V2scale(box_facing_vector(box), -box->thrust * THRUSTER_FORCE);
 }
 
 uint64_t tick(GameState* gs)
@@ -1006,6 +1008,10 @@ void process(GameState* gs, float dt)
 		}
 		assert(p->is_player);
 
+		if (INFINITE_RESOURCES)
+		{
+			p->spice_taken_away = 0.0f;
+		}
 		// update gold win condition
 		if (V2length(V2sub(cp_to_v2(cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
 		{
@@ -1042,7 +1048,7 @@ void process(GameState* gs, float dt)
 			}
 			else
 			{
-				V2 pilot_seat_exit_spot = V2add(box_pos(the_seat), V2rotate((V2) { .x = BOX_SIZE }, rotangle(the_seat->compass_rotation)));
+				V2 pilot_seat_exit_spot = V2add(box_pos(the_seat), V2scale(box_facing_vector(the_seat), BOX_SIZE));
 				cpBodySetPosition(p->body, v2_to_cp(pilot_seat_exit_spot));
 				cpBodySetVelocity(p->body, v2_to_cp(player_vel(gs, p)));
 				the_seat->piloted_by = (EntityID){ 0 };
@@ -1085,7 +1091,7 @@ void process(GameState* gs, float dt)
 					{
 						if (cur->box_type != BoxThruster)
 							continue;
-						float wanted_thrust = -V2dot(target_direction, thruster_direction(cur));
+						float wanted_thrust = -V2dot(target_direction, box_facing_vector(cur));
 						wanted_thrust = clamp01(wanted_thrust);
 						cur->wanted_thrust = wanted_thrust;
 					}
@@ -1159,8 +1165,6 @@ void process(GameState* gs, float dt)
 		}
 		if (e->is_grid)
 		{
-
-			float thruster_energy_consumption_per_second = 0.0f;
 			BOXES_ITER(gs, cur, e)
 			{
 				if (cur->box_type == BoxThruster)
@@ -1174,6 +1178,7 @@ void process(GameState* gs, float dt)
 							possible_battery->energy_used += energy_to_consume;
 							cur->thrust = cur->wanted_thrust;
 							cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(thruster_force(cur)), v2_to_cp(box_pos(cur)));
+							break;
 						}
 					}
 				}
