@@ -653,7 +653,7 @@ void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name
 	}
 
 }
-#define SER_VAR_NAME(var_pointer, name) ser_var(ser, (char*)var_pointer, sizeof(var_pointer), name, __FILE__, __LINE__)
+#define SER_VAR_NAME(var_pointer, name) ser_var(ser, (char*)var_pointer, sizeof(*var_pointer), name, __FILE__, __LINE__)
 #define SER_VAR(var_pointer) SER_VAR_NAME(var_pointer, #var_pointer)
 
 void ser_V2(SerState* ser, V2* var)
