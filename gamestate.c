@@ -1005,6 +1005,10 @@ void process(GameState* gs, float dt)
 			p = new_entity(gs);
 			create_player(gs, p);
 			player->entity = get_id(gs, p);
+			cpVect pos = v2_to_cp(V2sub(entity_pos(p), SUN_POS));
+			cpFloat r = cpvlength(pos);
+			cpFloat v = cpfsqrt(SUN_GRAVITY_STRENGTH/ r) / r;
+			cpBodySetVelocity(p->body, cpvmult(cpvperp(pos), v));
 		}
 		assert(p->is_player);
 
@@ -1149,11 +1153,25 @@ void process(GameState* gs, float dt)
 		p->spice_taken_away = clamp01(p->spice_taken_away);
 	}
 
-	// process grids
+	// process entities
 	for (size_t i = 0; i < gs->cur_next_entity; i++) {
 		Entity* e = &gs->entities[i];
 		if (!e->exists)
 			continue;
+
+		if (e->body != NULL)
+		{
+			cpVect p = cpvsub(cpBodyGetPosition(e->body),v2_to_cp(SUN_POS));
+			cpFloat sqdist = cpvlengthsq(p);
+			if (sqdist < (SUN_RADIUS * SUN_RADIUS))
+			{
+				entity_destroy(gs, e);
+				continue;
+			}
+			cpVect g = cpvmult(p, -SUN_GRAVITY_STRENGTH / (sqdist * cpfsqrt(sqdist)));
+
+			cpBodyUpdateVelocity(e->body, g, 1.0f, dt);
+		}
 
 		if (e->is_box)
 		{

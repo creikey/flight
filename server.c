@@ -22,7 +22,7 @@ void server(void* data)
 	Log("Allocated %zu bytes for entities\n", entities_size);
 
 	// one box policy
-	if (true)
+	if (false)
 	{
 		Entity* grid = new_entity(&gs);
 		grid_create(&gs, grid);

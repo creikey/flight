@@ -13,8 +13,11 @@
 #define BOX_MASS 1.0f
 #define THRUSTER_FORCE 4.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.05f
-#define VISION_RADIUS 8.0f
+#define VISION_RADIUS 16.0f
 #define MAX_BYTES_SIZE 2048 * 2 // maximum size of gamestate buffer
+#define SUN_RADIUS 10.0f
+#define SUN_POS ((V2){50.0f,0.0f})
+#define SUN_GRAVITY_STRENGTH (5.0e3f)
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)

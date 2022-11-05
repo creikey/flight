@@ -51,6 +51,8 @@ static sg_image image_thrusterburn;
 static sg_image image_player;
 static sg_image image_cockpit_used;
 static sg_image image_stars;
+static sg_image image_stars2;
+static sg_image image_sun;
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
 
@@ -157,6 +159,8 @@ init(void)
 		image_player = load_image("loaded/player.png");
 		image_cockpit_used = load_image("loaded/cockpit_used.png");
 		image_stars = load_image("loaded/stars.png");
+		image_stars2 = load_image("loaded/stars2.png");
+		image_sun = load_image("loaded/sun.png");
 	}
 
 	// socket initialization
@@ -597,10 +601,23 @@ frame(void)
 #if 1 // space background
 			transform_scope
 			{
-				V2 scaled_camera_pos = V2scale(camera_pos, 0.1f); // this is how strong/weak the parallax is
+				V2 scaled_camera_pos = V2scale(camera_pos, 0.05f); // this is how strong/weak the parallax is
 				sgp_translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
 				set_color(WHITE);
 				sgp_set_image(0, image_stars);
+				float stars_height_over_width = (float)sg_query_image_info(image_stars).height / (float)sg_query_image_info(image_stars).width;
+				const float stars_width = 35.0f;
+				float stars_height = stars_width * stars_height_over_width;
+				sgp_draw_textured_rect(-stars_width / 2.0f, -stars_height / 2.0f, stars_width, stars_height);
+				//sgp_draw_textured_rect(0, 0, stars_width, stars_height);
+				sgp_reset_image(0);
+			}
+			transform_scope
+			{
+				V2 scaled_camera_pos = V2scale(camera_pos, 0.1f); // this is how strong/weak the parallax is
+				sgp_translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
+				set_color(WHITE);
+				sgp_set_image(0, image_stars2);
 				float stars_height_over_width = (float)sg_query_image_info(image_stars).height / (float)sg_query_image_info(image_stars).width;
 				const float stars_width = 35.0f;
 				float stars_height = stars_width * stars_height_over_width;
@@ -749,6 +766,12 @@ frame(void)
 				// gold target
 				set_color(GOLD);
 				sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
+
+				// the SUN
+				set_color(WHITE);
+				sgp_set_image(0, image_sun);
+				draw_texture_centered(SUN_POS, SUN_RADIUS*2.0f);
+				sgp_reset_image(0);
 
 				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
 				dbg_drawall();
