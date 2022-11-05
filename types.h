@@ -13,6 +13,7 @@
 #define BOX_MASS 1.0f
 #define THRUSTER_FORCE 4.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.05f
+#define VISION_RADIUS 8.0f
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -376,6 +377,49 @@ static float lerp(float a, float b, float f)
 {
 	return a * (1.0f - f) + (b * f);
 }
+
+static V2 V2floor(V2 p)
+{
+	return (V2) { floorf(p.x), floorf(p.y) };
+}
+
+static V2 V2fract(V2 p)
+{
+	return (V2) { fract(p.x), fract(p.y) };
+}
+/*
+float noise(V2 p)
+{
+	V2 id = V2floor(p);
+	V2 f = V2fract(p);
+
+	V2 u = V2dot(f, f) * (3.0f - 2.0f * f);
+
+	return mix(mix(random(id + V2(0.0, 0.0)),
+		random(id + V2(1.0, 0.0)), u.x),
+		mix(random(id + V2(0.0, 1.0)),
+			random(id + V2(1.0, 1.0)), u.x),
+		u.y);
+}
+
+float fbm(V2 p)
+{
+	float f = 0.0;
+	float gat = 0.0;
+
+	for (float octave = 0.; octave < 5.; ++octave)
+	{
+		float la = pow(2.0, octave);
+		float ga = pow(0.5, octave + 1.);
+		f += ga * noise(la * p);
+		gat += ga;
+	}
+
+	f = f / gat;
+
+	return f;
+}
+*/
 
 static V2 V2lerp(V2 a, V2 b, float factor)
 {

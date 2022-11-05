@@ -1008,10 +1008,9 @@ void process(GameState* gs, float dt)
 		}
 		assert(p->is_player);
 
-		if (INFINITE_RESOURCES)
-		{
+#ifdef INFINITE_RESOURCES
 			p->spice_taken_away = 0.0f;
-		}
+#endif
 		// update gold win condition
 		if (V2length(V2sub(cp_to_v2(cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
 		{

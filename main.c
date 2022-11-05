@@ -48,6 +48,7 @@ static sg_image image_itemframe_selected;
 static sg_image image_thrusterburn;
 static sg_image image_player;
 static sg_image image_cockpit_used;
+static sg_image image_stars;
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
 
@@ -153,6 +154,7 @@ init(void)
 		image_itemframe_selected = load_image("loaded/itemframe_selected.png");
 		image_player = load_image("loaded/player.png");
 		image_cockpit_used = load_image("loaded/cockpit_used.png");
+		image_stars = load_image("loaded/stars.png");
 	}
 
 	// socket initialization
@@ -548,7 +550,7 @@ frame(void)
 		sgp_set_blend_mode(SGP_BLENDMODE_BLEND);
 
 		// Draw background color
-		set_color(colhexcode(0x020509));
+		set_color(colhexcode(0x000000));
 		// sgp_set_color(0.1f, 0.1f, 0.1f, 1.0f);
 		sgp_clear();
 
@@ -559,141 +561,183 @@ frame(void)
 			sgp_translate(width / 2, height / 2);
 			sgp_scale_at(zoom, -zoom, 0.0f, 0.0f);
 
-			// camera go to player
-			sgp_translate(-camera_pos.x, -camera_pos.y);
-
-			// hand reached limit circle
-			if (myentity() != NULL) {
-				static float hand_reach_alpha = 1.0f;
-				hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt * 5.0f);
-				sgp_set_color(1.0f, 1.0f, 1.0f, hand_reach_alpha);
-				draw_circle(entity_pos(myentity()), MAX_HAND_REACH);
+			// parllax layers, just the zooming, but not 100% of the camera panning
+#if 1 // space background
+			transform_scope
+			{
+				V2 scaled_camera_pos = V2scale(camera_pos, 0.1f); // this is how strong/weak the parallax is
+				sgp_translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
+				set_color(WHITE);
+				sgp_set_image(0, image_stars);
+				float stars_height_over_width = (float)sg_query_image_info(image_stars).height / (float)sg_query_image_info(image_stars).width;
+				const float stars_width = 35.0f;
+				float stars_height = stars_width * stars_height_over_width;
+				sgp_draw_textured_rect(-stars_width / 2.0f, -stars_height / 2.0f, stars_width, stars_height);
+				//sgp_draw_textured_rect(0, 0, stars_width, stars_height);
+				sgp_reset_image(0);
 			}
+#endif
 
-			// stars
-			sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-			const int num = 30;
-			for (int x = -num; x < num; x++) {
-				for (int y = -num; y < num; y++) {
-					sgp_draw_point((float)x * 0.1f, (float)y * 0.1f);
-				}
-			}
+				// camera go to player
+				sgp_translate(-camera_pos.x, -camera_pos.y);
 
-			float halfbox = BOX_SIZE / 2.0f;
-
-			// mouse
-			if (mouse_frozen) {
-				sgp_set_color(1.0f, 0.0f, 0.0f, 0.5f);
-				sgp_draw_filled_rect(world_mouse_pos.x, world_mouse_pos.y, 0.1f, 0.1f);
-			}
-
-			// building preview
-			if (cur_editing_boxtype != -1) {
-				sgp_set_color(0.5f, 0.5f, 0.5f, (sinf((float)time * 9.0f) + 1.0f) / 3.0f + 0.2f);
-
-				transform_scope
+	#if 0 // radius of viewership, dots which contextualize stuff
 				{
-					sgp_set_image(0, boxinfo(cur_editing_boxtype).image);
-					sgp_rotate_at(build_preview.grid_rotation + rotangle(cur_editing_rotation),
-						hand_pos.x,
-						hand_pos.y);
-					draw_texture_centered(hand_pos, BOX_SIZE);
-					// drawbox(hand_pos, build_preview.grid_rotation, 0.0f,
-					// cur_editing_boxtype, cur_editing_rotation);
-					sgp_reset_image(0);
-				}
-			}
-
-			for (size_t i = 0; i < gs.cur_next_entity; i++) {
-				Entity* e = &gs.entities[i];
-				if (!e->exists)
-					continue;
-				if (e->is_grid) // grid drawing
-				{
-					Entity* g = e;
-					BOXES_ITER(&gs, b, g)
+					set_color(WHITE);
+					for (float r = 1.0f; r <= VISION_RADIUS; r += 1.0f)
 					{
-						sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-						// debug draw force vectors for thrusters
-						#if 0
-																		{
-																			if (b->type == BoxThruster)
-																			{
-																				dbg_rect(box_pos(b));
-																				dbg_line(box_pos(b), V2add(box_pos(b), V2scale(thruster_force(b), -1.0f)));
-																			}
-																		}
-						#endif
-												if (b->box_type == BoxBattery) {
-													float cur_alpha = sgp_get_color().a;
-													Color from = WHITE;
-													Color to = colhex(255, 0, 0);
-													Color result = Collerp(from, to, b->energy_used);
-													sgp_set_color(result.r, result.g, result.b, cur_alpha);
-												}
-												transform_scope
-												{
-													sgp_rotate_at(entity_rotation(g) + rotangle(b->compass_rotation),
-														box_pos(b).x,
-														box_pos(b).y);
+						for (float theta = 0.0f; theta < 2.0f * PI; theta += 0.1f)
+						{
+							V2 pos = V2scale((V2){ cosf(theta), sinf(theta) }, r);
+							sgp_draw_point(pos.x, pos.y);
+						}
+					}
+				}
+	#endif
+	#if 1 // test grid of dots
+				{
+					sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+					const int num = 100;
+					for (int x = -num; x < num; x++) {
+						for (int y = -num; y < num; y++) {
+							float gap = 0.5f;
+							V2 star = (V2){ (float)x * gap, (float)y * gap };
+							if (fabsf(star.x - camera_pos.x) > VISION_RADIUS)
+								continue;
+							if (fabsf(star.y - camera_pos.y) > VISION_RADIUS)
+								continue;
 
-													if (b->box_type == BoxThruster) {
-														transform_scope
-														{
-															sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-															sgp_set_image(0, image_thrusterburn);
-															// float scaling = 1.0 + (hash11(time*3.0)/2.0)*lerp(0.0,
-															// 0.07, b->thrust); printf("%f\n", b->thrust);
-															float scaling = 0.95f + lerp(0.0f, 0.3f, b->thrust);
-															// float scaling = 1.1;
-															// sgp_translate(-(scaling*BOX_SIZE - BOX_SIZE), 0.0);
-															// sgp_scale(scaling, 1.0);
-															sgp_scale_at(scaling, 1.0f, box_pos(b).x, box_pos(b).y);
-															draw_texture_centered(box_pos(b), BOX_SIZE);
-															sgp_reset_image(0);
-														}
-													}
-													sg_image img = boxinfo(b->box_type).image;
-													if (b->box_type == BoxCockpit)
-													{
-														if (get_entity(&gs, b->piloted_by) != NULL)
-															img = image_cockpit_used;
-													}
+							star.x += hash11(star.x*100.0f + star.y*67.0f);
+							star.y += hash11(star.y*93.0f + star.x*53.0f);
+							sgp_draw_point(star.x, star.y);
+						}
+					}
+				}
+	#endif
+				// hand reached limit circle
+				if (myentity() != NULL) {
+					static float hand_reach_alpha = 1.0f;
+					hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt * 5.0f);
+					sgp_set_color(1.0f, 1.0f, 1.0f, hand_reach_alpha);
+					draw_circle(entity_pos(myentity()), MAX_HAND_REACH);
+				}
 
-													sgp_set_image(0, img);
-													draw_texture_centered(box_pos(b), BOX_SIZE);
-													sgp_reset_image(0);
+				float halfbox = BOX_SIZE / 2.0f;
 
-													sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
-													draw_color_rect_centered(box_pos(b), BOX_SIZE);
-												}
-											}
-											sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
-											V2 vel = grid_vel(g);
-											V2 to = V2add(grid_com(g), vel);
-											sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
-										}
-				if (e->is_player && get_entity(&gs, e->currently_piloting_seat) == NULL) {
-					
+				// mouse frozen, debugging tool
+				if (mouse_frozen) {
+					sgp_set_color(1.0f, 0.0f, 0.0f, 0.5f);
+					sgp_draw_filled_rect(world_mouse_pos.x, world_mouse_pos.y, 0.1f, 0.1f);
+				}
+
+				// building preview
+				if (cur_editing_boxtype != -1) {
+					sgp_set_color(0.5f, 0.5f, 0.5f, (sinf((float)time * 9.0f) + 1.0f) / 3.0f + 0.2f);
+
 					transform_scope
 					{
-						sgp_rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
-						sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-						sgp_set_image(0, image_player);
-						draw_texture_rectangle_centered(entity_pos(e), PLAYER_SIZE);
+						sgp_set_image(0, boxinfo(cur_editing_boxtype).image);
+						sgp_rotate_at(build_preview.grid_rotation + rotangle(cur_editing_rotation),
+							hand_pos.x,
+							hand_pos.y);
+						draw_texture_centered(hand_pos, BOX_SIZE);
+						// drawbox(hand_pos, build_preview.grid_rotation, 0.0f,
+						// cur_editing_boxtype, cur_editing_rotation);
 						sgp_reset_image(0);
 					}
 				}
-			}
-			// gold target
-			set_color(GOLD);
-			sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
 
-			sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-			dbg_drawall();
-		} // world space transform end
+				for (size_t i = 0; i < gs.cur_next_entity; i++) {
+					Entity* e = &gs.entities[i];
+					if (!e->exists)
+						continue;
+					if (e->is_grid) // grid drawing
+					{
+						Entity* g = e;
+						BOXES_ITER(&gs, b, g)
+						{
+							sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+							// debug draw force vectors for thrusters
+							#if 0
+																			{
+																				if (b->type == BoxThruster)
+																				{
+																					dbg_rect(box_pos(b));
+																					dbg_line(box_pos(b), V2add(box_pos(b), V2scale(thruster_force(b), -1.0f)));
+																				}
+																			}
+							#endif
+								if (b->box_type == BoxBattery) {
+									float cur_alpha = sgp_get_color().a;
+									Color from = WHITE;
+									Color to = colhex(255, 0, 0);
+									Color result = Collerp(from, to, b->energy_used);
+									sgp_set_color(result.r, result.g, result.b, cur_alpha);
+								}
+								transform_scope
+								{
+									sgp_rotate_at(entity_rotation(g) + rotangle(b->compass_rotation),
+										box_pos(b).x,
+										box_pos(b).y);
 
-	}
+									if (b->box_type == BoxThruster) {
+										transform_scope
+										{
+											sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+											sgp_set_image(0, image_thrusterburn);
+											// float scaling = 1.0 + (hash11(time*3.0)/2.0)*lerp(0.0,
+											// 0.07, b->thrust); printf("%f\n", b->thrust);
+											float scaling = 0.95f + lerp(0.0f, 0.3f, b->thrust);
+											// float scaling = 1.1;
+											// sgp_translate(-(scaling*BOX_SIZE - BOX_SIZE), 0.0);
+											// sgp_scale(scaling, 1.0);
+											sgp_scale_at(scaling, 1.0f, box_pos(b).x, box_pos(b).y);
+											draw_texture_centered(box_pos(b), BOX_SIZE);
+											sgp_reset_image(0);
+										}
+									}
+									sg_image img = boxinfo(b->box_type).image;
+									if (b->box_type == BoxCockpit)
+									{
+										if (get_entity(&gs, b->piloted_by) != NULL)
+											img = image_cockpit_used;
+									}
+
+									sgp_set_image(0, img);
+									draw_texture_centered(box_pos(b), BOX_SIZE);
+									sgp_reset_image(0);
+
+									sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
+									draw_color_rect_centered(box_pos(b), BOX_SIZE);
+								}
+						}
+
+						// draw the velocity
+						sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
+						V2 vel = grid_vel(g);
+						V2 to = V2add(grid_com(g), vel);
+						sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
+					}
+					if (e->is_player && get_entity(&gs, e->currently_piloting_seat) == NULL) {
+						transform_scope
+						{
+							sgp_rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
+							sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+							sgp_set_image(0, image_player);
+							draw_texture_rectangle_centered(entity_pos(e), PLAYER_SIZE);
+							sgp_reset_image(0);
+						}
+					}
+				}
+				// gold target
+				set_color(GOLD);
+				sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
+
+				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+				dbg_drawall();
+	} // world space transform end
+
+}
 
 	// UI drawn in screen space
 	ui(true, dt, width, height);

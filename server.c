@@ -226,6 +226,9 @@ void server(void* data)
 				size_t len = 0;
 				into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE);
 
+#ifdef LOG_GAMESTATE_SIZE
+				Log("Size of gamestate packet: %zu\n", len);
+#endif
 				ENetPacket* gamestate_packet = enet_packet_create((void*)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 				enet_peer_send(&server->peers[i], 0, gamestate_packet);
 			}
