@@ -1,9 +1,11 @@
+#include <chipmunk.h> // initializing bodies
 #include "types.h"
 #include "sokol_time.h"
 #include <enet/enet.h>
 #include <stdio.h>
 #include <inttypes.h> // int64 printing
 #include <stdlib.h>
+
 
 // started in a thread from host
 void server(void* data)
@@ -26,7 +28,24 @@ void server(void* data)
 		entity_set_pos(grid, (V2) { -BOX_SIZE * 2, 0.0f });
 		Entity* box = new_entity(&gs);
 		box_create(&gs, box, grid, (V2) { 0 });
+	}
 
+	// rotation test
+	if (false)
+	{
+		Entity* grid = new_entity(&gs);
+		grid_create(&gs, grid);
+		entity_set_pos(grid, (V2) { -BOX_SIZE * 2, 0.0f });
+		entity_set_rotation(grid, PI / 1.7f);
+		cpBodySetVelocity(grid->body, cpv(-0.1, 0.0));
+		cpBodySetAngularVelocity(grid->body, 1.0f);
+		
+#define BOX_AT(pos) { Entity* box = new_entity(&gs); box_create(&gs, box, grid, pos); }
+		BOX_AT(((V2) { 0 }));
+		BOX_AT(((V2) { BOX_SIZE, 0 }));
+		BOX_AT(((V2) { 2.0*BOX_SIZE, 0 }));
+		BOX_AT(((V2) { 2.0*BOX_SIZE, BOX_SIZE }));
+		BOX_AT(((V2) { 0.0*BOX_SIZE, -BOX_SIZE }));
 	}
 
 	if (enet_initialize() != 0)
@@ -133,7 +152,7 @@ void server(void* data)
 									continue;
 								if (received.inputs[i].id <= latest_id)
 									continue; // don't reprocess inputs already processed
-								struct InputFrame cur_input = received.inputs[i];
+								InputFrame cur_input = received.inputs[i];
 								gs.players[player_slot].input.movement = cur_input.movement;
 								gs.players[player_slot].input.hand_pos = cur_input.hand_pos;
 
@@ -143,10 +162,11 @@ void server(void* data)
 								if (cur_input.seat_action)
 								{
 									gs.players[player_slot].input.seat_action = cur_input.seat_action;
+									gs.players[player_slot].input.grid_hand_pos_local_to = cur_input.grid_hand_pos_local_to;
 								}
 								if (cur_input.dobuild)
 								{
-									gs.players[player_slot].input.grid_to_build_on = cur_input.grid_to_build_on;
+									gs.players[player_slot].input.grid_hand_pos_local_to = cur_input.grid_hand_pos_local_to;
 									gs.players[player_slot].input.dobuild = cur_input.dobuild;
 									gs.players[player_slot].input.build_type = cur_input.build_type;
 									gs.players[player_slot].input.build_rotation = cur_input.build_rotation;

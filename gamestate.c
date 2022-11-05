@@ -229,6 +229,12 @@ void grid_create(GameState* gs, Entity* e)
 	create_body(gs, e);
 }
 
+void entity_set_rotation(Entity* e, float rot)
+{
+	assert(e->body != NULL);
+	cpBodySetAngle(e->body, rot);
+}	
+
 void entity_set_pos(Entity* e, V2 pos)
 {
 	assert(e->is_grid);
@@ -676,7 +682,7 @@ void ser_entityid(SerState* ser, EntityID* id)
 	SER_VAR(&id->index);
 }
 
-void ser_inputframe(SerState* ser, struct InputFrame* i)
+void ser_inputframe(SerState* ser, InputFrame* i)
 {
 	SER_VAR(&i->tick);
 	SER_VAR(&i->movement);
@@ -684,11 +690,11 @@ void ser_inputframe(SerState* ser, struct InputFrame* i)
 	SER_VAR(&i->seat_action);
 	ser_entityid(ser, &i->seat_to_inhabit);
 	SER_VAR(&i->hand_pos);
+	ser_entityid(ser, &i->grid_hand_pos_local_to);
 
 	SER_VAR(&i->dobuild);
 	SER_VAR(&i->build_type);
 	SER_VAR(&i->build_rotation);
-	ser_entityid(ser, &i->grid_to_build_on);
 }
 
 void ser_player(SerState* ser, Player* p)
@@ -962,6 +968,18 @@ uint64_t tick(GameState* gs)
 	return (uint64_t)floor(gs->time / ((double)TIMESTEP));
 }
 
+V2 get_world_hand_pos(GameState* gs, InputFrame* input, Entity* player)
+{
+	Entity* potential_grid = get_entity(gs, input->grid_hand_pos_local_to);
+	if (potential_grid != NULL)
+	{
+		return grid_local_to_world(potential_grid, input->hand_pos);
+	}
+	else {
+		return input->hand_pos;
+	}
+}
+
 void process(GameState* gs, float dt)
 {
 	assert(gs->space != NULL);
@@ -993,6 +1011,7 @@ void process(GameState* gs, float dt)
 		}
 
 #if 1
+		V2 world_hand_pos = get_world_hand_pos(gs, &player->input, p);
 		if (player->input.seat_action)
 		{
 			player->input.seat_action = false; // "handle" the input
@@ -1000,7 +1019,7 @@ void process(GameState* gs, float dt)
 			if (the_seat == NULL) // not piloting any seat
 			{
 				cpPointQueryInfo query_info = { 0 };
-				cpShape* result = cpSpacePointQueryNearest(gs->space, v2_to_cp(player->input.hand_pos), 0.1f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
+				cpShape* result = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_hand_pos), 0.1f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
 				if (result != NULL)
 				{
 					Entity* potential_seat = cp_shape_entity(result);
@@ -1013,7 +1032,8 @@ void process(GameState* gs, float dt)
 				}
 				else
 				{
-					Log("No ship above player at point %f %f\n", player->input.hand_pos.x, player->input.hand_pos.y);
+
+					Log("No ship above player at point %f %f\n", world_hand_pos.x, world_hand_pos.y);
 				}
 			}
 			else
@@ -1075,10 +1095,10 @@ void process(GameState* gs, float dt)
 			player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
 
 			cpPointQueryInfo info = { 0 };
-			V2 world_build = player->input.hand_pos;
+			V2 world_build = world_hand_pos;
 
 			// @Robust sanitize this input so player can't build on any grid in the world
-			Entity* target_grid = get_entity(gs, player->input.grid_to_build_on);
+			Entity* target_grid = get_entity(gs, player->input.grid_hand_pos_local_to);
 			cpShape* nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
 			if (nearest != NULL)
 			{

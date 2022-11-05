@@ -420,7 +420,7 @@ frame(void)
 		V2 grid_pos;
 		float grid_rotation;
 	} build_preview = { 0 };
-	V2 hand_pos = { 0 };
+	V2 hand_pos = { 0 }; // in local space of grid when hovering over a grid
 	bool hand_at_arms_length = false;
 	{
 		// interpolate zoom
@@ -439,6 +439,7 @@ frame(void)
 
 		// calculate build preview stuff
 		EntityID grid_to_build_on = (EntityID){ 0 };
+		V2 possibly_local_hand_pos = (V2){ 0 };
 		if (myentity() != NULL) {
 			hand_pos = V2sub(world_mouse_pos, entity_pos(myentity()));
 			float hand_len = V2length(hand_pos);
@@ -452,6 +453,7 @@ frame(void)
 			hand_pos = V2scale(V2normalize(hand_pos), hand_len);
 			hand_pos = V2add(hand_pos, entity_pos(myentity()));
 
+			possibly_local_hand_pos = hand_pos;
 			Entity* placing_grid = closest_to_point_in_radius(&gs, hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP);
 			if (placing_grid == NULL) {
 				build_preview = (struct BuildPreviewInfo){
@@ -462,6 +464,7 @@ frame(void)
 			else {
 				grid_to_build_on = get_id(&gs, placing_grid);
 				hand_pos = grid_snapped_box_pos(placing_grid, hand_pos);
+				possibly_local_hand_pos = grid_world_to_local(placing_grid, hand_pos);
 				build_preview = (struct BuildPreviewInfo){ .grid_pos = entity_pos(placing_grid),
 					.grid_rotation = entity_rotation(placing_grid),
 				};
@@ -474,7 +477,7 @@ frame(void)
 			// every frame
 
 			static size_t last_frame_id = 0;
-			struct InputFrame cur_input_frame = { 0 };
+			InputFrame cur_input_frame = { 0 };
 			cur_input_frame.id = last_frame_id;
 			V2 input = (V2){
 				.x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
@@ -484,15 +487,16 @@ frame(void)
 				input = V2normalize(input);
 			cur_input_frame.movement = input;
 			cur_input_frame.seat_action = keypressed[SAPP_KEYCODE_G].pressed;
-			cur_input_frame.hand_pos = hand_pos;
+			cur_input_frame.grid_hand_pos_local_to = grid_to_build_on;
+			cur_input_frame.hand_pos = possibly_local_hand_pos;
+
 			if (mouse_pressed && cur_editing_boxtype != -1) {
 				cur_input_frame.dobuild = mouse_pressed;
 				cur_input_frame.build_type = cur_editing_boxtype;
 				cur_input_frame.build_rotation = cur_editing_rotation;
-				cur_input_frame.grid_to_build_on = grid_to_build_on;
 			}
 
-			struct InputFrame latest = client_to_server.inputs[0];
+			InputFrame latest = client_to_server.inputs[0];
 			// @Robust split this into separate lines and be very careful about testing for inequality
 
 			bool input_differs = false;
@@ -505,12 +509,12 @@ frame(void)
 			input_differs = input_differs || cur_input_frame.dobuild != latest.dobuild;
 			input_differs = input_differs || cur_input_frame.build_type != latest.build_type;
 			input_differs = input_differs || cur_input_frame.build_rotation != latest.build_rotation;
-			input_differs = input_differs || !entityids_same(cur_input_frame.grid_to_build_on, latest.grid_to_build_on);
+			input_differs = input_differs || !entityids_same(cur_input_frame.grid_hand_pos_local_to, latest.grid_hand_pos_local_to);
 
 			if (input_differs) {
-				struct InputFrame last_frame = client_to_server.inputs[0];
+				InputFrame last_frame = client_to_server.inputs[0];
 				for (int i = 0; i < INPUT_BUFFER - 1; i++) {
-					struct InputFrame last_last_frame = last_frame;
+					InputFrame last_last_frame = last_frame;
 					last_frame = client_to_server.inputs[i + 1];
 					client_to_server.inputs[i + 1] = last_last_frame;
 				}
@@ -518,7 +522,6 @@ frame(void)
 				client_to_server.inputs[0] = cur_input_frame;
 				last_frame_id += 1;
 			}
-			dbg_rect(client_to_server.inputs[0].hand_pos);
 
 			static double last_input_sent_time = 0.0;
 			if (fabs(last_input_sent_time - time) > TIME_BETWEEN_INPUT_PACKETS) {
@@ -545,7 +548,8 @@ frame(void)
 		sgp_set_blend_mode(SGP_BLENDMODE_BLEND);
 
 		// Draw background color
-		sgp_set_color(0.1f, 0.1f, 0.1f, 1.0f);
+		set_color(colhexcode(0x020509));
+		// sgp_set_color(0.1f, 0.1f, 0.1f, 1.0f);
 		sgp_clear();
 
 		// sokol drawing library draw in world space

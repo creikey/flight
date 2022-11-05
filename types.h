@@ -98,7 +98,7 @@ static bool entityids_same(EntityID a, EntityID b)
 
 // when updated, must update serialization, AND comparison
 // function in main.c
-struct InputFrame
+typedef struct
 {
 	uint64_t tick;
 	size_t id; // each input has unique, incrementing, I.D, so server doesn't double process inputs. Inputs to server should be ordered from 0-max like biggest id-smallest. This is done so if packet loss server still processes input
@@ -106,13 +106,13 @@ struct InputFrame
 
 	bool seat_action;
 	EntityID seat_to_inhabit;
-	V2 hand_pos; // world coords, world star!
+	V2 hand_pos;
+	EntityID grid_hand_pos_local_to; // when not null, hand_pos is local to this grid. this prevents bug where 
 
 	bool dobuild;
 	enum BoxType build_type;
 	enum CompassRotation build_rotation;
-	EntityID grid_to_build_on;
-};
+} InputFrame;
 
 typedef struct Entity
 {
@@ -158,7 +158,7 @@ typedef struct Player
 {
 	bool connected;
 	EntityID entity;
-	struct InputFrame input;
+	InputFrame input;
 } Player;
 // gotta update the serialization functions when this changes
 typedef struct GameState
@@ -215,7 +215,7 @@ typedef struct ServerToClient
 
 struct ClientToServer
 {
-	struct InputFrame inputs[INPUT_BUFFER];
+	InputFrame inputs[INPUT_BUFFER];
 };
 
 // server
@@ -235,6 +235,7 @@ Entity* get_entity(struct GameState* gs, EntityID id);
 Entity* new_entity(struct GameState* gs);
 EntityID get_id(struct GameState* gs, Entity* e);
 V2 entity_pos(Entity* e);
+void entity_set_rotation(Entity* e, float rot);
 void entity_set_pos(Entity* e, V2 pos);
 float entity_rotation(Entity* e);
 #define BOX_CHAIN_ITER(gs, cur, starting_box) for (Entity *cur = get_entity(gs, starting_box); cur != NULL; cur = get_entity(gs, cur->next_box))
@@ -407,6 +408,15 @@ static Color colhex(int r, int g, int b)
 			.b = (float)b / 255.0f,
 			.a = 1.0f,
 	};
+}
+
+static Color colhexcode(int hexcode)
+{
+	// 0x020509;
+	int r = (hexcode >> 16) & 0xFF;
+	int g = (hexcode >> 8) & 0xFF;
+	int b = (hexcode >> 0) & 0xFF;
+	return colhex(r, g, b);
 }
 
 static Color Collerp(Color a, Color b, float factor)
