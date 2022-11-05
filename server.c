@@ -6,6 +6,7 @@
 #include <inttypes.h> // int64 printing
 #include <stdlib.h>
 
+#include "minilzo.h"
 
 // started in a thread from host
 void server(void* data)
@@ -210,10 +211,11 @@ void server(void* data)
 
 		if (processed)
 		{
-#define MAX_BYTES_SIZE 2048 * 2
-			static char bytes_buffer[MAX_BYTES_SIZE] = { 0 };
+			static char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = { 0 };
 			for (int i = 0; i < server->peerCount; i++)
 			{
+				static char bytes_buffer[MAX_BYTES_SIZE] = { 0 };
+				static char compressed_buffer[MAX_BYTES_SIZE] = { 0 };
 				// @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
 				if (server->peers[i].state != ENET_PEER_STATE_CONNECTED)
 				{
@@ -226,10 +228,15 @@ void server(void* data)
 				size_t len = 0;
 				into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE);
 
+
+    			size_t compressed_len = 0;
+				lzo1x_1_compress(bytes_buffer, len, compressed_buffer, &compressed_len, (void*)lzo_working_mem);
+
 #ifdef LOG_GAMESTATE_SIZE
-				Log("Size of gamestate packet: %zu\n", len);
+				Log("Size of gamestate packet before comrpession: %zu | After: %zu\n", len, compressed_len);
 #endif
-				ENetPacket* gamestate_packet = enet_packet_create((void*)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+				//ENetPacket* gamestate_packet = enet_packet_create((void*)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+				ENetPacket* gamestate_packet = enet_packet_create((void*)compressed_buffer, compressed_len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 				enet_peer_send(&server->peers[i], 0, gamestate_packet);
 			}
 		}

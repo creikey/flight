@@ -23,6 +23,8 @@
 #include <inttypes.h>
 #include <string.h> // errno error message on file open
 
+#include "minilzo.h"
+
 static struct GameState gs = { 0 };
 static int myplayer = -1;
 static bool right_mouse_down = false;
@@ -342,6 +344,25 @@ ui(bool draw, float dt, float width, float height)
 		sgp_pop_transform();
 }
 
+static void draw_dots(V2 camera_pos, float gap)
+{
+	sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+	const int num = 100;
+	for (int x = -num; x < num; x++) {
+		for (int y = -num; y < num; y++) {
+			V2 star = (V2){ (float)x * gap, (float)y * gap };
+			if (fabsf(star.x - camera_pos.x) > VISION_RADIUS)
+				continue;
+			if (fabsf(star.y - camera_pos.y) > VISION_RADIUS)
+				continue;
+
+			star.x += hash11(star.x * 100.0f + star.y * 67.0f)*gap;
+			star.y += hash11(star.y * 93.0f + star.x * 53.0f)*gap;
+			sgp_draw_point(star.x, star.y);
+		}
+	}
+}
+
 static void
 frame(void)
 {
@@ -387,8 +408,19 @@ frame(void)
 						.cur_gs = &gs,
 					};
 					// @Robust @BeforeShip maximum acceptable message size?
-					from_bytes(&msg, event.packet->data, event.packet->dataLength);
-					myplayer = msg.your_player;
+					char decompressed[MAX_BYTES_SIZE] = { 0 };
+					size_t decompressed_len = MAX_BYTES_SIZE;
+					assert(LZO1X_MEM_DECOMPRESS == 0);
+					int return_value = lzo1x_decompress_safe(event.packet->data, event.packet->dataLength, decompressed, &decompressed_len, NULL);
+					// @Robust not sure what return_value is, error test on it somehow
+					if (return_value == LZO_E_OK)
+					{
+						from_bytes(&msg, decompressed, decompressed_len);
+						myplayer = msg.your_player;
+					}
+					else {
+						Log("Couldn't decompress gamestate packet, error code %d from lzo\n", return_value);
+					}
 					enet_packet_destroy(event.packet);
 					break;
 				}
@@ -578,42 +610,27 @@ frame(void)
 			}
 #endif
 
+#if 1 // parallaxed dots
+			transform_scope
+			{
+				V2 scaled_camera_pos = V2scale(camera_pos, 0.25f);
+				sgp_translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
+				set_color(WHITE);
+				draw_dots(scaled_camera_pos, 3.0f);
+			}
+			transform_scope
+			{
+				V2 scaled_camera_pos = V2scale(camera_pos, 0.5f);
+				sgp_translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
+				set_color(WHITE);
+				draw_dots(scaled_camera_pos, 2.0f);
+			}
+#endif
+
 				// camera go to player
 				sgp_translate(-camera_pos.x, -camera_pos.y);
 
-	#if 0 // radius of viewership, dots which contextualize stuff
-				{
-					set_color(WHITE);
-					for (float r = 1.0f; r <= VISION_RADIUS; r += 1.0f)
-					{
-						for (float theta = 0.0f; theta < 2.0f * PI; theta += 0.1f)
-						{
-							V2 pos = V2scale((V2){ cosf(theta), sinf(theta) }, r);
-							sgp_draw_point(pos.x, pos.y);
-						}
-					}
-				}
-	#endif
-	#if 1 // test grid of dots
-				{
-					sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-					const int num = 100;
-					for (int x = -num; x < num; x++) {
-						for (int y = -num; y < num; y++) {
-							float gap = 0.5f;
-							V2 star = (V2){ (float)x * gap, (float)y * gap };
-							if (fabsf(star.x - camera_pos.x) > VISION_RADIUS)
-								continue;
-							if (fabsf(star.y - camera_pos.y) > VISION_RADIUS)
-								continue;
-
-							star.x += hash11(star.x*100.0f + star.y*67.0f);
-							star.y += hash11(star.y*93.0f + star.x*53.0f);
-							sgp_draw_point(star.x, star.y);
-						}
-					}
-				}
-	#endif
+				draw_dots(camera_pos, 1.5f); // in plane dots
 				// hand reached limit circle
 				if (myentity() != NULL) {
 					static float hand_reach_alpha = 1.0f;
@@ -735,9 +752,9 @@ frame(void)
 
 				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
 				dbg_drawall();
-	} // world space transform end
+} // world space transform end
 
-}
+		}
 
 	// UI drawn in screen space
 	ui(true, dt, width, height);
@@ -748,7 +765,7 @@ frame(void)
 	sgp_end();
 	sg_end_pass();
 	sg_commit();
-}
+	}
 
 void cleanup(void)
 {

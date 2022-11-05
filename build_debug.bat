@@ -15,7 +15,8 @@ popd
 
 @REM /DENET_DEBUG=1^
 cl /MP /Zi /FS /Fd"flight.pdb" /Fe"flight"^
-  /I"thirdparty" /I"thirdparty\enet\include" /I"thirdparty\Chipmunk2D\include\chipmunk" /I"thirdparty\Chipmunk2D\include"^
+  /I"thirdparty" /I"thirdparty\minilzo" /I"thirdparty\enet\include" /I"thirdparty\Chipmunk2D\include\chipmunk" /I"thirdparty\Chipmunk2D\include"^
   main.c gamestate.c server.c debugdraw.c^
+  thirdparty\minilzo\minilzo.c^
   thirdparty\enet\callbacks.c thirdparty\enet\compress.c thirdparty\enet\host.c thirdparty\enet\list.c thirdparty\enet\packet.c thirdparty\enet\peer.c thirdparty\enet\protocol.c thirdparty\enet\win32.c Ws2_32.lib winmm.lib^
   %MUNKSRC%

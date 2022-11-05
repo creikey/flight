@@ -14,6 +14,7 @@
 #define THRUSTER_FORCE 4.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.05f
 #define VISION_RADIUS 8.0f
+#define MAX_BYTES_SIZE 2048 * 2 // maximum size of gamestate buffer
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)

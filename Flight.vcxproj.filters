@@ -150,6 +150,9 @@
     <ClCompile Include="thirdparty\enet\win32.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="thirdparty\minilzo\minilzo.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ipsettings.h">
@@ -177,6 +180,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\minilzo\lzoconf.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\minilzo\lzodefs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\minilzo\minilzo.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
