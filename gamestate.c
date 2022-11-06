@@ -889,7 +889,8 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 			Entity* e = &gs->entities[next_index];
 			e->exists = true;
 			ser_entity(ser, gs, e);
-			gs->cur_next_entity = (unsigned int)max(gs->cur_next_entity, next_index + 1);
+			unsigned int possible_next_index = (unsigned int)(next_index + 1);
+			gs->cur_next_entity = gs->cur_next_entity < possible_next_index ? possible_next_index : gs->cur_next_entity;
 		}
 		for (size_t i = 0; i < gs->cur_next_entity; i++)
 		{
@@ -1370,7 +1371,7 @@ void process(GameState* gs, float dt)
 					Entity* potential_meatbag_to_heal = get_entity(gs, cur->player_who_is_inside_of_me);
 					if (potential_meatbag_to_heal != NULL)
 					{
-						float energy_to_recharge = min(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
+						float energy_to_recharge = fminf(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
 						if (possibly_use_energy(gs, e, energy_to_recharge))
 						{
 							potential_meatbag_to_heal->damage -= energy_to_recharge;
