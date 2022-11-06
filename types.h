@@ -6,13 +6,12 @@
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
 #define PLAYER_JETPACK_FORCE 2.0f
-//#define PLAYER_JETPACK_SPICE_PER_SECOND 0.3f
-#define PLAYER_JETPACK_SPICE_PER_SECOND 0.0f
+#define PLAYER_JETPACK_SPICE_PER_SECOND 0.3f
 #define MAX_HAND_REACH 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
 #define BOX_MASS 1.0f
-#define COLLISION_DAMAGE_SCALING 0.1f
+#define COLLISION_DAMAGE_SCALING 0.15f
 #define THRUSTER_FORCE 4.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.05f
 #define VISION_RADIUS 16.0f
@@ -25,6 +24,11 @@
 #define DAMAGE_TO_PLAYER_PER_BLOCK 0.1f
 #define BATTERY_CAPACITY DAMAGE_TO_PLAYER_PER_BLOCK
 #define PLAYER_ENERGY_RECHARGE_PER_SECOND 0.1f
+#define EXPLOSION_TIME 0.5f
+#define EXPLOSION_PUSH_STRENGTH 5.0f
+#define EXPLOSION_DAMAGE_PER_SEC 10.0f
+#define EXPLOSION_RADIUS 1.0f
+#define EXPLOSION_DAMAGE_THRESHOLD 0.2f // how much damage until it explodes
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -86,6 +90,7 @@ enum BoxType
 	BoxCockpit,
 	BoxMedbay,
 	BoxSolarPanel,
+	BoxExplosive,
 	BoxLast,
 };
 
@@ -150,6 +155,12 @@ typedef struct Entity
 	EntityID currently_inside_of_box;
 	float goldness;         // how much the player is a winner
 
+	// explosion
+	bool is_explosion;
+	V2 explosion_pos;
+	V2 explosion_vel;
+	float explosion_progresss; // in seconds
+
 	// grids
 	bool is_grid;
 	float total_energy_capacity;
@@ -171,6 +182,7 @@ typedef struct Entity
 typedef struct Player
 {
 	bool connected;
+	bool unlocked_bombs;
 	EntityID entity;
 	InputFrame input;
 } Player;
@@ -269,7 +281,6 @@ V2 grid_world_to_local(Entity* grid, V2 world);
 V2 grid_snapped_box_pos(Entity* grid, V2 world); // returns the snapped pos in world coords
 float entity_angular_velocity(Entity* grid);
 V2 entity_shape_pos(Entity* box);
-V2 box_pos(Entity* box); // returns in world coords
 float box_rotation(Entity* box);
 
 // thruster

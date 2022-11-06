@@ -54,6 +54,8 @@ static sg_image image_stars;
 static sg_image image_stars2;
 static sg_image image_sun;
 static sg_image image_medbay_used;
+static sg_image image_mystery;
+static sg_image image_explosion;
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
 
@@ -61,6 +63,7 @@ static struct BoxInfo {
 	enum BoxType type;
 	const char* image_path;
 	sg_image image;
+	bool needs_tobe_unlocked;
 } boxes[] = {
 	// if added to here will show up in toolbar, is placeable
 	{
@@ -76,16 +79,21 @@ static struct BoxInfo {
 		.image_path = "loaded/battery.png",
 	},
 	{
-		.type = BoxSolarPanel,
-		.image_path = "loaded/solarpanel.png",
-	},
-	{
 		.type = BoxCockpit,
 		.image_path = "loaded/cockpit.png",
 	},
 	{
 		.type = BoxMedbay,
 		.image_path = "loaded/medbay.png",
+	},
+	{
+		.type = BoxSolarPanel,
+		.image_path = "loaded/solarpanel.png",
+	},
+	{
+		.type = BoxExplosive,
+		.image_path = "loaded/explosive.png",
+		.needs_tobe_unlocked = true,
 	},
 };
 const int boxes_len = sizeof(boxes) / sizeof(*boxes);
@@ -171,6 +179,8 @@ init(void)
 		image_stars2 = load_image("loaded/stars2.png");
 		image_sun = load_image("loaded/sun.png");
 		image_medbay_used = load_image("loaded/medbay_used.png");
+		image_mystery = load_image("loaded/mystery.png");
+		image_explosion = load_image("loaded/explosion.png");
 	}
 
 	// socket initialization
@@ -273,14 +283,30 @@ myentity()
 	return to_return;
 }
 
+bool can_build(int i)
+{
+	bool allow_building = true;
+	if (boxinfo((enum BoxType)i).needs_tobe_unlocked)
+	{
+		allow_building = gs.players[myplayer].unlocked_bombs;
+	}
+	return allow_building;
+}
+
+void attempt_to_build(int i)
+{
+	if (can_build(i))
+		cur_editing_boxtype = i;
+}
+
 static void
 ui(bool draw, float dt, float width, float height)
 {
 	static float cur_opacity = 1.0f;
-	cur_opacity = lerp(cur_opacity, myentity() != NULL ? 1.0f : 0.0f, dt * 5.0f);
-	if (cur_opacity <= 0.01f) {
-		return;
-	}
+		cur_opacity = lerp(cur_opacity, myentity() != NULL ? 1.0f : 0.0f, dt * 5.0f);
+		if (cur_opacity <= 0.01f) {
+			return;
+		}
 
 	if (draw)
 		sgp_push_transform();
@@ -326,8 +352,8 @@ ui(bool draw, float dt, float width, float height)
 				mouse_pos)
 				&& mouse_pressed) {
 				// "handle" mouse pressed
+				attempt_to_build(i);
 				mouse_pressed = false;
-				cur_editing_boxtype = i;
 			}
 
 			if (draw) {
@@ -339,7 +365,14 @@ ui(bool draw, float dt, float width, float height)
 					sgp_set_image(0, image_itemframe);
 				}
 				sgp_draw_textured_rect(x, y, itemframe_width, itemframe_height);
-				sgp_set_image(0, boxinfo((enum BoxType)i).image);
+				struct BoxInfo info = boxinfo((enum BoxType)i);
+				if (can_build(i))
+				{
+					sgp_set_image(0, info.image);
+				}
+				else {
+					sgp_set_image(0, image_mystery);
+				}
 				transform_scope
 				{
 					float item_x = x + item_offset_x;
@@ -370,8 +403,8 @@ static void draw_dots(V2 camera_pos, float gap)
 			if (fabsf(star.y - camera_pos.y) > VISION_RADIUS)
 				continue;
 
-			star.x += hash11(star.x * 100.0f + star.y * 67.0f)*gap;
-			star.y += hash11(star.y * 93.0f + star.x * 53.0f)*gap;
+			star.x += hash11(star.x * 100.0f + star.y * 67.0f) * gap;
+			star.y += hash11(star.y * 93.0f + star.x * 53.0f) * gap;
 			sgp_draw_point(star.x, star.y);
 		}
 	}
@@ -706,8 +739,8 @@ frame(void)
 																			{
 																				if (b->type == BoxThruster)
 																				{
-																					dbg_rect(box_pos(b));
-																					dbg_line(box_pos(b), V2add(box_pos(b), V2scale(thruster_force(b), -1.0f)));
+																					dbg_rect(entity_pos(b));
+																					dbg_line(entity_pos(b), V2add(entity_pos(b), V2scale(thruster_force(b), -1.0f)));
 																				}
 																			}
 							#endif
@@ -715,14 +748,14 @@ frame(void)
 									float cur_alpha = sgp_get_color().a;
 									Color from = WHITE;
 									Color to = colhex(255, 0, 0);
-									Color result = Collerp(from, to, b->energy_used/BATTERY_CAPACITY);
+									Color result = Collerp(from, to, b->energy_used / BATTERY_CAPACITY);
 									sgp_set_color(result.r, result.g, result.b, cur_alpha);
 								}
 								transform_scope
 								{
 									sgp_rotate_at(entity_rotation(g) + rotangle(b->compass_rotation),
-										box_pos(b).x,
-										box_pos(b).y);
+										entity_pos(b).x,
+										entity_pos(b).y);
 
 									if (b->box_type == BoxThruster) {
 										transform_scope
@@ -735,8 +768,8 @@ frame(void)
 											// float scaling = 1.1;
 											// sgp_translate(-(scaling*BOX_SIZE - BOX_SIZE), 0.0);
 											// sgp_scale(scaling, 1.0);
-											sgp_scale_at(scaling, 1.0f, box_pos(b).x, box_pos(b).y);
-											draw_texture_centered(box_pos(b), BOX_SIZE);
+											sgp_scale_at(scaling, 1.0f, entity_pos(b).x, entity_pos(b).y);
+											draw_texture_centered(entity_pos(b), BOX_SIZE);
 											sgp_reset_image(0);
 										}
 									}
@@ -752,19 +785,19 @@ frame(void)
 											img = image_medbay_used;
 									}
 									sgp_set_image(0, img);
-									draw_texture_centered(box_pos(b), BOX_SIZE);
+									draw_texture_centered(entity_pos(b), BOX_SIZE);
 									sgp_reset_image(0);
 
 									if (b->box_type == BoxSolarPanel)
 									{
 										Color to_set = colhexcode(0xeb9834);
-										to_set.a = b->sun_amount*0.5f;
+										to_set.a = b->sun_amount * 0.5f;
 										set_color(to_set);
-										draw_color_rect_centered(box_pos(b), BOX_SIZE);
+										draw_color_rect_centered(entity_pos(b), BOX_SIZE);
 									}
 
 									sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
-									draw_color_rect_centered(box_pos(b), BOX_SIZE);
+									draw_color_rect_centered(entity_pos(b), BOX_SIZE);
 								}
 						}
 
@@ -784,7 +817,15 @@ frame(void)
 							sgp_reset_image(0);
 						}
 					}
+					if (e->is_explosion)
+					{
+						sgp_set_image(0, image_explosion);
+						sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f - (e->explosion_progresss / EXPLOSION_TIME));
+						draw_texture_centered(e->explosion_pos, EXPLOSION_RADIUS*2.0f);
+						sgp_reset_image(0);
+					}
 				}
+
 				// gold target
 				set_color(GOLD);
 				sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
@@ -807,7 +848,7 @@ frame(void)
 				dbg_drawall();
 } // world space transform end
 
-		}
+}
 
 	// UI drawn in screen space
 	ui(true, dt, width, height);
@@ -843,7 +884,7 @@ void event(const sapp_event* e)
 		int key_num = e->key_code - SAPP_KEYCODE_0;
 		int target_box = key_num - 1;
 		if (target_box < BoxLast) {
-			cur_editing_boxtype = target_box;
+			attempt_to_build(target_box);
 		}
 
 		if (!mouse_frozen) {

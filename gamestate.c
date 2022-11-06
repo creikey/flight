@@ -471,11 +471,18 @@ static cpBool on_damage(cpArbiter* arb, cpSpace* space, cpDataPointer userData)
 	entity_b = cp_shape_entity(b);
 
 	float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * COLLISION_DAMAGE_SCALING;
+
+	if (entity_a->is_box && entity_a->box_type == BoxExplosive)
+		entity_a->damage += 2.0f*EXPLOSION_DAMAGE_THRESHOLD;
+	if (entity_b->is_box && entity_b->box_type == BoxExplosive)
+		entity_b->damage += 2.0f*EXPLOSION_DAMAGE_THRESHOLD;
+
 	if (damage > 0.05f)
 	{
 		// Log("Collision with damage %f\n", damage);
 		entity_a->damage += damage;
 		entity_b->damage += damage;
+
 	}
 
 	// b must be the key passed into the post step removed, the key is cast into its shape
@@ -515,12 +522,6 @@ V2 grid_com(Entity* grid)
 	return cp_to_v2(cpBodyLocalToWorld(grid->body, cpBodyGetCenterOfGravity(grid->body)));
 }
 
-V2 entity_pos(Entity* e)
-{
-	assert(!e->is_box);
-	// @Robust merge entity_pos with box_pos
-	return cp_to_v2(cpBodyGetPosition(e->body));
-}
 V2 grid_vel(Entity* grid)
 {
 	return cp_to_v2(cpBodyGetVelocity(grid->body));
@@ -568,14 +569,19 @@ float entity_shape_mass(Entity* box)
 	assert(box->shape != NULL);
 	return (float)cpShapeGetMass(box->shape);
 }
-V2 box_pos(Entity* box)
-{
-	assert(box->is_box);
-	return V2add(entity_pos(box_grid(box)), V2rotate(entity_shape_pos(box), entity_rotation(box_grid(box))));
-}
 float box_rotation(Entity* box)
 {
 	return (float)cpBodyGetAngle(cpShapeGetBody(box->shape));
+}
+V2 entity_pos(Entity* e)
+{
+	if (e->is_box) {
+		return V2add(entity_pos(box_grid(e)), V2rotate(entity_shape_pos(e), entity_rotation(box_grid(e))));
+	}
+	else {
+		assert(e->body != NULL);
+		return cp_to_v2(cpBodyGetPosition(e->body));
+	}
 }
 
 struct BodyData
@@ -711,6 +717,7 @@ void ser_player(SerState* ser, Player* p)
 	SER_VAR(&p->connected);
 	if (p->connected)
 	{
+		SER_VAR(&p->unlocked_bombs);
 		ser_entityid(ser, &p->entity);
 		ser_inputframe(ser, &p->input);
 	}
@@ -777,6 +784,14 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 	{
 		ser_entityid(ser, &e->currently_inside_of_box);
 		SER_VAR(&e->goldness);
+	}
+
+	SER_VAR(&e->is_explosion);
+	if (e->is_explosion)
+	{
+		ser_V2(ser, &e->explosion_pos);
+		ser_V2(ser, &e->explosion_vel);
+		SER_VAR(&e->explosion_progresss);
 	}
 
 	SER_VAR(&e->is_grid);
@@ -955,6 +970,34 @@ Entity* closest_to_point_in_radius(GameState* gs, V2 point, float radius)
 	return NULL;
 }
 
+static float cur_explosion_damage = 0.0f;
+static V2 explosion_origin = { 0 };
+static void explosion_callback_func(cpShape* shape, cpContactPointSet* points, void* data)
+{
+	GameState* gs = (GameState*)data;
+	cp_shape_entity(shape)->damage += cur_explosion_damage;
+	Entity* parent = get_entity(gs, cp_shape_entity(shape)->shape_parent_entity);
+	V2 from_pos = entity_pos(cp_shape_entity(shape));
+	V2 impulse = V2scale(V2normalize(V2sub(from_pos, explosion_origin)), EXPLOSION_PUSH_STRENGTH);
+	assert(parent->body != NULL);
+	cpBodyApplyImpulseAtWorldPoint(parent->body, v2_to_cp(impulse), v2_to_cp(from_pos));
+
+}
+
+static void do_explosion(GameState* gs, Entity* explosion, float dt)
+{
+	cur_explosion_damage = dt * EXPLOSION_DAMAGE_PER_SEC;
+	explosion_origin = explosion->explosion_pos;
+
+	cpBody* tmpbody = cpBodyNew(0.0f, 0.0f);
+	cpShape* circle = cpCircleShapeNew(tmpbody, EXPLOSION_RADIUS, v2_to_cp(explosion_origin));
+
+	cpSpaceShapeQuery(gs->space, circle, explosion_callback_func, (void*)gs);
+
+	cpShapeFree(circle);
+	cpBodyFree(tmpbody);
+}
+
 V2 box_facing_vector(Entity* box)
 {
 	assert(box->is_box);
@@ -1029,7 +1072,7 @@ void process(GameState* gs, float dt)
 		assert(p->is_player);
 
 #ifdef INFINITE_RESOURCES
-		p->spice_taken_away = 0.0f;
+		p->damage = 0.0f;
 #endif
 		// update gold win condition
 		if (V2length(V2sub(cp_to_v2(cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
@@ -1066,7 +1109,7 @@ void process(GameState* gs, float dt)
 			}
 			else
 			{
-				V2 pilot_seat_exit_spot = V2add(box_pos(the_seat), V2scale(box_facing_vector(the_seat), BOX_SIZE));
+				V2 pilot_seat_exit_spot = V2add(entity_pos(the_seat), V2scale(box_facing_vector(the_seat), BOX_SIZE));
 				cpBodySetPosition(p->body, v2_to_cp(pilot_seat_exit_spot));
 				cpBodySetVelocity(p->body, v2_to_cp(player_vel(gs, p)));
 				the_seat->player_who_is_inside_of_me = (EntityID){ 0 };
@@ -1095,10 +1138,10 @@ void process(GameState* gs, float dt)
 			{
 				assert(seat_inside_of->is_box);
 				cpShapeSetFilter(p->shape, CP_SHAPE_FILTER_NONE); // no collisions while in a seat
-				cpBodySetPosition(p->body, v2_to_cp(box_pos(seat_inside_of)));
+				cpBodySetPosition(p->body, v2_to_cp(entity_pos(seat_inside_of)));
 
 				// set thruster thrust from movement
-				if(seat_inside_of->box_type == BoxCockpit) {
+				if (seat_inside_of->box_type == BoxCockpit) {
 					Entity* g = get_entity(gs, seat_inside_of->shape_parent_entity);
 
 					V2 target_direction = { 0 };
@@ -1133,7 +1176,7 @@ void process(GameState* gs, float dt)
 			{
 				Entity* cur_box = cp_shape_entity(nearest);
 				Entity* cur_grid = cp_body_entity(cpShapeGetBody(nearest));
-				p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK*((BATTERY_CAPACITY - cur_box->energy_used)/BATTERY_CAPACITY);
+				p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK * ((BATTERY_CAPACITY - cur_box->energy_used) / BATTERY_CAPACITY);
 				grid_remove_box(gs, cur_grid, cur_box);
 			}
 			else if (target_grid == NULL)
@@ -1179,7 +1222,7 @@ void process(GameState* gs, float dt)
 		{
 			cpVect p = cpvsub(cpBodyGetPosition(e->body), v2_to_cp(SUN_POS));
 			cpFloat sqdist = cpvlengthsq(p);
-			if(sqdist > (INSTANT_DEATH_DISTANCE_FROM_SUN*INSTANT_DEATH_DISTANCE_FROM_SUN))
+			if (sqdist > (INSTANT_DEATH_DISTANCE_FROM_SUN * INSTANT_DEATH_DISTANCE_FROM_SUN))
 			{
 				entity_destroy(gs, e);
 				continue;
@@ -1194,8 +1237,27 @@ void process(GameState* gs, float dt)
 			cpBodyUpdateVelocity(e->body, g, 1.0f, dt);
 		}
 
+		if (e->is_explosion)
+		{
+			e->explosion_progresss += dt;
+			e->explosion_pos = V2add(e->explosion_pos, V2scale(e->explosion_vel, dt));
+			do_explosion(gs, e, dt);
+			if (e->explosion_progresss >= EXPLOSION_TIME)
+			{
+				entity_destroy(gs, e);
+			}
+		}
+
 		if (e->is_box)
 		{
+			if (e->box_type == BoxExplosive && e->damage >= EXPLOSION_DAMAGE_THRESHOLD)
+			{
+				Entity* explosion = new_entity(gs);
+				explosion->is_explosion = true;
+				explosion->explosion_pos = entity_pos(e);
+				explosion->explosion_vel = grid_vel(box_grid(e));
+				grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
+			}
 			if (e->damage >= 1.0f)
 			{
 				grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
@@ -1208,7 +1270,7 @@ void process(GameState* gs, float dt)
 			BOXES_ITER(gs, cur, e)
 			{
 				if (cur->box_type == BoxSolarPanel) {
-					cur->sun_amount = clamp01(V2dot(box_facing_vector(cur), V2normalize(V2sub(SUN_POS, box_pos(cur)))));
+					cur->sun_amount = clamp01(V2dot(box_facing_vector(cur), V2normalize(V2sub(SUN_POS, entity_pos(cur)))));
 					energy_to_add += cur->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
 				}
 			}
@@ -1237,7 +1299,7 @@ void process(GameState* gs, float dt)
 					if (possibly_use_energy(gs, e, energy_to_consume))
 					{
 						cur->thrust = cur->wanted_thrust;
-						cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(thruster_force(cur)), v2_to_cp(box_pos(cur)));
+						cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(thruster_force(cur)), v2_to_cp(entity_pos(cur)));
 					}
 				}
 				if (cur->box_type == BoxMedbay)

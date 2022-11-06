@@ -21,6 +21,11 @@ void server(void* data)
 	initialize(&gs, entity_data, entities_size);
 	Log("Allocated %zu bytes for entities\n", entities_size);
 
+	// unlock the explosive
+	if (true)
+	{
+	}
+
 	// one box policy
 	if (false)
 	{
@@ -122,6 +127,9 @@ void server(void* data)
 						event.peer->data = (void*)player_slot;
 						gs.players[player_slot] = (struct Player){ 0 };
 						gs.players[player_slot].connected = true;
+#ifdef UNLOCK_ALL
+						gs.players[player_slot].unlocked_bombs = true;
+#endif
 					}
 
 					break;
