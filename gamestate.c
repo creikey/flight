@@ -985,7 +985,7 @@ V2 get_world_hand_pos(GameState* gs, InputFrame* input, Entity* player)
 		return grid_local_to_world(potential_grid, input->hand_pos);
 	}
 	else {
-		return input->hand_pos;
+		return V2add(entity_pos(player), input->hand_pos);
 	}
 }
 

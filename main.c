@@ -501,7 +501,7 @@ frame(void)
 			hand_pos = V2scale(V2normalize(hand_pos), hand_len);
 			hand_pos = V2add(hand_pos, entity_pos(myentity()));
 
-			possibly_local_hand_pos = hand_pos;
+			possibly_local_hand_pos = V2sub(hand_pos, entity_pos(myentity()));
 			Entity* placing_grid = closest_to_point_in_radius(&gs, hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP);
 			if (placing_grid == NULL) {
 				build_preview = (struct BuildPreviewInfo){

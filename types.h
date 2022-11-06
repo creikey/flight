@@ -96,7 +96,7 @@ enum CompassRotation
 };
 
 // when generation is 0, invalid ID
-typedef struct
+typedef struct EntityID
 {
 	unsigned int generation; // if 0 then EntityID points to nothing, generation >= 1
 	unsigned int index;      // index into the entity arena
@@ -109,7 +109,7 @@ static bool entityids_same(EntityID a, EntityID b)
 
 // when updated, must update serialization, AND comparison
 // function in main.c
-typedef struct
+typedef struct InputFrame
 {
 	uint64_t tick;
 	size_t id; // each input has unique, incrementing, I.D, so server doesn't double process inputs. Inputs to server should be ordered from 0-max like biggest id-smallest. This is done so if packet loss server still processes input
@@ -117,8 +117,9 @@ typedef struct
 
 	bool seat_action;
 	EntityID seat_to_inhabit;
-	V2 hand_pos;
-	EntityID grid_hand_pos_local_to; // when not null, hand_pos is local to this grid. this prevents bug where 
+	V2 hand_pos; // local to player transationally but not rotationally unless field below is not null, then it's local to that grid
+	// @BeforeShip bounds check on the hand_pos so that players can't reach across the entire map
+	EntityID grid_hand_pos_local_to; // when not null, hand_pos is local to this grid. this prevents bug where at high speeds the built block is in the wrong place on the selected grid
 
 	bool dobuild;
 	enum BoxType build_type;
