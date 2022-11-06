@@ -235,7 +235,7 @@ void entity_set_rotation(Entity* e, float rot)
 {
 	assert(e->body != NULL);
 	cpBodySetAngle(e->body, rot);
-}	
+}
 
 void entity_set_pos(Entity* e, V2 pos)
 {
@@ -270,12 +270,14 @@ void create_rectangle_shape(GameState* gs, Entity* e, Entity* parent, V2 pos, V2
 	cpSpaceAddShape(gs->space, e->shape);
 }
 
+#define PLAYER_SHAPE_FILTER cpShapeFilterNew(CP_NO_GROUP, PLAYERS, CP_ALL_CATEGORIES)
+
 void create_player(GameState* gs, Entity* e)
 {
 	e->is_player = true;
 	create_body(gs, e);
 	create_rectangle_shape(gs, e, e, (V2) { 0 }, V2scale(PLAYER_SIZE, 0.5f), PLAYER_MASS);
-	cpShapeSetFilter(e->shape, cpShapeFilterNew(CP_NO_GROUP, PLAYERS, CP_ALL_CATEGORIES));
+	cpShapeSetFilter(e->shape, PLAYER_SHAPE_FILTER);
 }
 
 // box must be passed as a parameter as the box added to chipmunk uses this pointer in its
@@ -653,7 +655,7 @@ void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name
 			{
 				printf("%s:%d | Expected variable %s but got %sn\n", file, line, var_name, read_name);
 				*(char*)NULL = 0;
-}
+			}
 		}
 #endif
 		for (int b = 0; b < var_size; b++)
@@ -668,6 +670,7 @@ void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name
 #define SER_VAR_NAME(var_pointer, name) ser_var(ser, (char*)var_pointer, sizeof(*var_pointer), name, __FILE__, __LINE__)
 #define SER_VAR(var_pointer) SER_VAR_NAME(var_pointer, #var_pointer)
 
+// @Robust probably get rid of this as separate function, just use SER_VAR
 void ser_V2(SerState* ser, V2* var)
 {
 	SER_VAR(&var->x);
@@ -739,9 +742,10 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 
 	if (has_shape)
 	{
-		SER_VAR(&e->shape_size);
+		ser_V2(ser, &e->shape_size);
 		ser_entityid(ser, &e->shape_parent_entity);
-
+		Entity* parent = get_entity(gs, e->shape_parent_entity);
+		assert(parent != NULL);
 
 		V2 shape_pos;
 		if (ser->serializing)
@@ -753,14 +757,18 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 			shape_mass = entity_shape_mass(e);
 		SER_VAR(&shape_mass);
 
-		Entity* parent = get_entity(gs, e->shape_parent_entity);
-		if (parent == NULL)
+		cpShapeFilter filter;
+		if (ser->serializing)
 		{
-			printf("Null shape parent\n");
+			filter = cpShapeGetFilter(e->shape);
 		}
+		SER_VAR(&filter.categories);
+		SER_VAR(&filter.group);
+		SER_VAR(&filter.mask);
 		if (!ser->serializing)
 		{
 			create_rectangle_shape(gs, e, parent, shape_pos, e->shape_size, shape_mass);
+			cpShapeSetFilter(e->shape, filter);
 		}
 	}
 
@@ -789,6 +797,7 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 		SER_VAR(&e->thrust);
 		SER_VAR(&e->wanted_thrust);
 		SER_VAR(&e->energy_used);
+		SER_VAR(&e->sun_amount);
 		ser_entityid(ser, &e->piloted_by);
 	}
 }
@@ -828,19 +837,13 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 			Entity* e = &gs->entities[i];
 			if (e->exists)
 			{
-				if (e->is_player)
-				{
-					SER_VAR(&entities_done);
-					SER_VAR(&i);
-					ser_entity(ser, gs, e);
-				}
-				else if (e->is_grid)
+				SER_VAR(&entities_done);
+				SER_VAR(&i);
+				ser_entity(ser, gs, e);
+				if (e->is_grid)
 				{
 					// serialize boxes always after bodies, so that by the time the boxes
 					// are loaded in the parent body is loaded in and can be referenced.
-					SER_VAR(&entities_done);
-					SER_VAR(&i);
-					ser_entity(ser, gs, e);
 					BOXES_ITER(gs, cur, e)
 					{
 						EntityID cur_id = get_id(gs, cur);
@@ -986,6 +989,20 @@ V2 get_world_hand_pos(GameState* gs, InputFrame* input, Entity* player)
 	}
 }
 
+// return true if used the energy
+bool possibly_use_energy(GameState* gs, Entity* grid, float wanted_energy)
+{
+	BOXES_ITER(gs, possible_battery, grid)
+	{
+		if (possible_battery->box_type == BoxBattery && (BATTERY_CAPACITY - possible_battery->energy_used) > wanted_energy)
+		{
+			possible_battery->energy_used += wanted_energy;
+			return true;
+		}
+	}
+	return false;
+}
+
 void process(GameState* gs, float dt)
 {
 	assert(gs->space != NULL);
@@ -1007,13 +1024,13 @@ void process(GameState* gs, float dt)
 			player->entity = get_id(gs, p);
 			cpVect pos = v2_to_cp(V2sub(entity_pos(p), SUN_POS));
 			cpFloat r = cpvlength(pos);
-			cpFloat v = cpfsqrt(SUN_GRAVITY_STRENGTH/ r) / r;
+			cpFloat v = cpfsqrt(SUN_GRAVITY_STRENGTH / r) / r;
 			cpBodySetVelocity(p->body, cpvmult(cpvperp(pos), v));
 		}
 		assert(p->is_player);
 
 #ifdef INFINITE_RESOURCES
-			p->spice_taken_away = 0.0f;
+		p->spice_taken_away = 0.0f;
 #endif
 		// update gold win condition
 		if (V2length(V2sub(cp_to_v2(cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
@@ -1072,7 +1089,7 @@ void process(GameState* gs, float dt)
 
 			if (piloting_seat == NULL)
 			{
-				cpShapeSetFilter(p->shape, CP_SHAPE_FILTER_ALL);
+				cpShapeSetFilter(p->shape, PLAYER_SHAPE_FILTER);
 				cpBodyApplyForceAtWorldPoint(p->body, v2_to_cp(V2scale(player->input.movement, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
 				p->spice_taken_away += movement_strength * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
 			}
@@ -1117,8 +1134,8 @@ void process(GameState* gs, float dt)
 			{
 				Entity* cur_box = cp_shape_entity(nearest);
 				Entity* cur_grid = cp_body_entity(cpShapeGetBody(nearest));
+				p->spice_taken_away -= SPICE_PER_BLOCK*((BATTERY_CAPACITY - cur_box->energy_used)/BATTERY_CAPACITY);
 				grid_remove_box(gs, cur_grid, cur_box);
-				p->spice_taken_away -= 0.1f;
 			}
 			else if (target_grid == NULL)
 			{
@@ -1140,7 +1157,7 @@ void process(GameState* gs, float dt)
 				grid_correct_for_holes(gs, target_grid); // no holey ship for you!
 				new_box->box_type = player->input.build_type;
 				new_box->compass_rotation = player->input.build_rotation;
-				p->spice_taken_away += 0.1f;
+				p->spice_taken_away += SPICE_PER_BLOCK;
 			}
 		}
 #endif
@@ -1161,7 +1178,7 @@ void process(GameState* gs, float dt)
 
 		if (e->body != NULL)
 		{
-			cpVect p = cpvsub(cpBodyGetPosition(e->body),v2_to_cp(SUN_POS));
+			cpVect p = cpvsub(cpBodyGetPosition(e->body), v2_to_cp(SUN_POS));
 			cpFloat sqdist = cpvlengthsq(p);
 			if (sqdist < (SUN_RADIUS * SUN_RADIUS))
 			{
@@ -1182,20 +1199,52 @@ void process(GameState* gs, float dt)
 		}
 		if (e->is_grid)
 		{
+			// calculate how much energy solar panels provide
+			float energy_to_add = 0.0f;
+			BOXES_ITER(gs, cur, e)
+			{
+				if (cur->box_type == BoxSolarPanel) {
+					cur->sun_amount = clamp01(V2dot(box_facing_vector(cur), V2normalize(V2sub(SUN_POS, box_pos(cur)))));
+					energy_to_add += cur->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
+				}
+			}
+
+			// apply all of the energy to all connected batteries
+			BOXES_ITER(gs, cur, e)
+			{
+				if (energy_to_add <= 0.0f)
+					break;
+				if (cur->box_type == BoxBattery)
+				{
+					float energy_sucked_up_by_battery = cur->energy_used < energy_to_add ? cur->energy_used : energy_to_add;
+					cur->energy_used -= energy_sucked_up_by_battery;
+					energy_to_add -= energy_sucked_up_by_battery;
+				}
+				assert(energy_to_add >= 0.0f);
+			}
+
+			// use the energy, stored in the batteries, in various boxes
 			BOXES_ITER(gs, cur, e)
 			{
 				if (cur->box_type == BoxThruster)
 				{
 					float energy_to_consume = cur->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
 					cur->thrust = 0.0f;
-					BOXES_ITER(gs, possible_battery, e)
+					if (possibly_use_energy(gs, e, energy_to_consume))
 					{
-						if (possible_battery->box_type == BoxBattery && (1.0f - possible_battery->energy_used) > energy_to_consume)
+						cur->thrust = cur->wanted_thrust;
+						cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(thruster_force(cur)), v2_to_cp(box_pos(cur)));
+					}
+				}
+				if (cur->box_type == BoxCockpit)
+				{
+					Entity* potential_pilot = get_entity(gs, cur->piloted_by);
+					if (potential_pilot != NULL && potential_pilot->spice_taken_away)
+					{
+						float energy_to_recharge = min(potential_pilot->spice_taken_away, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
+						if (possibly_use_energy(gs, e, energy_to_recharge))
 						{
-							possible_battery->energy_used += energy_to_consume;
-							cur->thrust = cur->wanted_thrust;
-							cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(thruster_force(cur)), v2_to_cp(box_pos(cur)));
-							break;
+							potential_pilot->spice_taken_away -= energy_to_recharge;
 						}
 					}
 				}

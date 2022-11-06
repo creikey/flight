@@ -14,10 +14,14 @@
 #define THRUSTER_FORCE 4.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.05f
 #define VISION_RADIUS 16.0f
-#define MAX_BYTES_SIZE 2048 * 2 // maximum size of gamestate buffer
+#define MAX_BYTES_SIZE 1024 * 8 // maximum size of gamestate buffer
 #define SUN_RADIUS 10.0f
 #define SUN_POS ((V2){50.0f,0.0f})
 #define SUN_GRAVITY_STRENGTH (5.0e3f)
+#define SOLAR_ENERGY_PER_SECOND 0.02f
+#define SPICE_PER_BLOCK 0.1f
+#define BATTERY_CAPACITY SPICE_PER_BLOCK
+#define PLAYER_ENERGY_RECHARGE_PER_SECOND 0.1f
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -77,6 +81,7 @@ enum BoxType
 	BoxThruster,
 	BoxBattery,
 	BoxCockpit,
+	BoxSolarPanel,
 	BoxLast,
 };
 
@@ -156,6 +161,7 @@ typedef struct Entity
 	float wanted_thrust; // the thrust command applied to the thruster
 	float thrust;      // the actual thrust it can provide based on energy sources in the grid
 	float energy_used; // battery
+	float sun_amount; // solar panel, between 0 and 1
 	EntityID piloted_by;
 } Entity;
 

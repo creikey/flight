@@ -75,6 +75,10 @@ static struct BoxInfo {
 		.image_path = "loaded/battery.png",
 	},
 	{
+		.type = BoxSolarPanel,
+		.image_path = "loaded/solarpanel.png",
+	},
+	{
 		.type = BoxCockpit,
 		.image_path = "loaded/cockpit.png",
 	},
@@ -705,7 +709,7 @@ frame(void)
 									float cur_alpha = sgp_get_color().a;
 									Color from = WHITE;
 									Color to = colhex(255, 0, 0);
-									Color result = Collerp(from, to, b->energy_used);
+									Color result = Collerp(from, to, b->energy_used/BATTERY_CAPACITY);
 									sgp_set_color(result.r, result.g, result.b, cur_alpha);
 								}
 								transform_scope
@@ -740,6 +744,14 @@ frame(void)
 									sgp_set_image(0, img);
 									draw_texture_centered(box_pos(b), BOX_SIZE);
 									sgp_reset_image(0);
+
+									if (b->box_type == BoxSolarPanel)
+									{
+										Color to_set = colhexcode(0xeb9834);
+										to_set.a = b->sun_amount*0.5f;
+										set_color(to_set);
+										draw_color_rect_centered(box_pos(b), BOX_SIZE);
+									}
 
 									sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
 									draw_color_rect_centered(box_pos(b), BOX_SIZE);
