@@ -5,8 +5,8 @@
 #define BOX_SIZE 0.25f
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
-#define PLAYER_JETPACK_FORCE 1.0f
-#define PLAYER_JETPACK_SPICE_PER_SECOND 0.1f
+#define PLAYER_JETPACK_FORCE 2.0f
+#define PLAYER_JETPACK_SPICE_PER_SECOND 0.3f
 #define MAX_HAND_REACH 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
@@ -16,6 +16,7 @@
 #define VISION_RADIUS 16.0f
 #define MAX_BYTES_SIZE 1024 * 8 // maximum size of gamestate buffer
 #define SUN_RADIUS 10.0f
+#define INSTANT_DEATH_DISTANCE_FROM_SUN 300.0f
 #define SUN_POS ((V2){50.0f,0.0f})
 #define SUN_GRAVITY_STRENGTH (5.0e3f)
 #define SOLAR_ENERGY_PER_SECOND 0.02f

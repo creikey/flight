@@ -1180,6 +1180,11 @@ void process(GameState* gs, float dt)
 		{
 			cpVect p = cpvsub(cpBodyGetPosition(e->body), v2_to_cp(SUN_POS));
 			cpFloat sqdist = cpvlengthsq(p);
+			if(sqdist > (INSTANT_DEATH_DISTANCE_FROM_SUN*INSTANT_DEATH_DISTANCE_FROM_SUN))
+			{
+				entity_destroy(gs, e);
+				continue;
+			}
 			if (sqdist < (SUN_RADIUS * SUN_RADIUS))
 			{
 				entity_destroy(gs, e);

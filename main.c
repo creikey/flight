@@ -790,10 +790,18 @@ frame(void)
 				sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
 
 				// the SUN
-				set_color(WHITE);
-				sgp_set_image(0, image_sun);
-				draw_texture_centered(SUN_POS, SUN_RADIUS*2.0f);
-				sgp_reset_image(0);
+				transform_scope
+				{
+					sgp_translate(SUN_POS.x, SUN_POS.y);
+					set_color(WHITE);
+					sgp_set_image(0, image_sun);
+					draw_texture_centered((V2) { 0 }, SUN_RADIUS * 2.0f);
+					sgp_reset_image(0);
+
+					// sun DEATH RADIUS
+					set_color(RED);
+					draw_circle((V2) { 0 }, INSTANT_DEATH_DISTANCE_FROM_SUN);
+				}
 
 				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
 				dbg_drawall();
