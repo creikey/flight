@@ -6,11 +6,13 @@
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
 #define PLAYER_JETPACK_FORCE 2.0f
-#define PLAYER_JETPACK_SPICE_PER_SECOND 0.3f
+//#define PLAYER_JETPACK_SPICE_PER_SECOND 0.3f
+#define PLAYER_JETPACK_SPICE_PER_SECOND 0.0f
 #define MAX_HAND_REACH 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
 #define BOX_MASS 1.0f
+#define COLLISION_DAMAGE_SCALING 0.1f
 #define THRUSTER_FORCE 4.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.05f
 #define VISION_RADIUS 16.0f
@@ -20,8 +22,8 @@
 #define SUN_POS ((V2){50.0f,0.0f})
 #define SUN_GRAVITY_STRENGTH (5.0e3f)
 #define SOLAR_ENERGY_PER_SECOND 0.02f
-#define SPICE_PER_BLOCK 0.1f
-#define BATTERY_CAPACITY SPICE_PER_BLOCK
+#define DAMAGE_TO_PLAYER_PER_BLOCK 0.1f
+#define BATTERY_CAPACITY DAMAGE_TO_PLAYER_PER_BLOCK
 #define PLAYER_ENERGY_RECHARGE_PER_SECOND 0.1f
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
@@ -137,7 +139,6 @@ typedef struct Entity
 	cpBody* body;   // used by grid, player, and box
 	cpShape* shape; // must be a box so shape_size can be set appropriately, and serialized
 
-
 	// for serializing the shape
 	// @Robust remove shape_parent_entity from this struct, use the shape's body to figure out
 	// what the shape's parent entity is
@@ -147,7 +148,6 @@ typedef struct Entity
 	// player
 	bool is_player;
 	EntityID currently_inside_of_box;
-	float spice_taken_away; // at 1.0, out of spice
 	float goldness;         // how much the player is a winner
 
 	// grids

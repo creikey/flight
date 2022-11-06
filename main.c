@@ -288,10 +288,10 @@ ui(bool draw, float dt, float width, float height)
 	// if(draw) sgp_scale(1.0f, -1.0f);
 	//  draw spice bar
 	if (draw) {
-		static float spice_taken_away = 0.5f;
+		static float damage = 0.5f;
 
 		if (myentity() != NULL) {
-			spice_taken_away = myentity()->spice_taken_away;
+			damage = myentity()->damage;
 		}
 
 		sgp_set_color(0.5f, 0.5f, 0.5f, cur_opacity);
@@ -300,7 +300,7 @@ ui(bool draw, float dt, float width, float height)
 		sgp_draw_filled_rect(margin, 80.0f, bar_width, 30.0f);
 		sgp_set_color(1.0f, 1.0f, 1.0f, cur_opacity);
 		sgp_draw_filled_rect(
-			margin, 80.0f, bar_width * (1.0f - spice_taken_away), 30.0f);
+			margin, 80.0f, bar_width * (1.0f - damage), 30.0f);
 	}
 
 	// draw item toolbar

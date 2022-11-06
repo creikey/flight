@@ -470,7 +470,7 @@ static cpBool on_damage(cpArbiter* arb, cpSpace* space, cpDataPointer userData)
 	entity_a = cp_shape_entity(a);
 	entity_b = cp_shape_entity(b);
 
-	float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * 0.25f;
+	float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * COLLISION_DAMAGE_SCALING;
 	if (damage > 0.05f)
 	{
 		// Log("Collision with damage %f\n", damage);
@@ -776,7 +776,6 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 	if (e->is_player)
 	{
 		ser_entityid(ser, &e->currently_inside_of_box);
-		SER_VAR(&e->spice_taken_away);
 		SER_VAR(&e->goldness);
 	}
 
@@ -1036,7 +1035,7 @@ void process(GameState* gs, float dt)
 		if (V2length(V2sub(cp_to_v2(cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
 		{
 			p->goldness += 0.1f;
-			p->spice_taken_away = 0.0f;
+			p->damage = 0.0f;
 			gs->goldpos = (V2){ .x = hash11((float)gs->time) * 20.0f, .y = hash11((float)gs->time - 13.6f) * 20.0f };
 		}
 
@@ -1090,7 +1089,7 @@ void process(GameState* gs, float dt)
 			{
 				cpShapeSetFilter(p->shape, PLAYER_SHAPE_FILTER);
 				cpBodyApplyForceAtWorldPoint(p->body, v2_to_cp(V2scale(player->input.movement, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
-				p->spice_taken_away += movement_strength * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
+				p->damage += movement_strength * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
 			}
 			else
 			{
@@ -1134,14 +1133,14 @@ void process(GameState* gs, float dt)
 			{
 				Entity* cur_box = cp_shape_entity(nearest);
 				Entity* cur_grid = cp_body_entity(cpShapeGetBody(nearest));
-				p->spice_taken_away -= SPICE_PER_BLOCK*((BATTERY_CAPACITY - cur_box->energy_used)/BATTERY_CAPACITY);
+				p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK*((BATTERY_CAPACITY - cur_box->energy_used)/BATTERY_CAPACITY);
 				grid_remove_box(gs, cur_grid, cur_box);
 			}
 			else if (target_grid == NULL)
 			{
 				Entity* new_grid = new_entity(gs);
 				grid_create(gs, new_grid);
-				p->spice_taken_away += 0.1f;
+				p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
 				entity_set_pos(new_grid, world_build);
 
 				Entity* new_box = new_entity(gs);
@@ -1157,17 +1156,17 @@ void process(GameState* gs, float dt)
 				grid_correct_for_holes(gs, target_grid); // no holey ship for you!
 				new_box->box_type = player->input.build_type;
 				new_box->compass_rotation = player->input.build_rotation;
-				p->spice_taken_away += SPICE_PER_BLOCK;
+				p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
 			}
 		}
 #endif
-		if (p->spice_taken_away >= 1.0f)
+		if (p->damage >= 1.0f)
 		{
 			entity_destroy(gs, p);
 			player->entity = (EntityID){ 0 };
 		}
 
-		p->spice_taken_away = clamp01(p->spice_taken_away);
+		p->damage = clamp01(p->damage);
 	}
 
 	// process entities
@@ -1246,10 +1245,10 @@ void process(GameState* gs, float dt)
 					Entity* potential_meatbag_to_heal = get_entity(gs, cur->player_who_is_inside_of_me);
 					if (potential_meatbag_to_heal != NULL)
 					{
-						float energy_to_recharge = min(potential_meatbag_to_heal->spice_taken_away, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
+						float energy_to_recharge = min(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
 						if (possibly_use_energy(gs, e, energy_to_recharge))
 						{
-							potential_meatbag_to_heal->spice_taken_away -= energy_to_recharge;
+							potential_meatbag_to_heal->damage -= energy_to_recharge;
 						}
 					}
 				}
