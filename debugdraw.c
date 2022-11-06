@@ -29,7 +29,7 @@ typedef struct Command
 // doesn't fuck up main thread
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-#define THREADLOCAL __declspec(thread) 
+#define THREADLOCAL __declspec(thread)
 #else
 #define THREADLOCAL __thread
 #endif
@@ -44,18 +44,22 @@ void dbg_drawall()
     for (int i = 0; i < command_i; i++)
     {
         const float size = 0.05f;
-        switch(commands[i].type)
+        switch (commands[i].type)
         {
-            case rect:
-                V2 center = commands[i].center;
-                V2 upper_left = V2add(center, (V2){.x = -size / 2.0f, .y = -size / 2.0f});
-                sgp_draw_filled_rect(upper_left.x, upper_left.y, size, size);
-                break;
-            case line:
-                V2 from = commands[i].from;
-                V2 to = commands[i].to;
-                sgp_draw_line(from.x, from.y, to.x, to.y);
-                break;
+        case rect:
+        {
+            V2 center = commands[i].center;
+            V2 upper_left = V2add(center, (V2){.x = -size / 2.0f, .y = -size / 2.0f});
+            sgp_draw_filled_rect(upper_left.x, upper_left.y, size, size);
+            break;
+        }
+        case line:
+        {
+            V2 from = commands[i].from;
+            V2 to = commands[i].to;
+            sgp_draw_line(from.x, from.y, to.x, to.y);
+            break;
+        }
         }
     }
     command_i = 0;
