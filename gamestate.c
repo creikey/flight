@@ -805,6 +805,7 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 	if (e->is_box)
 	{
 		SER_VAR(&e->box_type);
+		SER_VAR(&e->is_explosion_unlock);
 		ser_entityid(ser, &e->next_box);
 		ser_entityid(ser, &e->prev_box);
 		SER_VAR(&e->compass_rotation);
@@ -1045,6 +1046,14 @@ bool possibly_use_energy(GameState* gs, Entity* grid, float wanted_energy)
 	return false;
 }
 
+void entity_ensure_in_orbit(Entity* e)
+{
+	cpVect pos = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
+	cpFloat r = cpvlength(pos);
+	cpFloat v = cpfsqrt(SUN_GRAVITY_STRENGTH / r) / r;
+	cpBodySetVelocity(e->body, cpvmult(cpvperp(pos), v));
+}
+
 void process(GameState* gs, float dt)
 {
 	assert(gs->space != NULL);
@@ -1053,21 +1062,15 @@ void process(GameState* gs, float dt)
 	gs->time += dt;
 
 	// process input
-	for (int i = 0; i < MAX_PLAYERS; i++)
+	PLAYERS_ITER(gs->players, player)
 	{
-		struct Player* player = &gs->players[i];
-		if (!player->connected)
-			continue;
 		Entity* p = get_entity(gs, player->entity);
 		if (p == NULL)
 		{
 			p = new_entity(gs);
 			create_player(gs, p);
 			player->entity = get_id(gs, p);
-			cpVect pos = v2_to_cp(V2sub(entity_pos(p), SUN_POS));
-			cpFloat r = cpvlength(pos);
-			cpFloat v = cpfsqrt(SUN_GRAVITY_STRENGTH / r) / r;
-			cpBodySetVelocity(p->body, cpvmult(cpvperp(pos), v));
+			entity_ensure_in_orbit(p);
 		}
 		assert(p->is_player);
 
@@ -1217,6 +1220,18 @@ void process(GameState* gs, float dt)
 		Entity* e = &gs->entities[i];
 		if (!e->exists)
 			continue;
+
+		if (e->is_explosion_unlock)
+		{
+			PLAYERS_ITER(gs->players, player)
+			{
+				Entity* player_entity = get_entity(gs, player->entity);
+				if (player_entity != NULL && V2length(V2sub(entity_pos(player_entity), entity_pos(e))) < GOLD_UNLOCK_RADIUS)
+				{
+					player->unlocked_bombs = true;
+				}
+			}
+		}
 
 		if (e->body != NULL)
 		{

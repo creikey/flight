@@ -303,10 +303,10 @@ static void
 ui(bool draw, float dt, float width, float height)
 {
 	static float cur_opacity = 1.0f;
-		cur_opacity = lerp(cur_opacity, myentity() != NULL ? 1.0f : 0.0f, dt * 5.0f);
-		if (cur_opacity <= 0.01f) {
-			return;
-		}
+	cur_opacity = lerp(cur_opacity, myentity() != NULL ? 1.0f : 0.0f, dt * 5.0f);
+	if (cur_opacity <= 0.01f) {
+		return;
+	}
 
 	if (draw)
 		sgp_push_transform();
@@ -728,11 +728,17 @@ frame(void)
 					Entity* e = &gs.entities[i];
 					if (!e->exists)
 						continue;
-					if (e->is_grid) // grid drawing
+					// draw grid
+					if (e->is_grid)
 					{
 						Entity* g = e;
 						BOXES_ITER(&gs, b, g)
 						{
+							if (b->is_explosion_unlock)
+							{
+								set_color(colhexcode(0xfcba03));
+								draw_circle(entity_pos(b), GOLD_UNLOCK_RADIUS);
+							}
 							sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
 							// debug draw force vectors for thrusters
 							#if 0
@@ -821,7 +827,7 @@ frame(void)
 					{
 						sgp_set_image(0, image_explosion);
 						sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f - (e->explosion_progresss / EXPLOSION_TIME));
-						draw_texture_centered(e->explosion_pos, EXPLOSION_RADIUS*2.0f);
+						draw_texture_centered(e->explosion_pos, EXPLOSION_RADIUS * 2.0f);
 						sgp_reset_image(0);
 					}
 				}
@@ -846,9 +852,9 @@ frame(void)
 
 				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
 				dbg_drawall();
-} // world space transform end
+		} // world space transform end
 
-}
+	}
 
 	// UI drawn in screen space
 	ui(true, dt, width, height);
@@ -859,7 +865,7 @@ frame(void)
 	sgp_end();
 	sg_end_pass();
 	sg_commit();
-	}
+}
 
 void cleanup(void)
 {

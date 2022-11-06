@@ -29,6 +29,7 @@
 #define EXPLOSION_DAMAGE_PER_SEC 10.0f
 #define EXPLOSION_RADIUS 1.0f
 #define EXPLOSION_DAMAGE_THRESHOLD 0.2f // how much damage until it explodes
+#define GOLD_UNLOCK_RADIUS 1.0f
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -169,6 +170,7 @@ typedef struct Entity
 	// boxes
 	bool is_box;
 	enum BoxType box_type;
+	bool is_explosion_unlock;
 	EntityID next_box;
 	EntityID prev_box; // doubly linked so can remove in middle of chain
 	enum CompassRotation compass_rotation;
@@ -206,6 +208,8 @@ typedef struct GameState
 	unsigned int cur_next_entity; // next entity to pass on request of a new entity if the free list is empty
 	EntityID free_list;
 } GameState;
+
+#define PLAYERS_ITER(players, cur) for(Player * cur = players; cur < players+MAX_PLAYERS; cur++) if(cur->connected)
 
 #define PI 3.14159f
 
@@ -264,6 +268,7 @@ V2 entity_pos(Entity* e);
 void entity_set_rotation(Entity* e, float rot);
 void entity_set_pos(Entity* e, V2 pos);
 float entity_rotation(Entity* e);
+void entity_ensure_in_orbit(Entity* e);
 #define BOX_CHAIN_ITER(gs, cur, starting_box) for (Entity *cur = get_entity(gs, starting_box); cur != NULL; cur = get_entity(gs, cur->next_box))
 #define BOXES_ITER(gs, cur, grid_entity_ptr) BOX_CHAIN_ITER(gs, cur, (grid_entity_ptr)->boxes)
 

@@ -21,9 +21,17 @@ void server(void* data)
 	initialize(&gs, entity_data, entities_size);
 	Log("Allocated %zu bytes for entities\n", entities_size);
 
-	// unlock the explosive
+#define BOX_AT(grid, pos) { Entity* box = new_entity(&gs); box_create(&gs, box, grid, pos); }
+	// space station with explosion unlock
 	if (true)
 	{
+		Entity* grid = new_entity(&gs);
+		grid_create(&gs, grid);
+		entity_set_pos(grid, (V2) { -10.0f, 0.0f });
+		entity_ensure_in_orbit(grid);
+		Entity* explosion_box = new_entity(&gs);
+		box_create(&gs, explosion_box, grid, (V2) { 0 });
+		explosion_box->is_explosion_unlock = true;
 	}
 
 	// one box policy
@@ -46,12 +54,11 @@ void server(void* data)
 		cpBodySetVelocity(grid->body, cpv(-0.1, 0.0));
 		cpBodySetAngularVelocity(grid->body, 1.0f);
 		
-#define BOX_AT(pos) { Entity* box = new_entity(&gs); box_create(&gs, box, grid, pos); }
-		BOX_AT(((V2) { 0 }));
-		BOX_AT(((V2) { BOX_SIZE, 0 }));
-		BOX_AT(((V2) { 2.0*BOX_SIZE, 0 }));
-		BOX_AT(((V2) { 2.0*BOX_SIZE, BOX_SIZE }));
-		BOX_AT(((V2) { 0.0*BOX_SIZE, -BOX_SIZE }));
+		BOX_AT(grid,((V2) { 0 }));
+		BOX_AT(grid,((V2) { BOX_SIZE, 0 }));
+		BOX_AT(grid,((V2) { 2.0*BOX_SIZE, 0 }));
+		BOX_AT(grid,((V2) { 2.0*BOX_SIZE, BOX_SIZE }));
+		BOX_AT(grid,((V2) { 0.0*BOX_SIZE, -BOX_SIZE }));
 	}
 
 	if (enet_initialize() != 0)
