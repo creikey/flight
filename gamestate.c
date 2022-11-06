@@ -473,9 +473,9 @@ static cpBool on_damage(cpArbiter* arb, cpSpace* space, cpDataPointer userData)
 	float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * COLLISION_DAMAGE_SCALING;
 
 	if (entity_a->is_box && entity_a->box_type == BoxExplosive)
-		entity_a->damage += 2.0f*EXPLOSION_DAMAGE_THRESHOLD;
+		entity_a->damage += 2.0f * EXPLOSION_DAMAGE_THRESHOLD;
 	if (entity_b->is_box && entity_b->box_type == BoxExplosive)
-		entity_b->damage += 2.0f*EXPLOSION_DAMAGE_THRESHOLD;
+		entity_b->damage += 2.0f * EXPLOSION_DAMAGE_THRESHOLD;
 
 	if (damage > 0.05f)
 	{
@@ -809,6 +809,7 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 		ser_entityid(ser, &e->next_box);
 		ser_entityid(ser, &e->prev_box);
 		SER_VAR(&e->compass_rotation);
+		SER_VAR(&e->indestructible);
 		SER_VAR(&e->thrust);
 		SER_VAR(&e->wanted_thrust);
 		SER_VAR(&e->energy_used);
@@ -1054,6 +1055,45 @@ void entity_ensure_in_orbit(Entity* e)
 	cpBodySetVelocity(e->body, cpvmult(cpvperp(pos), v));
 }
 
+EntityID create_spacestation(GameState* gs)
+{
+#define BOX_AT_TYPE(grid, pos, type) { Entity* box = new_entity(gs); box_create(gs, box, grid, pos); box->box_type = type; box->indestructible = indestructible; }
+#define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
+
+	bool indestructible = false;
+	Entity* grid = new_entity(gs);
+	grid_create(gs, grid);
+	entity_set_pos(grid, (V2) { -150.0f, 0.0f });
+	entity_ensure_in_orbit(grid);
+	Entity* explosion_box = new_entity(gs);
+	box_create(gs, explosion_box, grid, (V2) { 0 });
+	explosion_box->is_explosion_unlock = true;
+	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE, 0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE*2, 0 }), BoxHullpiece);
+	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE*3, 0 }), BoxHullpiece);
+	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE*4, 0 }), BoxHullpiece);
+
+	indestructible = true;
+	for (float y = -BOX_SIZE * 5.0; y <= BOX_SIZE * 5.0; y += BOX_SIZE)
+	{
+		BOX_AT_TYPE(grid, ((V2) { BOX_SIZE*5.0, y }), BoxHullpiece);
+	}
+	for (float x = -BOX_SIZE * 5.0; x <= BOX_SIZE * 5.0; x += BOX_SIZE)
+	{
+		BOX_AT_TYPE(grid, ((V2) { x, BOX_SIZE*5.0 }), BoxHullpiece);
+		BOX_AT_TYPE(grid, ((V2) { x, -BOX_SIZE*5.0 }), BoxHullpiece);
+	}
+	indestructible = false;
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, BOX_SIZE*5.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, BOX_SIZE*3.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, BOX_SIZE*1.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, -BOX_SIZE*2.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, -BOX_SIZE*3.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, -BOX_SIZE*5.0 }), BoxExplosive);
+
+	return get_id(gs, grid);
+}
+
 void process(GameState* gs, float dt)
 {
 	assert(gs->space != NULL);
@@ -1178,9 +1218,12 @@ void process(GameState* gs, float dt)
 			if (nearest != NULL)
 			{
 				Entity* cur_box = cp_shape_entity(nearest);
-				Entity* cur_grid = cp_body_entity(cpShapeGetBody(nearest));
-				p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK * ((BATTERY_CAPACITY - cur_box->energy_used) / BATTERY_CAPACITY);
-				grid_remove_box(gs, cur_grid, cur_box);
+				if (!cur_box->indestructible)
+				{
+					Entity* cur_grid = cp_body_entity(cpShapeGetBody(nearest));
+					p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK * ((BATTERY_CAPACITY - cur_box->energy_used) / BATTERY_CAPACITY);
+					grid_remove_box(gs, cur_grid, cur_box);
+				}
 			}
 			else if (target_grid == NULL)
 			{
@@ -1213,6 +1256,11 @@ void process(GameState* gs, float dt)
 		}
 
 		p->damage = clamp01(p->damage);
+	}
+
+	if(get_entity(gs, gs->cur_spacestation) == NULL)
+	{
+		gs->cur_spacestation = create_spacestation(gs);
 	}
 
 	// process entities

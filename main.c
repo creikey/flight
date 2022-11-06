@@ -791,6 +791,10 @@ frame(void)
 											img = image_medbay_used;
 									}
 									sgp_set_image(0, img);
+									if (b->indestructible)
+									{
+										sgp_set_color(0.2f, 0.2f, 0.2f, 1.0f);
+									}
 									draw_texture_centered(entity_pos(b), BOX_SIZE);
 									sgp_reset_image(0);
 

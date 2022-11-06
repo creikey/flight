@@ -6,6 +6,7 @@
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
 #define PLAYER_JETPACK_FORCE 2.0f
+// #define PLAYER_JETPACK_FORCE 20.0f
 #define PLAYER_JETPACK_SPICE_PER_SECOND 0.3f
 #define MAX_HAND_REACH 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
@@ -174,6 +175,7 @@ typedef struct Entity
 	EntityID next_box;
 	EntityID prev_box; // doubly linked so can remove in middle of chain
 	enum CompassRotation compass_rotation;
+	bool indestructible;
 	float wanted_thrust; // the thrust command applied to the thruster
 	float thrust;      // the actual thrust it can provide based on energy sources in the grid
 	float energy_used; // battery
@@ -198,6 +200,8 @@ typedef struct GameState
 	V2 goldpos;
 
 	Player players[MAX_PLAYERS];
+
+	EntityID cur_spacestation;
 
 	// Entity arena
 	// ent:ity pointers can't move around because of how the physics engine handles user data.
@@ -252,6 +256,7 @@ struct ClientToServer
 void server(void* data); // data parameter required from thread api...
 
 // gamestate
+EntityID create_spacestation(GameState* gs);
 void initialize(struct GameState* gs, void* entity_arena, size_t entity_arena_size);
 void destroy(struct GameState* gs);
 void process(struct GameState* gs, float dt); // does in place

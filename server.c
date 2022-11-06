@@ -21,18 +21,8 @@ void server(void* data)
 	initialize(&gs, entity_data, entities_size);
 	Log("Allocated %zu bytes for entities\n", entities_size);
 
-#define BOX_AT(grid, pos) { Entity* box = new_entity(&gs); box_create(&gs, box, grid, pos); }
-	// space station with explosion unlock
-	if (true)
-	{
-		Entity* grid = new_entity(&gs);
-		grid_create(&gs, grid);
-		entity_set_pos(grid, (V2) { -10.0f, 0.0f });
-		entity_ensure_in_orbit(grid);
-		Entity* explosion_box = new_entity(&gs);
-		box_create(&gs, explosion_box, grid, (V2) { 0 });
-		explosion_box->is_explosion_unlock = true;
-	}
+#define BOX_AT_TYPE(grid, pos, type) { Entity* box = new_entity(&gs); box_create(&gs, box, grid, pos); box->box_type = type; }
+#define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
 
 	// one box policy
 	if (false)
