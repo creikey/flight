@@ -53,6 +53,7 @@ static sg_image image_cockpit_used;
 static sg_image image_stars;
 static sg_image image_stars2;
 static sg_image image_sun;
+static sg_image image_medbay_used;
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
 
@@ -81,6 +82,10 @@ static struct BoxInfo {
 	{
 		.type = BoxCockpit,
 		.image_path = "loaded/cockpit.png",
+	},
+	{
+		.type = BoxMedbay,
+		.image_path = "loaded/medbay.png",
 	},
 };
 const int boxes_len = sizeof(boxes) / sizeof(*boxes);
@@ -165,6 +170,7 @@ init(void)
 		image_stars = load_image("loaded/stars.png");
 		image_stars2 = load_image("loaded/stars2.png");
 		image_sun = load_image("loaded/sun.png");
+		image_medbay_used = load_image("loaded/medbay_used.png");
 	}
 
 	// socket initialization
@@ -737,10 +743,14 @@ frame(void)
 									sg_image img = boxinfo(b->box_type).image;
 									if (b->box_type == BoxCockpit)
 									{
-										if (get_entity(&gs, b->piloted_by) != NULL)
+										if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
 											img = image_cockpit_used;
 									}
-
+									if (b->box_type == BoxMedbay)
+									{
+										if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
+											img = image_medbay_used;
+									}
 									sgp_set_image(0, img);
 									draw_texture_centered(box_pos(b), BOX_SIZE);
 									sgp_reset_image(0);
@@ -764,7 +774,7 @@ frame(void)
 						V2 to = V2add(grid_com(g), vel);
 						sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
 					}
-					if (e->is_player && get_entity(&gs, e->currently_piloting_seat) == NULL) {
+					if (e->is_player && get_entity(&gs, e->currently_inside_of_box) == NULL) {
 						transform_scope
 						{
 							sgp_rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);

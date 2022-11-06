@@ -215,7 +215,7 @@ void create_body(GameState* gs, Entity* e)
 V2 player_vel(GameState* gs, Entity* player)
 {
 	assert(player->is_player);
-	Entity* potential_seat = get_entity(gs, player->currently_piloting_seat);
+	Entity* potential_seat = get_entity(gs, player->currently_inside_of_box);
 	if (potential_seat != NULL)
 	{
 		return cp_to_v2(cpBodyGetVelocity(get_entity(gs, potential_seat->shape_parent_entity)->body));
@@ -775,7 +775,7 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 	SER_VAR(&e->is_player);
 	if (e->is_player)
 	{
-		ser_entityid(ser, &e->currently_piloting_seat);
+		ser_entityid(ser, &e->currently_inside_of_box);
 		SER_VAR(&e->spice_taken_away);
 		SER_VAR(&e->goldness);
 	}
@@ -798,7 +798,7 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 		SER_VAR(&e->wanted_thrust);
 		SER_VAR(&e->energy_used);
 		SER_VAR(&e->sun_amount);
-		ser_entityid(ser, &e->piloted_by);
+		ser_entityid(ser, &e->player_who_is_inside_of_me);
 	}
 }
 
@@ -835,7 +835,7 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 		for (size_t i = 0; i < gs->cur_next_entity; i++)
 		{
 			Entity* e = &gs->entities[i];
-			if (e->exists)
+			if (e->exists && !e->is_box) // boxes are serialized after their parent entities, their grid. 
 			{
 				SER_VAR(&entities_done);
 				SER_VAR(&i);
@@ -1045,8 +1045,8 @@ void process(GameState* gs, float dt)
 		if (player->input.seat_action)
 		{
 			player->input.seat_action = false; // "handle" the input
-			Entity* the_seat = get_entity(gs, p->currently_piloting_seat);
-			if (the_seat == NULL) // not piloting any seat
+			Entity* the_seat = get_entity(gs, p->currently_inside_of_box);
+			if (the_seat == NULL) // not in any seat
 			{
 				cpPointQueryInfo query_info = { 0 };
 				cpShape* result = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_hand_pos), 0.1f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
@@ -1054,16 +1054,15 @@ void process(GameState* gs, float dt)
 				{
 					Entity* potential_seat = cp_shape_entity(result);
 					assert(potential_seat->is_box);
-					if (potential_seat->box_type == BoxCockpit)
+					if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
 					{
-						p->currently_piloting_seat = get_id(gs, potential_seat);
-						potential_seat->piloted_by = get_id(gs, p);
+						p->currently_inside_of_box = get_id(gs, potential_seat);
+						potential_seat->player_who_is_inside_of_me = get_id(gs, p);
 					}
 				}
 				else
 				{
-
-					Log("No ship above player at point %f %f\n", world_hand_pos.x, world_hand_pos.y);
+					Log("No seat to get into for a player at point %f %f\n", world_hand_pos.x, world_hand_pos.y);
 				}
 			}
 			else
@@ -1071,8 +1070,8 @@ void process(GameState* gs, float dt)
 				V2 pilot_seat_exit_spot = V2add(box_pos(the_seat), V2scale(box_facing_vector(the_seat), BOX_SIZE));
 				cpBodySetPosition(p->body, v2_to_cp(pilot_seat_exit_spot));
 				cpBodySetVelocity(p->body, v2_to_cp(player_vel(gs, p)));
-				the_seat->piloted_by = (EntityID){ 0 };
-				p->currently_piloting_seat = (EntityID){ 0 };
+				the_seat->player_who_is_inside_of_me = (EntityID){ 0 };
+				p->currently_inside_of_box = (EntityID){ 0 };
 			}
 		}
 #endif
@@ -1085,9 +1084,9 @@ void process(GameState* gs, float dt)
 			{
 				player->input.movement = V2scale(V2normalize(player->input.movement), clamp(V2length(player->input.movement), 0.0f, 1.0f));
 			}
-			Entity* piloting_seat = get_entity(gs, p->currently_piloting_seat);
+			Entity* seat_inside_of = get_entity(gs, p->currently_inside_of_box);
 
-			if (piloting_seat == NULL)
+			if (seat_inside_of == NULL)
 			{
 				cpShapeSetFilter(p->shape, PLAYER_SHAPE_FILTER);
 				cpBodyApplyForceAtWorldPoint(p->body, v2_to_cp(V2scale(player->input.movement, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
@@ -1095,12 +1094,13 @@ void process(GameState* gs, float dt)
 			}
 			else
 			{
-				cpShapeSetFilter(p->shape, CP_SHAPE_FILTER_NONE); // no collisions while going to pilot seat
-				cpBodySetPosition(p->body, v2_to_cp(box_pos(piloting_seat)));
+				assert(seat_inside_of->is_box);
+				cpShapeSetFilter(p->shape, CP_SHAPE_FILTER_NONE); // no collisions while in a seat
+				cpBodySetPosition(p->body, v2_to_cp(box_pos(seat_inside_of)));
 
 				// set thruster thrust from movement
-				{
-					Entity* g = get_entity(gs, piloting_seat->shape_parent_entity);
+				if(seat_inside_of->box_type == BoxCockpit) {
+					Entity* g = get_entity(gs, seat_inside_of->shape_parent_entity);
 
 					V2 target_direction = { 0 };
 					if (V2length(player->input.movement) > 0.0f)
@@ -1236,15 +1236,15 @@ void process(GameState* gs, float dt)
 						cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(thruster_force(cur)), v2_to_cp(box_pos(cur)));
 					}
 				}
-				if (cur->box_type == BoxCockpit)
+				if (cur->box_type == BoxMedbay)
 				{
-					Entity* potential_pilot = get_entity(gs, cur->piloted_by);
-					if (potential_pilot != NULL && potential_pilot->spice_taken_away)
+					Entity* potential_meatbag_to_heal = get_entity(gs, cur->player_who_is_inside_of_me);
+					if (potential_meatbag_to_heal != NULL)
 					{
-						float energy_to_recharge = min(potential_pilot->spice_taken_away, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
+						float energy_to_recharge = min(potential_meatbag_to_heal->spice_taken_away, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
 						if (possibly_use_energy(gs, e, energy_to_recharge))
 						{
-							potential_pilot->spice_taken_away -= energy_to_recharge;
+							potential_meatbag_to_heal->spice_taken_away -= energy_to_recharge;
 						}
 					}
 				}

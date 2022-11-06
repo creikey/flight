@@ -81,6 +81,7 @@ enum BoxType
 	BoxThruster,
 	BoxBattery,
 	BoxCockpit,
+	BoxMedbay,
 	BoxSolarPanel,
 	BoxLast,
 };
@@ -143,7 +144,7 @@ typedef struct Entity
 
 	// player
 	bool is_player;
-	EntityID currently_piloting_seat;
+	EntityID currently_inside_of_box;
 	float spice_taken_away; // at 1.0, out of spice
 	float goldness;         // how much the player is a winner
 
@@ -162,7 +163,7 @@ typedef struct Entity
 	float thrust;      // the actual thrust it can provide based on energy sources in the grid
 	float energy_used; // battery
 	float sun_amount; // solar panel, between 0 and 1
-	EntityID piloted_by;
+	EntityID player_who_is_inside_of_me;
 } Entity;
 
 typedef struct Player
