@@ -225,8 +225,8 @@ void server(void* data)
 			static char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = { 0 };
 			for (int i = 0; i < server->peerCount; i++)
 			{
-				static char bytes_buffer[MAX_BYTES_SIZE] = { 0 };
-				static char compressed_buffer[MAX_BYTES_SIZE] = { 0 };
+				char* bytes_buffer = malloc(sizeof *bytes_buffer * MAX_BYTES_SIZE);
+				char* compressed_buffer = malloc(sizeof * compressed_buffer * MAX_BYTES_SIZE);
 				// @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
 				if (server->peers[i].state != ENET_PEER_STATE_CONNECTED)
 				{
@@ -249,6 +249,9 @@ void server(void* data)
 				//ENetPacket* gamestate_packet = enet_packet_create((void*)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 				ENetPacket* gamestate_packet = enet_packet_create((void*)compressed_buffer, compressed_len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 				enet_peer_send(&server->peers[i], 0, gamestate_packet);
+				enet_packet_destroy(gamestate_packet);
+				free(bytes_buffer);
+				free(compressed_buffer);
 			}
 		}
 	}

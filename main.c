@@ -455,7 +455,7 @@ frame(void)
 						.cur_gs = &gs,
 					};
 					// @Robust @BeforeShip maximum acceptable message size?
-					char decompressed[MAX_BYTES_SIZE] = { 0 };
+					char* decompressed = malloc(sizeof * decompressed * MAX_BYTES_SIZE);
 					size_t decompressed_max_len = MAX_BYTES_SIZE;
 					assert(LZO1X_MEM_DECOMPRESS == 0);
 					int return_value = lzo1x_decompress_safe(event.packet->data, event.packet->dataLength, decompressed, &decompressed_max_len, NULL);
@@ -469,6 +469,7 @@ frame(void)
 						Log("Couldn't decompress gamestate packet, error code %d from lzo\n", return_value);
 					}
 					enet_packet_destroy(event.packet);
+					free(decompressed);
 					break;
 				}
 
