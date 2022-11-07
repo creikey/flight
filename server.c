@@ -193,6 +193,11 @@ void server(void* data)
 				{
 					int player_index = (int)(int64_t)event.peer->data;
 					Log("%" PRId64 " disconnected player index %d.\n", (int64_t)event.peer->data, player_index);
+					Entity* player_body = get_entity(&gs, gs.players[player_index].entity);
+					if(player_body != NULL)
+					{
+						entity_destroy(&gs, player_body);
+					}
 					gs.players[player_index].connected = false;
 					// box_destroy(&gs.players[player_index].box);
 					event.peer->data = NULL;

@@ -7,12 +7,18 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Flight", "Flight.vcxproj", 
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug No Host|x64 = Debug No Host|x64
+		Debug No Host|x86 = Debug No Host|x86
 		Debug|x64 = Debug|x64
 		Debug|x86 = Debug|x86
 		Release|x64 = Release|x64
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5A0EDC10-F875-4CD0-AF1D-CC7E13336AF6}.Debug No Host|x64.ActiveCfg = Debug No Host|x64
+		{5A0EDC10-F875-4CD0-AF1D-CC7E13336AF6}.Debug No Host|x64.Build.0 = Debug No Host|x64
+		{5A0EDC10-F875-4CD0-AF1D-CC7E13336AF6}.Debug No Host|x86.ActiveCfg = Debug No Host|Win32
+		{5A0EDC10-F875-4CD0-AF1D-CC7E13336AF6}.Debug No Host|x86.Build.0 = Debug No Host|Win32
 		{5A0EDC10-F875-4CD0-AF1D-CC7E13336AF6}.Debug|x64.ActiveCfg = Debug|x64
 		{5A0EDC10-F875-4CD0-AF1D-CC7E13336AF6}.Debug|x64.Build.0 = Debug|x64
 		{5A0EDC10-F875-4CD0-AF1D-CC7E13336AF6}.Debug|x86.ActiveCfg = Debug|Win32

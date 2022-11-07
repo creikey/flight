@@ -1,7 +1,7 @@
 #pragma once
 
-#define MAX_PLAYERS 4
-#define MAX_ENTITIES 1024
+#define MAX_PLAYERS 8
+#define MAX_ENTITIES 1024*2
 #define BOX_SIZE 0.25f
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
@@ -16,7 +16,7 @@
 #define THRUSTER_FORCE 4.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.05f
 #define VISION_RADIUS 16.0f
-#define MAX_BYTES_SIZE 1024 * 8 // maximum size of gamestate buffer
+#define MAX_BYTES_SIZE 1024 * 12 // maximum size of serialized gamestate buffer
 #define SUN_RADIUS 10.0f
 #define INSTANT_DEATH_DISTANCE_FROM_SUN 300.0f
 #define SUN_POS ((V2){50.0f,0.0f})
@@ -274,6 +274,7 @@ void entity_set_rotation(Entity* e, float rot);
 void entity_set_pos(Entity* e, V2 pos);
 float entity_rotation(Entity* e);
 void entity_ensure_in_orbit(Entity* e);
+void entity_destroy(GameState* gs, Entity* e);
 #define BOX_CHAIN_ITER(gs, cur, starting_box) for (Entity *cur = get_entity(gs, starting_box); cur != NULL; cur = get_entity(gs, cur->next_box))
 #define BOXES_ITER(gs, cur, grid_entity_ptr) BOX_CHAIN_ITER(gs, cur, (grid_entity_ptr)->boxes)
 

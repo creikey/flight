@@ -456,13 +456,13 @@ frame(void)
 					};
 					// @Robust @BeforeShip maximum acceptable message size?
 					char decompressed[MAX_BYTES_SIZE] = { 0 };
-					size_t decompressed_len = MAX_BYTES_SIZE;
+					size_t decompressed_max_len = MAX_BYTES_SIZE;
 					assert(LZO1X_MEM_DECOMPRESS == 0);
-					int return_value = lzo1x_decompress_safe(event.packet->data, event.packet->dataLength, decompressed, &decompressed_len, NULL);
+					int return_value = lzo1x_decompress_safe(event.packet->data, event.packet->dataLength, decompressed, &decompressed_max_len, NULL);
 					// @Robust not sure what return_value is, error test on it somehow
 					if (return_value == LZO_E_OK)
 					{
-						from_bytes(&msg, decompressed, decompressed_len);
+						from_bytes(&msg, decompressed, decompressed_max_len);
 						myplayer = msg.your_player;
 					}
 					else {
