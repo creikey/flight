@@ -124,6 +124,7 @@ void server(void* data)
 						event.peer->data = (void*)player_slot;
 						gs.players[player_slot] = (struct Player){ 0 };
 						gs.players[player_slot].connected = true;
+						player_to_latest_id_processed[player_slot] = 0;
 #ifdef UNLOCK_ALL
 						gs.players[player_slot].unlocked_bombs = true;
 #endif
@@ -134,9 +135,9 @@ void server(void* data)
 					
 				case ENET_EVENT_TYPE_RECEIVE:
 				{
-					// Log("A packet of length %zu was received on channel %u.\n",
-					//        event.packet->dataLength,
-					//        event.channelID);
+					 //Log("A packet of length %zu was received on channel %u.\n",
+					 //       event.packet->dataLength,
+					        //event.channelID);
 
 					size_t length = event.packet->dataLength;
 					if (length != sizeof(struct ClientToServer))

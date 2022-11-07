@@ -140,7 +140,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);DEBUG_RENDERING;</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);DEBUG_RENDERING;SERVER_ADDRESS="127.0.0.1"</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>C:\Users\Cameron\Documents\flight\thirdparty\enet\include;C:\Users\Cameron\Documents\flight\thirdparty\Chipmunk2D\include\chipmunk;C:\Users\Cameron\Documents\flight\thirdparty;C:\Users\Cameron\Documents\flight\thirdparty\Chipmunk2D\include;C:\Users\Cameron\Documents\flight\thirdparty\minilzo</AdditionalIncludeDirectories>
       <TreatWarningAsError>true</TreatWarningAsError>
