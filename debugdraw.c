@@ -1,5 +1,7 @@
+#ifdef DEBUG_RENDERING
 #include "sokol_gfx.h"
 #include "sokol_gp.h"
+#endif
 #include "types.h"
 
 #define MAX_COMMANDS 64
@@ -40,6 +42,8 @@ static THREADLOCAL int command_i = 0;
 void dbg_drawall()
 {
     // return;
+
+#ifdef DEBUG_RENDERING
     sgp_set_color(0.4f, 0.8f, 0.2f, 0.8f);
     for (int i = 0; i < command_i; i++)
     {
@@ -62,6 +66,7 @@ void dbg_drawall()
         }
         }
     }
+#endif
     command_i = 0;
 }
 

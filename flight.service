@@ -1,0 +1,9 @@
+[Unit]
+Description=Flight
+
+[Service]
+ExecStart=/root/flight/flight_server
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
