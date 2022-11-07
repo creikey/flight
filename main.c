@@ -812,10 +812,12 @@ frame(void)
 						}
 
 						// draw the velocity
+#if 0
 						sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
 						V2 vel = grid_vel(g);
 						V2 to = V2add(grid_com(g), vel);
 						sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
+#endif
 					}
 					if (e->is_player && get_entity(&gs, e->currently_inside_of_box) == NULL) {
 						transform_scope
