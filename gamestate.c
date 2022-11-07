@@ -1131,8 +1131,8 @@ void process(GameState* gs, float dt)
 		if (player->input.seat_action)
 		{
 			player->input.seat_action = false; // "handle" the input
-			Entity* the_seat = get_entity(gs, p->currently_inside_of_box);
-			if (the_seat == NULL) // not in any seat
+			Entity* seat_maybe_in = get_entity(gs, p->currently_inside_of_box);
+			if (seat_maybe_in == NULL) // not in any seat
 			{
 				cpPointQueryInfo query_info = { 0 };
 				cpShape* result = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_hand_pos), 0.1f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
@@ -1142,8 +1142,12 @@ void process(GameState* gs, float dt)
 					assert(potential_seat->is_box);
 					if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
 					{
-						p->currently_inside_of_box = get_id(gs, potential_seat);
-						potential_seat->player_who_is_inside_of_me = get_id(gs, p);
+						// don't let players get inside of cockpits that somebody else is already inside of
+						if (get_entity(gs, potential_seat->player_who_is_inside_of_me) == NULL)
+						{
+							p->currently_inside_of_box = get_id(gs, potential_seat);
+							potential_seat->player_who_is_inside_of_me = get_id(gs, p);
+						}
 					}
 				}
 				else
@@ -1153,10 +1157,10 @@ void process(GameState* gs, float dt)
 			}
 			else
 			{
-				V2 pilot_seat_exit_spot = V2add(entity_pos(the_seat), V2scale(box_facing_vector(the_seat), BOX_SIZE));
+				V2 pilot_seat_exit_spot = V2add(entity_pos(seat_maybe_in), V2scale(box_facing_vector(seat_maybe_in), BOX_SIZE));
 				cpBodySetPosition(p->body, v2_to_cp(pilot_seat_exit_spot));
 				cpBodySetVelocity(p->body, v2_to_cp(player_vel(gs, p)));
-				the_seat->player_who_is_inside_of_me = (EntityID){ 0 };
+				seat_maybe_in->player_who_is_inside_of_me = (EntityID){ 0 };
 				p->currently_inside_of_box = (EntityID){ 0 };
 			}
 		}

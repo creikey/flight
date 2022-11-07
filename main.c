@@ -894,6 +894,10 @@ void event(const sapp_event* e)
 			cur_editing_rotation += 1;
 			cur_editing_rotation %= RotationLast;
 		}
+		if (e->key_code == SAPP_KEYCODE_F11)
+		{
+			sapp_toggle_fullscreen();
+		}
 		int key_num = e->key_code - SAPP_KEYCODE_0;
 		int target_box = key_num - 1;
 		if (target_box < BoxLast) {
@@ -953,8 +957,10 @@ void event(const sapp_event* e)
 sapp_desc
 sokol_main(int argc, char* argv[])
 {
+	bool hosting = false;
 	if (argc > 1) {
 		_beginthread(server, 0, NULL);
+		hosting = true;
 	}
 	(void)argv;
 	return (sapp_desc) {
@@ -964,7 +970,7 @@ sokol_main(int argc, char* argv[])
 			.width = 640,
 			.height = 480,
 			.gl_force_gles2 = true,
-			.window_title = "Flight",
+			.window_title = hosting ? "Flight Hosting" : "Flight Not Hosting",
 			.icon.sokol_default = true,
 			.event_cb = event,
 			.win32_console_attach = true,
