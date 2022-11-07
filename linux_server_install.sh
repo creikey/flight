@@ -4,3 +4,4 @@
 cp flight.service /etc/systemd/system/
 systemctl enable flight
 systemctl start flight
+systemctl restart flight
