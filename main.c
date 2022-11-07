@@ -610,7 +610,7 @@ frame(void)
 				ENetPacket* packet = enet_packet_create((void*)&client_to_server,
 					sizeof(client_to_server),
 					ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
-				enet_peer_send(peer, 0, packet);
+				enet_peer_send(peer, 0, packet); // @Robust error check this
 				last_input_sent_time = time;
 			}
 		}

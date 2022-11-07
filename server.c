@@ -248,8 +248,8 @@ void server(void* data)
 #endif
 				//ENetPacket* gamestate_packet = enet_packet_create((void*)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 				ENetPacket* gamestate_packet = enet_packet_create((void*)compressed_buffer, compressed_len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+				// @Robust error check this
 				enet_peer_send(&server->peers[i], 0, gamestate_packet);
-				enet_packet_destroy(gamestate_packet);
 				free(bytes_buffer);
 				free(compressed_buffer);
 			}
