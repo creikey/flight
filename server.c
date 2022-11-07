@@ -225,13 +225,13 @@ void server(void* data)
 			static char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = { 0 };
 			for (int i = 0; i < server->peerCount; i++)
 			{
-				char* bytes_buffer = malloc(sizeof *bytes_buffer * MAX_BYTES_SIZE);
-				char* compressed_buffer = malloc(sizeof * compressed_buffer * MAX_BYTES_SIZE);
-				// @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
 				if (server->peers[i].state != ENET_PEER_STATE_CONNECTED)
 				{
 					continue;
 				}
+				// @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
+				char* bytes_buffer = malloc(sizeof *bytes_buffer * MAX_BYTES_SIZE);
+				char* compressed_buffer = malloc(sizeof * compressed_buffer * MAX_BYTES_SIZE);
 				struct ServerToClient to_send;
 				to_send.cur_gs = &gs;
 				to_send.your_player = (int)(int64_t)server->peers[i].data;
@@ -249,7 +249,12 @@ void server(void* data)
 				//ENetPacket* gamestate_packet = enet_packet_create((void*)bytes_buffer, len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 				ENetPacket* gamestate_packet = enet_packet_create((void*)compressed_buffer, compressed_len, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 				// @Robust error check this
-				enet_peer_send(&server->peers[i], 0, gamestate_packet);
+				int err = enet_peer_send(&server->peers[i], 0, gamestate_packet);
+				if (err < 0)
+				{
+					Log("Enet failed to send packet error %d\n", err);
+					enet_packet_destroy(gamestate_packet);
+				}
 				free(bytes_buffer);
 				free(compressed_buffer);
 			}
