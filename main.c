@@ -905,9 +905,11 @@ void event(const sapp_event* e)
 {
 	switch (e->type) {
 	case SAPP_EVENTTYPE_KEY_DOWN:
+#ifdef DEBUG
 		if (e->key_code == SAPP_KEYCODE_T) {
 			mouse_frozen = !mouse_frozen;
 		}
+#endif
 		if (e->key_code == SAPP_KEYCODE_R) {
 			cur_editing_rotation += 1;
 			cur_editing_rotation %= RotationLast;
