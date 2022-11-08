@@ -10,6 +10,10 @@
 
 #include "minilzo.h"
 
+#ifdef __unix
+#define fopen_s(pFile,filename,mode) ((*(pFile))=fopen((filename),(mode)))==NULL
+#endif
+
 // started in a thread from host
 void server(void* world_save_name)
 {
