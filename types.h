@@ -18,7 +18,7 @@
 #define VISION_RADIUS 16.0f
 #define MAX_BYTES_SIZE 1024 * 128 // maximum size of serialized gamestate buffer
 #define SUN_RADIUS 10.0f
-#define INSTANT_DEATH_DISTANCE_FROM_SUN 500.0f
+#define INSTANT_DEATH_DISTANCE_FROM_SUN 2000.0f
 #define SUN_POS ((V2){50.0f,0.0f})
 #define SUN_GRAVITY_STRENGTH (9.0e2f)
 #define SOLAR_ENERGY_PER_SECOND 0.02f
@@ -170,6 +170,7 @@ typedef struct Entity
 
 	// boxes
 	bool is_box;
+	bool always_visible; // always serialized to the player
 	enum BoxType box_type;
 	bool is_explosion_unlock;
 	EntityID next_box;
@@ -262,7 +263,7 @@ void destroy(struct GameState* gs);
 void process(struct GameState* gs, float dt); // does in place
 Entity* closest_to_point_in_radius(struct GameState* gs, V2 point, float radius);
 uint64_t tick(struct GameState* gs);
-void into_bytes(struct ServerToClient* gs, char* out_bytes, size_t* out_len, size_t max_len);
+void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player);
 void from_bytes(struct ServerToClient* gs, char* bytes, size_t max_len);
 
 // entities
@@ -336,15 +337,21 @@ static V2 V2scale(V2 a, float f)
 	};
 }
 
+static float V2lengthsqr(V2 v)
+{
+	return v.x * v.x + v.y * v.y;
+}
+
 static float V2length(V2 v)
 {
-	return sqrtf(v.x * v.x + v.y * v.y);
+	return sqrtf(V2lengthsqr(v));
 }
 
 static V2 V2normalize(V2 v)
 {
 	return V2scale(v, 1.0f / V2length(v));
 }
+
 
 static float V2dot(V2 a, V2 b)
 {
@@ -392,6 +399,11 @@ static bool V2equal(V2 a, V2 b, float eps)
 static inline float clamp01(float f)
 {
 	return fmaxf(0.0f, fminf(f, 1.0f));
+}
+
+static float V2distsqr(V2 from, V2 to)
+{
+	return V2lengthsqr(V2sub(to, from));
 }
 
 static inline float clamp(float f, float minimum, float maximum)

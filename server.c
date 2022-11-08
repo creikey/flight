@@ -229,16 +229,23 @@ void server(void* data)
 				{
 					continue;
 				}
+				int this_player_index = (int)(int64_t)server->peers[i].data;
+				Entity* this_player_entity = get_entity(&gs, gs.players[this_player_index].entity);
+				if (this_player_entity == NULL) continue;
 				// @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
 				char* bytes_buffer = malloc(sizeof *bytes_buffer * MAX_BYTES_SIZE);
 				char* compressed_buffer = malloc(sizeof * compressed_buffer * MAX_BYTES_SIZE);
 				struct ServerToClient to_send;
 				to_send.cur_gs = &gs;
-				to_send.your_player = (int)(int64_t)server->peers[i].data;
+				to_send.your_player = this_player_index;
 
 				size_t len = 0;
-				into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE);
-
+				into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE, this_player_entity);
+				if (len > MAX_BYTES_SIZE - 8)
+				{
+					Log("Too much data quitting!\n");
+					exit(-1);
+				}
 
     			size_t compressed_len = 0;
 				lzo1x_1_compress(bytes_buffer, len, compressed_buffer, &compressed_len, (void*)lzo_working_mem);

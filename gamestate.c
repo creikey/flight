@@ -578,6 +578,9 @@ V2 entity_pos(Entity* e)
 	if (e->is_box) {
 		return V2add(entity_pos(box_grid(e)), V2rotate(entity_shape_pos(e), entity_rotation(box_grid(e))));
 	}
+	else if (e->is_explosion) {
+		return e->explosion_pos;
+	} 
 	else {
 		assert(e->body != NULL);
 		return cp_to_v2(cpBodyGetPosition(e->body));
@@ -608,13 +611,13 @@ void update_from(cpBody* body, struct BodyData* data)
 	cpBodySetAngularVelocity(body, data->angular_velocity);
 }
 
-//#define WRITE_VARNAMES // debugging feature horrible for network
 typedef struct SerState
 {
 	char* bytes;
 	bool serializing;
 	size_t cursor; // points to next available byte, is the size of current message after serializing something
 	size_t max_size;
+	Entity* for_player;
 } SerState;
 void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name, const char* file, int line)
 {
@@ -805,6 +808,7 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 	if (e->is_box)
 	{
 		SER_VAR(&e->box_type);
+		SER_VAR(&e->always_visible);
 		SER_VAR(&e->is_explosion_unlock);
 		ser_entityid(ser, &e->next_box);
 		ser_entityid(ser, &e->prev_box);
@@ -851,26 +855,45 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 		for (size_t i = 0; i < gs->cur_next_entity; i++)
 		{
 			Entity* e = &gs->entities[i];
-			if (e->exists && !e->is_box) // boxes are serialized after their parent entities, their grid. 
+#define SER_ENTITY() SER_VAR(&entities_done); SER_VAR(&i); ser_entity(ser, gs, e)
+			if (e->exists)
 			{
-				SER_VAR(&entities_done);
-				SER_VAR(&i);
-				ser_entity(ser, gs, e);
+				if (!e->is_box && !e->is_grid)
+				{
+					SER_ENTITY();
+				}
 				if (e->is_grid)
 				{
+					bool this_grid_is_visible = false;
 					// serialize boxes always after bodies, so that by the time the boxes
 					// are loaded in the parent body is loaded in and can be referenced.
 					BOXES_ITER(gs, cur, e)
 					{
-						EntityID cur_id = get_id(gs, cur);
-						assert(cur_id.index < gs->max_entities);
-						SER_VAR(&entities_done);
-						size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. @Robust add debug info in serialization for what size the expected type is, maybe string nameof the type
-						SER_VAR_NAME(&the_index, "&i");
-						ser_entity(ser, gs, cur);
+						bool this_box_in_range = (ser->for_player == NULL || (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur)) < VISION_RADIUS*VISION_RADIUS));
+						if (cur->always_visible) this_box_in_range = true;
+						if (!this_grid_is_visible && this_box_in_range)
+						{
+							SER_ENTITY(); // serializes the grid the box is visible in
+							this_grid_is_visible = true;
+							break;
+						}
 					}
+					if (this_grid_is_visible)
+					{
+						BOXES_ITER(gs, cur, e)
+						{
+							EntityID cur_id = get_id(gs, cur);
+							assert(cur_id.index < gs->max_entities);
+							SER_VAR(&entities_done);
+							size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. @Robust add debug info in serialization for what size the expected type is, maybe string nameof the type
+							SER_VAR_NAME(&the_index, "&i");
+							ser_entity(ser, gs, cur);
+						}
+					}
+
 				}
 			}
+#undef SER_ENTITY
 		}
 		entities_done = true;
 		SER_VAR(&entities_done);
@@ -904,7 +927,8 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 	}
 }
 
-void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len)
+// for_this_player can be null then the entire world will be sent
+void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player)
 {
 	assert(msg->cur_gs != NULL);
 	assert(msg != NULL);
@@ -914,6 +938,7 @@ void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t
 		.serializing = true,
 		.cursor = 0,
 		.max_size = max_len,
+		.for_player = for_this_player,
 	};
 
 	ser_server_to_client(&ser, msg);
@@ -1058,7 +1083,7 @@ void entity_ensure_in_orbit(Entity* e)
 
 EntityID create_spacestation(GameState* gs)
 {
-#define BOX_AT_TYPE(grid, pos, type) { Entity* box = new_entity(gs); box_create(gs, box, grid, pos); box->box_type = type; box->indestructible = indestructible; }
+#define BOX_AT_TYPE(grid, pos, type) { Entity* box = new_entity(gs); box_create(gs, box, grid, pos); box->box_type = type; box->indestructible = indestructible; box->always_visible = true; }
 #define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
 
 	bool indestructible = false;
@@ -1070,27 +1095,27 @@ EntityID create_spacestation(GameState* gs)
 	box_create(gs, explosion_box, grid, (V2) { 0 });
 	explosion_box->is_explosion_unlock = true;
 	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE, 0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE*2, 0 }), BoxHullpiece);
-	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE*3, 0 }), BoxHullpiece);
-	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE*4, 0 }), BoxHullpiece);
+	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 2, 0 }), BoxHullpiece);
+	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 3, 0 }), BoxHullpiece);
+	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 4, 0 }), BoxHullpiece);
 
 	indestructible = true;
 	for (float y = -BOX_SIZE * 5.0; y <= BOX_SIZE * 5.0; y += BOX_SIZE)
 	{
-		BOX_AT_TYPE(grid, ((V2) { BOX_SIZE*5.0, y }), BoxHullpiece);
+		BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 5.0, y }), BoxHullpiece);
 	}
 	for (float x = -BOX_SIZE * 5.0; x <= BOX_SIZE * 5.0; x += BOX_SIZE)
 	{
-		BOX_AT_TYPE(grid, ((V2) { x, BOX_SIZE*5.0 }), BoxHullpiece);
-		BOX_AT_TYPE(grid, ((V2) { x, -BOX_SIZE*5.0 }), BoxHullpiece);
+		BOX_AT_TYPE(grid, ((V2) { x, BOX_SIZE * 5.0 }), BoxHullpiece);
+		BOX_AT_TYPE(grid, ((V2) { x, -BOX_SIZE * 5.0 }), BoxHullpiece);
 	}
 	indestructible = false;
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, BOX_SIZE*5.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, BOX_SIZE*3.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, BOX_SIZE*1.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, -BOX_SIZE*2.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, -BOX_SIZE*3.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE*6.0, -BOX_SIZE*5.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, BOX_SIZE * 5.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, BOX_SIZE * 3.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, BOX_SIZE * 1.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, -BOX_SIZE * 2.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, -BOX_SIZE * 3.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, -BOX_SIZE * 5.0 }), BoxExplosive);
 
 	return get_id(gs, grid);
 }
@@ -1125,7 +1150,6 @@ void process(GameState* gs, float dt)
 			p->damage = 0.0f;
 			gs->goldpos = (V2){ .x = hash11((float)gs->time) * 20.0f, .y = hash11((float)gs->time - 13.6f) * 20.0f };
 		}
-
 #if 1
 		V2 world_hand_pos = get_world_hand_pos(gs, &player->input, p);
 		if (player->input.seat_action)
@@ -1263,7 +1287,7 @@ void process(GameState* gs, float dt)
 		p->damage = clamp01(p->damage);
 	}
 
-	if(get_entity(gs, gs->cur_spacestation) == NULL)
+	if (get_entity(gs, gs->cur_spacestation) == NULL)
 	{
 		gs->cur_spacestation = create_spacestation(gs);
 	}

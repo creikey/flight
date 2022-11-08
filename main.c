@@ -398,9 +398,7 @@ static void draw_dots(V2 camera_pos, float gap)
 	for (int x = -num; x < num; x++) {
 		for (int y = -num; y < num; y++) {
 			V2 star = (V2){ (float)x * gap, (float)y * gap };
-			if (fabsf(star.x - camera_pos.x) > VISION_RADIUS)
-				continue;
-			if (fabsf(star.y - camera_pos.y) > VISION_RADIUS)
+			if(V2lengthsqr(V2sub(star, camera_pos)) > VISION_RADIUS*VISION_RADIUS)
 				continue;
 
 			star.x += hash11(star.x * 100.0f + star.y * 67.0f) * gap;
@@ -692,12 +690,20 @@ frame(void)
 				sgp_translate(-camera_pos.x, -camera_pos.y);
 
 				draw_dots(camera_pos, 1.5f); // in plane dots
+
 				// hand reached limit circle
 				if (myentity() != NULL) {
 					static float hand_reach_alpha = 1.0f;
 					hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt * 5.0f);
 					sgp_set_color(1.0f, 1.0f, 1.0f, hand_reach_alpha);
 					draw_circle(entity_pos(myentity()), MAX_HAND_REACH);
+				}
+
+				// vision circle, what player can see
+				if (myentity() != NULL)
+				{
+					set_color(colhexcode(0x4685e3));
+					draw_circle(entity_pos(myentity()), VISION_RADIUS);
 				}
 
 				float halfbox = BOX_SIZE / 2.0f;
@@ -725,6 +731,8 @@ frame(void)
 					}
 				}
 
+				static float player_scaling = 1.0f;
+				player_scaling = lerp(player_scaling, zoom < 6.5f ? 100.0f : 1.0f, dt * 7.0f);
 				for (size_t i = 0; i < gs.cur_next_entity; i++) {
 					Entity* e = &gs.entities[i];
 					if (!e->exists)
@@ -826,7 +834,8 @@ frame(void)
 							sgp_rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
 							sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
 							sgp_set_image(0, image_player);
-							draw_texture_rectangle_centered(entity_pos(e), PLAYER_SIZE);
+							printf("%f\n", zoom);
+							draw_texture_rectangle_centered(entity_pos(e), V2scale(PLAYER_SIZE, player_scaling));
 							sgp_reset_image(0);
 						}
 					}
