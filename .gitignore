@@ -4,10 +4,14 @@ flight_server
 flight.zip
 ipsettings.h
 
+
+
 .vs/
 x64/
 *.exe
 *.obj
 *.pdb
+*.exp
+*.lib
 *.ilk
 *.gen.h

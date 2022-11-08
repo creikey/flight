@@ -102,7 +102,7 @@ void server(void* world_save_name)
 	/* Bind the server to port 1234. */
 	address.port = SERVER_PORT;
 	server = enet_host_create(&address /* the address to bind the server host to */,
-		32 /* allow up to 32 clients and/or outgoing connections */,
+		MAX_PLAYERS /* allow up to MAX_PLAYERS clients and/or outgoing connections */,
 		2 /* allow up to 2 channels to be used, 0 and 1 */,
 		0 /* assume any amount of incoming bandwidth */,
 		0 /* assume any amount of outgoing bandwidth */);

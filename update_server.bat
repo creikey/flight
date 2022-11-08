@@ -1,0 +1,1 @@
+ssh astris "cd flight; git pull; ./linux_server_install.sh"

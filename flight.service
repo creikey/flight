@@ -3,6 +3,7 @@ Description=Flight
 
 [Service]
 ExecStart=/root/flight/flight_server
+WorkingDirectory=/root/flight
 Restart=always
 
 [Install]
