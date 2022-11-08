@@ -275,6 +275,7 @@ void create_rectangle_shape(GameState* gs, Entity* e, Entity* parent, V2 pos, V2
 void create_player(GameState* gs, Entity* e)
 {
 	e->is_player = true;
+	e->no_save_to_disk = true;
 	create_body(gs, e);
 	create_rectangle_shape(gs, e, e, (V2) { 0 }, V2scale(PLAYER_SIZE, 0.5f), PLAYER_MASS);
 	cpShapeSetFilter(e->shape, PLAYER_SHAPE_FILTER);
@@ -580,7 +581,7 @@ V2 entity_pos(Entity* e)
 	}
 	else if (e->is_explosion) {
 		return e->explosion_pos;
-	} 
+	}
 	else {
 		assert(e->body != NULL);
 		return cp_to_v2(cpBodyGetPosition(e->body));
@@ -618,21 +619,24 @@ typedef struct SerState
 	size_t cursor; // points to next available byte, is the size of current message after serializing something
 	size_t max_size;
 	Entity* for_player;
+	bool write_varnames;
+	bool save_or_load_from_disk;
+
+	// output
+	uint32_t version;
 } SerState;
 void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name, const char* file, int line)
 {
-#ifdef WRITE_VARNAMES
 	char var_name[512] = { 0 };
 	snprintf(var_name, 512, "%d%s", line, name); // can't have separator before the name, when comparing names skips past the digit
 	size_t var_name_len = strlen(var_name);
-#endif
 	if (ser->serializing)
 	{
-
-#ifdef WRITE_VARNAMES
-		memcpy(ser->bytes + ser->cursor, var_name, var_name_len);
-		ser->cursor += var_name_len;
-#endif
+		if (ser->write_varnames)
+		{
+			memcpy(ser->bytes + ser->cursor, var_name, var_name_len);
+			ser->cursor += var_name_len;
+		}
 		for (int b = 0; b < var_size; b++)
 		{
 			ser->bytes[ser->cursor] = var_pointer[b];
@@ -642,15 +646,14 @@ void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name
 	}
 	else
 	{
-#ifdef WRITE_VARNAMES
-		{
+		if (ser->write_varnames) {
 			char read_name[512] = { 0 };
 
 			for (int i = 0; i < var_name_len; i++)
 			{
 				read_name[i] = ser->bytes[ser->cursor];
 				ser->cursor += 1;
-				assert(ser->cursor < ser->max_size);
+				assert(ser->cursor <= ser->max_size);
 			}
 			read_name[var_name_len] = '\0';
 			// advance past digits
@@ -666,18 +669,24 @@ void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name
 				*(char*)NULL = 0;
 			}
 		}
-#endif
 		for (int b = 0; b < var_size; b++)
 		{
 			var_pointer[b] = ser->bytes[ser->cursor];
 			ser->cursor += 1;
-			assert(ser->cursor < ser->max_size);
+			assert(ser->cursor <= ser->max_size);
 		}
 	}
 
 }
 #define SER_VAR_NAME(var_pointer, name) ser_var(ser, (char*)var_pointer, sizeof(*var_pointer), name, __FILE__, __LINE__)
 #define SER_VAR(var_pointer) SER_VAR_NAME(var_pointer, #var_pointer)
+
+enum GameVersion {
+	VInitial,
+	VAddedTest,
+	VAddedSerToDisk,
+	VMax, // this minus one will be the version used
+};
 
 // @Robust probably get rid of this as separate function, just use SER_VAR
 void ser_V2(SerState* ser, V2* var)
@@ -728,8 +737,20 @@ void ser_player(SerState* ser, Player* p)
 
 void ser_entity(SerState* ser, GameState* gs, Entity* e)
 {
+	SER_VAR(&e->no_save_to_disk);
+	if (e->no_save_to_disk && ser->save_or_load_from_disk)
+	{
+		return;
+	}
 	SER_VAR(&e->generation);
 	SER_VAR(&e->damage);
+
+	int test;
+	if (ser->serializing) test = 27;
+	if (ser->version >= VAddedTest)
+		SER_VAR(&test);
+	else test = 27;
+	assert(test == 27);
 
 	bool has_body = ser->serializing && e->body != NULL;
 	SER_VAR(&has_body);
@@ -785,6 +806,7 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 	SER_VAR(&e->is_player);
 	if (e->is_player)
 	{
+		assert(e->no_save_to_disk);
 		ser_entityid(ser, &e->currently_inside_of_box);
 		SER_VAR(&e->goldness);
 	}
@@ -824,6 +846,8 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 
 void ser_server_to_client(SerState* ser, ServerToClient* s)
 {
+	SER_VAR(&ser->version);
+
 	GameState* gs = s->cur_gs;
 
 	int cur_next_entity = 0;
@@ -844,11 +868,14 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 
 	ser_V2(ser, &gs->goldpos);
 
-	for (size_t i = 0; i < MAX_PLAYERS; i++)
+	if (!ser->save_or_load_from_disk)
 	{
-		ser_player(ser, &gs->players[i]);
+		// @Robust save player data with their ID or something somehow. Like local backup of their account
+		for (size_t i = 0; i < MAX_PLAYERS; i++)
+		{
+			ser_player(ser, &gs->players[i]);
+		}
 	}
-
 	if (ser->serializing)
 	{
 		bool entities_done = false;
@@ -869,7 +896,7 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 					// are loaded in the parent body is loaded in and can be referenced.
 					BOXES_ITER(gs, cur, e)
 					{
-						bool this_box_in_range = (ser->for_player == NULL || (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur)) < VISION_RADIUS*VISION_RADIUS));
+						bool this_box_in_range = (ser->for_player == NULL || (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur)) < VISION_RADIUS * VISION_RADIUS));
 						if (cur->always_visible) this_box_in_range = true;
 						if (!this_grid_is_visible && this_box_in_range)
 						{
@@ -928,7 +955,7 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 }
 
 // for_this_player can be null then the entire world will be sent
-void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player)
+void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player, bool write_varnames)
 {
 	assert(msg->cur_gs != NULL);
 	assert(msg != NULL);
@@ -939,13 +966,24 @@ void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t
 		.cursor = 0,
 		.max_size = max_len,
 		.for_player = for_this_player,
+		.version = VMax - 1,
 	};
+
+	if (for_this_player == NULL) // @Robust jank
+	{
+		ser.save_or_load_from_disk = true;
+}
+
+	ser.write_varnames = write_varnames;
+#ifdef WRITE_VARNAMES
+	ser.write_varnames = true;
+#endif
 
 	ser_server_to_client(&ser, msg);
 	*out_len = ser.cursor + 1; // @Robust not sure why I need to add one to cursor, ser.cursor should be the length..
 }
 
-void from_bytes(struct ServerToClient* msg, char* bytes, size_t max_len)
+void from_bytes(struct ServerToClient* msg, char* bytes, size_t max_len, bool write_varnames, bool from_disk)
 {
 	assert(msg->cur_gs != NULL);
 	assert(msg != NULL);
@@ -955,10 +993,17 @@ void from_bytes(struct ServerToClient* msg, char* bytes, size_t max_len)
 		.serializing = false,
 		.cursor = 0,
 		.max_size = max_len,
+		.save_or_load_from_disk = from_disk,
 	};
 
+	ser.write_varnames = write_varnames;
+
+#ifdef WRITE_VARNAMES
+	ser.write_varnames = true;
+#endif
+
 	ser_server_to_client(&ser, msg);
-}
+	}
 
 // has to be global var because can only get this information
 static cpShape* closest_to_point_in_radius_result = NULL;
@@ -1083,17 +1128,19 @@ void entity_ensure_in_orbit(Entity* e)
 
 EntityID create_spacestation(GameState* gs)
 {
-#define BOX_AT_TYPE(grid, pos, type) { Entity* box = new_entity(gs); box_create(gs, box, grid, pos); box->box_type = type; box->indestructible = indestructible; box->always_visible = true; }
+#define BOX_AT_TYPE(grid, pos, type) { Entity* box = new_entity(gs); box_create(gs, box, grid, pos); box->box_type = type; box->indestructible = indestructible; box->always_visible = true; box->no_save_to_disk = true; }
 #define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
 
 	bool indestructible = false;
 	Entity* grid = new_entity(gs);
 	grid_create(gs, grid);
+	grid->no_save_to_disk = true;
 	entity_set_pos(grid, (V2) { -150.0f, 0.0f });
 	entity_ensure_in_orbit(grid);
 	Entity* explosion_box = new_entity(gs);
 	box_create(gs, explosion_box, grid, (V2) { 0 });
 	explosion_box->is_explosion_unlock = true;
+	explosion_box->no_save_to_disk = true;
 	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE, 0 }), BoxExplosive);
 	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 2, 0 }), BoxHullpiece);
 	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 3, 0 }), BoxHullpiece);
@@ -1321,8 +1368,7 @@ void process(GameState* gs, float dt)
 			}
 			if (sqdist < (SUN_RADIUS * SUN_RADIUS))
 			{
-				entity_destroy(gs, e);
-				continue;
+				e->damage += 10.0f * dt;
 			}
 			cpVect g = cpvmult(p, -SUN_GRAVITY_STRENGTH / (sqdist * cpfsqrt(sqdist)));
 

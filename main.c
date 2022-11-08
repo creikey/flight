@@ -56,6 +56,7 @@ static sg_image image_sun;
 static sg_image image_medbay_used;
 static sg_image image_mystery;
 static sg_image image_explosion;
+static sg_image image_low_health;
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
 
@@ -181,6 +182,7 @@ init(void)
 		image_medbay_used = load_image("loaded/medbay_used.png");
 		image_mystery = load_image("loaded/mystery.png");
 		image_explosion = load_image("loaded/explosion.png");
+		image_low_health = load_image("loaded/low_health.png");
 	}
 
 	// socket initialization
@@ -460,7 +462,7 @@ frame(void)
 					// @Robust not sure what return_value is, error test on it somehow
 					if (return_value == LZO_E_OK)
 					{
-						from_bytes(&msg, decompressed, decompressed_max_len);
+						from_bytes(&msg, decompressed, decompressed_max_len, false, false);
 						myplayer = msg.your_player;
 					}
 					else {
@@ -834,7 +836,6 @@ frame(void)
 							sgp_rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
 							sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
 							sgp_set_image(0, image_player);
-							printf("%f\n", zoom);
 							draw_texture_rectangle_centered(entity_pos(e), V2scale(PLAYER_SIZE, player_scaling));
 							sgp_reset_image(0);
 						}
@@ -870,10 +871,18 @@ frame(void)
 				dbg_drawall();
 		} // world space transform end
 
-	}
+		// low health
+		if (myentity() != NULL)
+		{
+			sgp_set_color(1.0f, 1.0f, 1.0f, myentity()->damage);
+			sgp_set_image(0, image_low_health);
+			draw_texture_rectangle_centered((V2) { width / 2.0f, height / 2.0f }, (V2) { width, height });
+			sgp_reset_image(0);
+		}
 
-	// UI drawn in screen space
-	ui(true, dt, width, height);
+		// UI drawn in screen space
+		ui(true, dt, width, height);
+	}
 
 	sg_pass_action pass_action = { 0 };
 	sg_begin_default_pass(&pass_action, (int)width, (int)height);
@@ -968,7 +977,7 @@ sokol_main(int argc, char* argv[])
 {
 	bool hosting = false;
 	if (argc > 1) {
-		_beginthread(server, 0, NULL);
+		_beginthread(server, 0, "debug_world.bin");
 		hosting = true;
 	}
 	(void)argv;

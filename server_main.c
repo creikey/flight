@@ -5,6 +5,6 @@
 
 int main(int argc, char **argv)
 {
-	server(0);
+	server("world.bin");
 	return 0;
 }

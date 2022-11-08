@@ -5,13 +5,14 @@
 #include <stdio.h>
 #include <inttypes.h> // int64 printing
 #include <stdlib.h>
+#include <string.h> // error string
+#include <errno.h>
 
 #include "minilzo.h"
 
 // started in a thread from host
-void server(void* data)
+void server(void* world_save_name)
 {
-	(void)data;
 
 	stm_setup();
 
@@ -20,6 +21,36 @@ void server(void* data)
 	Entity* entity_data = malloc(entities_size);
 	initialize(&gs, entity_data, entities_size);
 	Log("Allocated %zu bytes for entities\n", entities_size);
+
+	if (world_save_name != NULL)
+	{
+		size_t read_game_data_buffer_size = entities_size;
+		char* read_game_data = malloc(read_game_data_buffer_size);
+
+		FILE* file = NULL;
+		fopen_s(&file, (const char*)world_save_name, "rb");
+		if (file == NULL)
+		{
+			Log("Could not read from data file %s: errno %d\n", (const char*)world_save_name, errno);
+		}
+		else
+		{
+			size_t actual_length = fread(read_game_data, sizeof(char), entities_size, file);
+			if (actual_length <= 1)
+			{
+				Log("Could only read %zu bytes, error: errno %d\n", actual_length, errno);
+				exit(-1);
+			}
+			Log("Read %zu bytes from save file\n", actual_length);
+			ServerToClient msg = (ServerToClient){
+				.cur_gs = &gs,
+			};
+			from_bytes(&msg, read_game_data, actual_length, true, true);
+			fclose(file);
+		}
+
+		free(read_game_data);
+	}
 
 #define BOX_AT_TYPE(grid, pos, type) { Entity* box = new_entity(&gs); box_create(&gs, box, grid, pos); box->box_type = type; }
 #define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
@@ -43,12 +74,12 @@ void server(void* data)
 		entity_set_rotation(grid, PI / 1.7f);
 		cpBodySetVelocity(grid->body, cpv(-0.1, 0.0));
 		cpBodySetAngularVelocity(grid->body, 1.0f);
-		
-		BOX_AT(grid,((V2) { 0 }));
-		BOX_AT(grid,((V2) { BOX_SIZE, 0 }));
-		BOX_AT(grid,((V2) { 2.0*BOX_SIZE, 0 }));
-		BOX_AT(grid,((V2) { 2.0*BOX_SIZE, BOX_SIZE }));
-		BOX_AT(grid,((V2) { 0.0*BOX_SIZE, -BOX_SIZE }));
+
+		BOX_AT(grid, ((V2) { 0 }));
+		BOX_AT(grid, ((V2) { BOX_SIZE, 0 }));
+		BOX_AT(grid, ((V2) { 2.0 * BOX_SIZE, 0 }));
+		BOX_AT(grid, ((V2) { 2.0 * BOX_SIZE, BOX_SIZE }));
+		BOX_AT(grid, ((V2) { 0.0 * BOX_SIZE, -BOX_SIZE }));
 	}
 
 	if (enet_initialize() != 0)
@@ -81,8 +112,10 @@ void server(void* data)
 	Log("Serving on port %d...\n", SERVER_PORT);
 	ENetEvent event;
 	uint64_t last_processed_time = stm_now();
+	uint64_t last_saved_world_time = stm_now();
 	float total_time = 0.0f;
 	size_t player_to_latest_id_processed[MAX_PLAYERS] = { 0 };
+	char* world_save_buffer = malloc(entities_size);
 	while (true)
 	{
 		// @Speed handle enet messages and simulate gamestate in parallel, then sync... must clone gamestate for this
@@ -132,12 +165,12 @@ void server(void* data)
 
 					break;
 				}
-					
+
 				case ENET_EVENT_TYPE_RECEIVE:
 				{
-					 //Log("A packet of length %zu was received on channel %u.\n",
-					 //       event.packet->dataLength,
-					        //event.channelID);
+					//Log("A packet of length %zu was received on channel %u.\n",
+					//       event.packet->dataLength,
+						   //event.channelID);
 
 					size_t length = event.packet->dataLength;
 					if (length != sizeof(struct ClientToServer))
@@ -195,7 +228,7 @@ void server(void* data)
 					int player_index = (int)(int64_t)event.peer->data;
 					Log("%" PRId64 " disconnected player index %d.\n", (int64_t)event.peer->data, player_index);
 					Entity* player_body = get_entity(&gs, gs.players[player_index].entity);
-					if(player_body != NULL)
+					if (player_body != NULL)
 					{
 						entity_destroy(&gs, player_body);
 					}
@@ -220,6 +253,33 @@ void server(void* data)
 			total_time -= TIMESTEP;
 		}
 
+		if (world_save_name != NULL && (stm_sec(stm_diff(stm_now(), last_saved_world_time))) > TIME_BETWEEN_WORLD_SAVE)
+		{
+			last_saved_world_time = stm_now();
+			ServerToClient msg = (ServerToClient){
+				.cur_gs = &gs,
+			};
+			size_t out_len = 0;
+			into_bytes(&msg, world_save_buffer, &out_len, entities_size, NULL, true);
+			FILE* save_file = NULL;
+			fopen_s(&save_file, (const char*)world_save_name, "wb");
+			if (save_file == NULL)
+			{
+				Log("Could not open save file: errno %d\n", errno);
+			}
+			else {
+				size_t data_written = fwrite(world_save_buffer, sizeof(*world_save_buffer), out_len, save_file);
+				if (data_written != out_len)
+				{
+					Log("Failed to save world data, wanted to write %zu but could only write %zu\n", out_len, data_written);
+				}
+				else {
+					Log("Saved game world to %s\n", (const char*)world_save_name);
+				}
+				fclose(save_file);
+			}
+		}
+
 		if (processed)
 		{
 			static char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = { 0 };
@@ -233,21 +293,21 @@ void server(void* data)
 				Entity* this_player_entity = get_entity(&gs, gs.players[this_player_index].entity);
 				if (this_player_entity == NULL) continue;
 				// @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
-				char* bytes_buffer = malloc(sizeof *bytes_buffer * MAX_BYTES_SIZE);
+				char* bytes_buffer = malloc(sizeof * bytes_buffer * MAX_BYTES_SIZE);
 				char* compressed_buffer = malloc(sizeof * compressed_buffer * MAX_BYTES_SIZE);
 				struct ServerToClient to_send;
 				to_send.cur_gs = &gs;
 				to_send.your_player = this_player_index;
 
 				size_t len = 0;
-				into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE, this_player_entity);
+				into_bytes(&to_send, bytes_buffer, &len, MAX_BYTES_SIZE, this_player_entity, false);
 				if (len > MAX_BYTES_SIZE - 8)
 				{
 					Log("Too much data quitting!\n");
 					exit(-1);
 				}
 
-    			size_t compressed_len = 0;
+				size_t compressed_len = 0;
 				lzo1x_1_compress(bytes_buffer, len, compressed_buffer, &compressed_len, (void*)lzo_working_mem);
 
 #ifdef LOG_GAMESTATE_SIZE
@@ -268,6 +328,7 @@ void server(void* data)
 		}
 	}
 
+	free(world_save_buffer);
 	destroy(&gs);
 	free(entity_data);
 	enet_host_destroy(server);

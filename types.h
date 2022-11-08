@@ -31,6 +31,7 @@
 #define EXPLOSION_RADIUS 1.0f
 #define EXPLOSION_DAMAGE_THRESHOLD 0.2f // how much damage until it explodes
 #define GOLD_UNLOCK_RADIUS 1.0f
+#define TIME_BETWEEN_WORLD_SAVE 5.0f
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -141,6 +142,8 @@ typedef struct Entity
 	bool exists;
 	EntityID next_free_entity;
 	unsigned int generation;
+
+	bool no_save_to_disk; // stuff generated later on, like player's bodies or space stations that respawn.
 
 	float damage;   // used by box and player
 	cpBody* body;   // used by grid, player, and box
@@ -263,8 +266,8 @@ void destroy(struct GameState* gs);
 void process(struct GameState* gs, float dt); // does in place
 Entity* closest_to_point_in_radius(struct GameState* gs, V2 point, float radius);
 uint64_t tick(struct GameState* gs);
-void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player);
-void from_bytes(struct ServerToClient* gs, char* bytes, size_t max_len);
+void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player, bool write_varnames);
+void from_bytes(struct ServerToClient* msg, char* bytes, size_t max_len, bool write_varnames, bool from_disk);
 
 // entities
 Entity* get_entity(struct GameState* gs, EntityID id);
