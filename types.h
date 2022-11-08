@@ -1,7 +1,7 @@
 #pragma once
 
 #define MAX_PLAYERS 8
-#define MAX_ENTITIES 1024*2
+#define MAX_ENTITIES 1024*25
 #define BOX_SIZE 0.25f
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f

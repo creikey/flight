@@ -515,6 +515,11 @@ void destroy(GameState* gs)
 	}
 	cpSpaceFree(gs->space);
 	gs->space = NULL;
+
+	for (size_t i = 0; i < gs->cur_next_entity; i++)
+	{
+		if (gs->entities[i].exists) gs->entities[i] = (Entity){ 0 };
+	}
 	gs->cur_next_entity = 0;
 }
 // center of mass, not the literal position
@@ -857,8 +862,8 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 
 	if (!ser->serializing)
 	{
+		// avoid a memset here very expensive
 		destroy(gs);
-		memset((void*)gs->entities, 0, sizeof(*gs->entities) * gs->max_entities);
 		initialize(gs, gs->entities, gs->max_entities * sizeof(*gs->entities));
 		gs->cur_next_entity = cur_next_entity;
 	}
@@ -1003,7 +1008,7 @@ void from_bytes(struct ServerToClient* msg, char* bytes, size_t max_len, bool wr
 #endif
 
 	ser_server_to_client(&ser, msg);
-	}
+}
 
 // has to be global var because can only get this information
 static cpShape* closest_to_point_in_radius_result = NULL;
