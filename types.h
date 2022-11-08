@@ -291,6 +291,7 @@ void grid_create(struct GameState* gs, Entity* e);
 void box_create(struct GameState* gs, Entity* new_box, Entity* grid, V2 pos);
 V2 grid_com(Entity* grid);
 V2 grid_vel(Entity* grid);
+V2 box_vel(Entity* box);
 V2 grid_local_to_world(Entity* grid, V2 local);
 V2 grid_world_to_local(Entity* grid, V2 world);
 V2 grid_snapped_box_pos(Entity* grid, V2 world); // returns the snapped pos in world coords

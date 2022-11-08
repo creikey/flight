@@ -1126,6 +1126,13 @@ void entity_ensure_in_orbit(Entity* e)
 	cpBodySetVelocity(e->body, cpvmult(cpvperp(pos), v));
 }
 
+V2 box_vel(Entity* box)
+{
+	assert(box->is_box);
+	Entity* grid = box_grid(box);
+	return cp_to_v2(cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(entity_pos(box))));
+}
+
 EntityID create_spacestation(GameState* gs)
 {
 #define BOX_AT_TYPE(grid, pos, type) { Entity* box = new_entity(gs); box_create(gs, box, grid, pos); box->box_type = type; box->indestructible = indestructible; box->always_visible = true; box->no_save_to_disk = true; }
@@ -1258,6 +1265,7 @@ void process(GameState* gs, float dt)
 				assert(seat_inside_of->is_box);
 				cpShapeSetFilter(p->shape, CP_SHAPE_FILTER_NONE); // no collisions while in a seat
 				cpBodySetPosition(p->body, v2_to_cp(entity_pos(seat_inside_of)));
+				cpBodySetVelocity(p->body, v2_to_cp(box_vel(seat_inside_of)));
 
 				// set thruster thrust from movement
 				if (seat_inside_of->box_type == BoxCockpit) {
