@@ -927,7 +927,7 @@ void event(const sapp_event* e)
 		}
 		int key_num = e->key_code - SAPP_KEYCODE_0;
 		int target_box = key_num - 1;
-		if (target_box < BoxLast) {
+		if (target_box < BoxLast && target_box >= 0) {
 			attempt_to_build(target_box);
 		}
 
