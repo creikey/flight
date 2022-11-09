@@ -1,3 +1,3 @@
 call build_release.bat
 call update_server.bat
-tar.exe -a -c -f flight-nonumber.zip flight_release.exe loaded
+tar.exe -a -c -f releases\flight-nonumber.zip flight_release.exe loaded

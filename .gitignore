@@ -3,9 +3,7 @@ flight*.zip
 flight_server
 flight.zip
 ipsettings.h
-
-
-
+releases/
 .vs/
 x64/
 *.exe

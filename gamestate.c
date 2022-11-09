@@ -46,16 +46,24 @@ bool was_entity_deleted(GameState* gs, EntityID id)
 	return (!the_entity->exists || the_entity->generation != id.generation);
 }
 
-// may return null if it doesn't exist anymore
-Entity* get_entity(GameState* gs, EntityID id)
+Entity* get_entity_even_if_dead(GameState* gs, EntityID id)
 {
 	if (id.generation == 0)
 	{
 		return NULL;
 	}
-	assert(id.index < gs->cur_next_entity);
+	assert(id.index < gs->cur_next_entity || gs->cur_next_entity == 0);
 	assert(id.index < gs->max_entities);
 	Entity* to_return = &gs->entities[id.index];
+	// don't validate the generation either 
+	return to_return;
+}
+
+// may return null if it doesn't exist anymore
+Entity* get_entity(GameState* gs, EntityID id)
+{
+
+	Entity* to_return = get_entity_even_if_dead(gs, id);
 	if (was_entity_deleted(gs, id))
 		return NULL;
 	return to_return;
@@ -178,9 +186,11 @@ void on_entity_child_shape(cpBody* body, cpShape* shape, void* data)
 Entity* new_entity(GameState* gs)
 {
 	Entity* to_return = NULL;
-	if (get_entity(gs, gs->free_list) != NULL)
+	Entity* possible_free_list = get_entity_even_if_dead(gs, gs->free_list);
+	if (possible_free_list != NULL)
 	{
-		to_return = get_entity(gs, gs->free_list);
+		assert(possible_free_list->generation == gs->free_list.generation);
+		to_return = possible_free_list;
 		assert(!to_return->exists);
 		gs->free_list = to_return->next_free_entity;
 	}
@@ -743,10 +753,6 @@ void ser_player(SerState* ser, Player* p)
 void ser_entity(SerState* ser, GameState* gs, Entity* e)
 {
 	SER_VAR(&e->no_save_to_disk);
-	if (e->no_save_to_disk && ser->save_or_load_from_disk)
-	{
-		return;
-	}
 	SER_VAR(&e->generation);
 	SER_VAR(&e->damage);
 
@@ -865,7 +871,7 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 		// avoid a memset here very expensive
 		destroy(gs);
 		initialize(gs, gs->entities, gs->max_entities * sizeof(*gs->entities));
-		gs->cur_next_entity = cur_next_entity;
+		gs->cur_next_entity = 0; // updated on deserialization
 	}
 
 	SER_VAR(&s->your_player);
@@ -888,7 +894,7 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 		{
 			Entity* e = &gs->entities[i];
 #define SER_ENTITY() SER_VAR(&entities_done); SER_VAR(&i); ser_entity(ser, gs, e)
-			if (e->exists)
+			if (e->exists && !(ser->save_or_load_from_disk && e->no_save_to_disk))
 			{
 				if (!e->is_box && !e->is_grid)
 				{
@@ -943,15 +949,18 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 			assert(next_index < gs->max_entities);
 			Entity* e = &gs->entities[next_index];
 			e->exists = true;
-			ser_entity(ser, gs, e);
+			//unsigned int possible_next_index = (unsigned int)(next_index + 2); // plus two because player entity refers to itself on deserialization
 			unsigned int possible_next_index = (unsigned int)(next_index + 1);
 			gs->cur_next_entity = gs->cur_next_entity < possible_next_index ? possible_next_index : gs->cur_next_entity;
+			ser_entity(ser, gs, e);
 		}
 		for (size_t i = 0; i < gs->cur_next_entity; i++)
 		{
 			Entity* e = &gs->entities[i];
 			if (!e->exists)
 			{
+				if(e->generation == 0)
+					e->generation = 1; // 0 generation reference is invalid, means null
 				e->next_free_entity = gs->free_list;
 				gs->free_list = get_id(gs, e);
 			}
