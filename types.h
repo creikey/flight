@@ -15,7 +15,7 @@
 #define COLLISION_DAMAGE_SCALING 0.15f
 #define THRUSTER_FORCE 12.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.005f
-#define VISION_RADIUS 16.0f
+#define VISION_RADIUS 12.0f
 #define MAX_BYTES_SIZE 1024 * 512 // maximum size of serialized gamestate buffer
 #define SUN_RADIUS 10.0f
 #define INSTANT_DEATH_DISTANCE_FROM_SUN 2000.0f
