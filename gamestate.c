@@ -291,6 +291,17 @@ void create_player(GameState* gs, Entity* e)
 	cpShapeSetFilter(e->shape, PLAYER_SHAPE_FILTER);
 }
 
+void box_add_to_boxes(GameState* gs, Entity* grid, Entity* box_to_add)
+{
+	box_to_add->next_box = get_id(gs, get_entity(gs, grid->boxes));
+	box_to_add->prev_box = get_id(gs, grid);
+	if (get_entity(gs, box_to_add->next_box) != NULL)
+	{
+		get_entity(gs, box_to_add->next_box)->prev_box = get_id(gs, box_to_add);
+	}
+	grid->boxes = get_id(gs, box_to_add);
+}
+
 // box must be passed as a parameter as the box added to chipmunk uses this pointer in its
 // user data. pos is in local coordinates. Adds the box to the grid's chain of boxes
 void box_create(GameState* gs, Entity* new_box, Entity* grid, V2 pos)
@@ -305,13 +316,7 @@ void box_create(GameState* gs, Entity* new_box, Entity* grid, V2 pos)
 
 	cpShapeSetFilter(new_box->shape, cpShapeFilterNew(CP_NO_GROUP, BOXES, CP_ALL_CATEGORIES));
 
-	new_box->next_box = get_id(gs, get_entity(gs, grid->boxes));
-	new_box->prev_box = get_id(gs, grid);
-	if (get_entity(gs, new_box->next_box) != NULL)
-	{
-		get_entity(gs, new_box->next_box)->prev_box = get_id(gs, new_box);
-	}
-	grid->boxes = get_id(gs, new_box);
+	box_add_to_boxes(gs, grid, new_box);
 }
 
 // removes boxes from grid, then ensures that the rule that grids must not have
@@ -902,24 +907,22 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 				}
 				if (e->is_grid)
 				{
-					bool this_grid_is_visible = false;
+					bool serialized_grid_yet = false;
 					// serialize boxes always after bodies, so that by the time the boxes
 					// are loaded in the parent body is loaded in and can be referenced.
 					BOXES_ITER(gs, cur, e)
 					{
 						bool this_box_in_range = (ser->for_player == NULL || (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur)) < VISION_RADIUS * VISION_RADIUS));
 						if (cur->always_visible) this_box_in_range = true;
-						if (!this_grid_is_visible && this_box_in_range)
+						if (this_box_in_range)
 						{
-							SER_ENTITY(); // serializes the grid the box is visible in
-							this_grid_is_visible = true;
-							break;
-						}
-					}
-					if (this_grid_is_visible)
-					{
-						BOXES_ITER(gs, cur, e)
-						{
+							if (!serialized_grid_yet)
+							{
+								serialized_grid_yet = true;
+								SER_ENTITY();
+							}
+
+							// serialize this box
 							EntityID cur_id = get_id(gs, cur);
 							assert(cur_id.index < gs->max_entities);
 							SER_VAR(&entities_done);
@@ -938,6 +941,7 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 	}
 	else
 	{
+		Entity* last_grid = NULL;
 		while (true)
 		{
 			bool entities_done = false;
@@ -953,13 +957,27 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 			unsigned int possible_next_index = (unsigned int)(next_index + 1);
 			gs->cur_next_entity = gs->cur_next_entity < possible_next_index ? possible_next_index : gs->cur_next_entity;
 			ser_entity(ser, gs, e);
+			
+			if (e->is_box)
+			{
+				assert(last_grid != NULL);
+				assert(last_grid == get_entity(gs, e->shape_parent_entity));
+				e->prev_box = (EntityID){ 0 };
+				e->next_box = (EntityID){ 0 };
+				box_add_to_boxes(gs, last_grid, e);
+			}
+
+			if (e->is_grid) {
+				e->boxes = (EntityID){ 0 };
+				last_grid = e;
+			}
 		}
 		for (size_t i = 0; i < gs->cur_next_entity; i++)
 		{
 			Entity* e = &gs->entities[i];
 			if (!e->exists)
 			{
-				if(e->generation == 0)
+				if (e->generation == 0)
 					e->generation = 1; // 0 generation reference is invalid, means null
 				e->next_free_entity = gs->free_list;
 				gs->free_list = get_id(gs, e);
@@ -986,7 +1004,7 @@ void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t
 	if (for_this_player == NULL) // @Robust jank
 	{
 		ser.save_or_load_from_disk = true;
-}
+	}
 
 	ser.write_varnames = write_varnames;
 #ifdef WRITE_VARNAMES
@@ -1188,7 +1206,7 @@ EntityID create_spacestation(GameState* gs)
 	return get_id(gs, grid);
 }
 
-void exit_seat(GameState *gs, Entity *seat_in, Entity *player)
+void exit_seat(GameState* gs, Entity* seat_in, Entity* player)
 {
 	V2 pilot_seat_exit_spot = V2add(entity_pos(seat_in), V2scale(box_facing_vector(seat_in), BOX_SIZE));
 	cpBodySetPosition(player->body, v2_to_cp(pilot_seat_exit_spot));
