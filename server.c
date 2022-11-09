@@ -249,6 +249,12 @@ void server(void* world_save_name)
 		total_time += (float)stm_sec(stm_diff(stm_now(), last_processed_time));
 		last_processed_time = stm_now();
 		// @Robost @BeforeShip if can't process quick enough will be stuck being lagged behind, think of a solution for this...
+		const float max_time = 5.0f * TIMESTEP;
+		if (total_time > max_time)
+		{
+			Log("Abnormally large total time %f, clamping\n", total_time);
+			total_time = max_time;
+		}
 		bool processed = false;
 		while (total_time > TIMESTEP)
 		{
