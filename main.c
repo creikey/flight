@@ -35,6 +35,7 @@ typedef struct KeyPressed {
 } KeyPressed;
 static KeyPressed keypressed[SAPP_KEYCODE_MENU] = { 0 };
 static V2 mouse_pos = { 0 };
+static bool fullscreened = false;
 static bool mouse_pressed = false;
 static uint64_t mouse_pressed_frame = 0;
 static bool mouse_frozen = false; // @BeforeShip make this debug only thing
@@ -916,7 +917,13 @@ void event(const sapp_event* e)
 		}
 		if (e->key_code == SAPP_KEYCODE_F11)
 		{
+			fullscreened = !fullscreened;
 			sapp_toggle_fullscreen();
+		}
+		if (e->key_code == SAPP_KEYCODE_ESCAPE && fullscreened)
+		{
+			sapp_toggle_fullscreen();
+			fullscreened = false;
 		}
 		int key_num = e->key_code - SAPP_KEYCODE_0;
 		int target_box = key_num - 1;
