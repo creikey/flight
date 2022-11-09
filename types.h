@@ -31,7 +31,7 @@
 #define EXPLOSION_RADIUS 1.0f
 #define EXPLOSION_DAMAGE_THRESHOLD 0.2f // how much damage until it explodes
 #define GOLD_UNLOCK_RADIUS 1.0f
-#define TIME_BETWEEN_WORLD_SAVE 5.0f
+#define TIME_BETWEEN_WORLD_SAVE 30.0f
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -192,6 +192,7 @@ typedef struct Player
 	bool connected;
 	bool unlocked_bombs;
 	EntityID entity;
+	EntityID last_used_medbay;
 	InputFrame input;
 } Player;
 // gotta update the serialization functions when this changes

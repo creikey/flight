@@ -1188,6 +1188,13 @@ EntityID create_spacestation(GameState* gs)
 	return get_id(gs, grid);
 }
 
+void exit_seat(GameState *gs, Entity *seat_in, Entity *player)
+{
+	V2 pilot_seat_exit_spot = V2add(entity_pos(seat_in), V2scale(box_facing_vector(seat_in), BOX_SIZE));
+	cpBodySetPosition(player->body, v2_to_cp(pilot_seat_exit_spot));
+	cpBodySetVelocity(player->body, v2_to_cp(player_vel(gs, player)));
+}
+
 void process(GameState* gs, float dt)
 {
 	assert(gs->space != NULL);
@@ -1204,6 +1211,11 @@ void process(GameState* gs, float dt)
 			p = new_entity(gs);
 			create_player(gs, p);
 			player->entity = get_id(gs, p);
+			Entity* medbay = get_entity(gs, player->last_used_medbay);
+			if (medbay != NULL)
+			{
+				exit_seat(gs, medbay, p);
+			}
 			entity_ensure_in_orbit(p);
 		}
 		assert(p->is_player);
@@ -1239,6 +1251,7 @@ void process(GameState* gs, float dt)
 						{
 							p->currently_inside_of_box = get_id(gs, potential_seat);
 							potential_seat->player_who_is_inside_of_me = get_id(gs, p);
+							player->last_used_medbay = p->currently_inside_of_box;
 						}
 					}
 				}
@@ -1249,9 +1262,7 @@ void process(GameState* gs, float dt)
 			}
 			else
 			{
-				V2 pilot_seat_exit_spot = V2add(entity_pos(seat_maybe_in), V2scale(box_facing_vector(seat_maybe_in), BOX_SIZE));
-				cpBodySetPosition(p->body, v2_to_cp(pilot_seat_exit_spot));
-				cpBodySetVelocity(p->body, v2_to_cp(player_vel(gs, p)));
+				exit_seat(gs, seat_maybe_in, p);
 				seat_maybe_in->player_who_is_inside_of_me = (EntityID){ 0 };
 				p->currently_inside_of_box = (EntityID){ 0 };
 			}
