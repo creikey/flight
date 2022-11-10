@@ -906,7 +906,7 @@ void event(const sapp_event* e)
 {
 	switch (e->type) {
 	case SAPP_EVENTTYPE_KEY_DOWN:
-#ifdef DEBUG
+#ifdef DEBUG_TOOLS
 		if (e->key_code == SAPP_KEYCODE_T) {
 			mouse_frozen = !mouse_frozen;
 		}
