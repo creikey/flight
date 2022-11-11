@@ -1,3 +1,4 @@
+*.spall # profiling
 *.bin # world files
 debug_world.bin
 flight*.zip

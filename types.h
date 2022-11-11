@@ -49,6 +49,8 @@
 // must make this header and set the target address, just #define SERVER_ADDRESS "127.0.0.1"
 #include "ipsettings.h" // don't leak IP!
 
+#include "miniaudio.h" // @Robust BAD. using miniaudio mutex construct for server thread synchronization. AWFUL!
+
 // @Robust remove this include somehow, needed for sqrt and cos
 #include <math.h>
 #include <stdint.h> // tick is unsigned integer
@@ -286,7 +288,7 @@ typedef struct ClientToServer
 } ClientToServer;
 
 // server
-void server(void* data); // data parameter required from thread api...
+void server(void* info); // data parameter required from thread api...
 
 // gamestate
 EntityID create_spacestation(GameState* gs);
@@ -337,6 +339,11 @@ void dbg_drawall();
 void dbg_line(V2 from, V2 to);
 void dbg_rect(V2 center);
 
+typedef struct ServerThreadInfo {
+	ma_mutex info_mutex;
+	const char* world_save;
+	bool should_quit;
+} ServerThreadInfo;
 
 static void clear_buffer(OpusBuffer* buff)
 {
@@ -409,6 +416,8 @@ static OpusPacket* pop_packet(OpusBuffer* buff)
 	return to_return;
 }
 
+#define DeferLoop(start, end) \
+    for (int _i_ = ((start), 0); _i_ == 0; _i_ += 1, (end))
 
 // all the math is static so that it can be defined in each compilation unit its included in
 

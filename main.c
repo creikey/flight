@@ -77,6 +77,10 @@ OpusBuffer packets_to_play = { 0 };
 ma_mutex send_packets_mutex = { 0 };
 ma_mutex play_packets_mutex = { 0 };
 
+// server thread
+void* server_thread_handle = 0;
+ServerThreadInfo server_info = { 0 };
+
 static struct BoxInfo {
 	enum BoxType type;
 	const char* image_path;
@@ -349,8 +353,6 @@ init(void)
 	}
 }
 
-#define DeferLoop(start, end) \
-    for (int _i_ = ((start), 0); _i_ == 0; _i_ += 1, (end))
 #define transform_scope DeferLoop(sgp_push_transform(), sgp_pop_transform())
 
 static void
@@ -463,7 +465,7 @@ ui(bool draw, float dt, float width, float height)
 
 		float x = width - size_x - 40.0f;
 		float y = height - size_y - 40.0f;
-		transform_scope {
+		transform_scope{
 			sgp_scale_at(1.0f, -1.0f, x + size_x / 2.0f, y + size_y / 2.0f);
 			sgp_draw_textured_rect(x, y, size_x, size_y);
 			sgp_reset_image(0);
@@ -1043,6 +1045,11 @@ frame(void)
 
 void cleanup(void)
 {
+	ma_mutex_lock(&server_info.info_mutex);
+	server_info.should_quit = true;
+	ma_mutex_unlock(&server_info.info_mutex);
+	WaitForSingleObject(server_thread_handle, INFINITE);
+
 	ma_mutex_uninit(&send_packets_mutex);
 	ma_mutex_uninit(&play_packets_mutex);
 
@@ -1057,6 +1064,8 @@ void cleanup(void)
 	sgp_shutdown();
 	sg_shutdown();
 	enet_deinitialize();
+
+	ma_mutex_uninit(&server_info.info_mutex);
 }
 
 void event(const sapp_event* e)
@@ -1146,8 +1155,10 @@ sapp_desc
 sokol_main(int argc, char* argv[])
 {
 	bool hosting = false;
+	ma_mutex_init(&server_info.info_mutex);
+	server_info.world_save = "debug_world.bin";
 	if (argc > 1) {
-		_beginthread(server, 0, "debug_world.bin");
+		server_thread_handle = (void*)_beginthread(server, 0, (void*)&server_info);
 		hosting = true;
 	}
 	(void)argv;

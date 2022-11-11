@@ -20,9 +20,56 @@
 	for (ENetPeer *cur = host->peers; cur < host->peers + host->peerCount; cur++) \
 		if (cur->state == ENET_PEER_STATE_CONNECTED)
 
+#ifdef PROFILING
+
+#define SPALL_IMPLEMENTATION
+#pragma warning(disable:4996) // spall uses fopen
+#include "spall.h"
+
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#define NOMINMAX
+#include <Windows.h>
+// This is slow, if you can use RDTSC and set the multiplier in SpallInit, you'll have far better timing accuracy
+double get_time_in_micros() {
+	static double invfreq;
+	if (!invfreq) {
+		LARGE_INTEGER frequency;
+		QueryPerformanceFrequency(&frequency);
+		invfreq = 1000000.0 / frequency.QuadPart;
+	}
+	LARGE_INTEGER counter;
+	QueryPerformanceCounter(&counter);
+	return counter.QuadPart * invfreq;
+}
+
+static SpallProfile spall_ctx;
+static SpallBuffer  spall_buffer;
+
+#define PROFILE_SCOPE(name) DeferLoop(SpallTraceBeginLenTidPid(&spall_ctx, &spall_buffer, name, sizeof(name) - 1, 0, 0, get_time_in_micros()), SpallTraceEndTidPid(&spall_ctx, &spall_buffer, 0, 0, get_time_in_micros()))
+#else // PROFILING
+
+#define PROFILE_SCOPE(name)
+
+#endif
+
+
 // started in a thread from host
-void server(void* world_save_name)
+void server(void* info_raw)
 {
+	ServerThreadInfo* info = (ServerThreadInfo*)info_raw;
+	const char* world_save_name = info->world_save;
+#ifdef PROFILING
+#define BUFFER_SIZE (1 * 1024 * 1024)
+	spall_ctx = SpallInit("server.spall", 1);
+	unsigned char* buffer = malloc(BUFFER_SIZE);
+	spall_buffer = (SpallBuffer){
+		.length = BUFFER_SIZE,
+		.data = buffer,
+	};
+	SpallBufferInit(&spall_ctx, &spall_buffer);
+
+#endif
 
 	stm_setup();
 
@@ -147,6 +194,13 @@ void server(void* world_save_name)
 	char* world_save_buffer = malloc(entities_size);
 	while (true)
 	{
+		ma_mutex_lock(&info->info_mutex);
+		if (info->should_quit) {
+			ma_mutex_unlock(&info->info_mutex);
+			break;
+		}
+		ma_mutex_unlock(&info->info_mutex);
+
 		// @Speed handle enet messages and simulate gamestate in parallel, then sync... must clone gamestate for this
 		while (true)
 		{
@@ -285,25 +339,31 @@ void server(void* world_save_name)
 				}
 			}
 
-			total_time += (float)stm_sec(stm_diff(stm_now(), last_processed_time));
-			last_processed_time = stm_now();
-			// @Robost @BeforeShip if can't process quick enough will be stuck being lagged behind, think of a solution for this...
-			const float max_time = 5.0f * TIMESTEP;
-			if (total_time > max_time)
-			{
-				Log("Abnormally large total time %f, clamping\n", total_time);
-				total_time = max_time;
-			}
-			bool processed = false;
+		}
+		total_time += (float)stm_sec(stm_diff(stm_now(), last_processed_time));
+		last_processed_time = stm_now();
+		// @Robost @BeforeShip if can't process quick enough will be stuck being lagged behind, think of a solution for this...
+		const float max_time = 5.0f * TIMESTEP;
+		if (total_time > max_time)
+		{
+			Log("Abnormally large total time %f, clamping\n", total_time);
+			total_time = max_time;
+		}
+
+		bool processed = false;
+		PROFILE_SCOPE("World Processing")
+		{
 			while (total_time > TIMESTEP)
 			{
 				processed = true;
 				process(&gs, TIMESTEP);
 				total_time -= TIMESTEP;
 			}
+		}
 
-			if (world_save_name != NULL && (stm_sec(stm_diff(stm_now(), last_saved_world_time))) > TIME_BETWEEN_WORLD_SAVE)
-			{
+		if (world_save_name != NULL && (stm_sec(stm_diff(stm_now(), last_saved_world_time))) > TIME_BETWEEN_WORLD_SAVE)
+		{
+			PROFILE_SCOPE("Save World") {
 				last_saved_world_time = stm_now();
 				ServerToClient msg = (ServerToClient){
 					.cur_gs = &gs,
@@ -336,9 +396,11 @@ void server(void* world_save_name)
 					Log("URGENT: FAILED TO SAVE WORLD FILE!\n");
 				}
 			}
+		}
 
-			if (processed)
-			{
+		if (processed)
+		{
+			PROFILE_SCOPE("send_data") {
 				static char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = { 0 };
 				CONNECTED_PEERS(enet_host, cur)
 				{
@@ -386,6 +448,7 @@ void server(void* world_save_name)
 					free(compressed_buffer);
 				}
 			}
+
 		}
 	}
 	for (int i = 0; i < MAX_PLAYERS; i++)
@@ -401,4 +464,11 @@ void server(void* world_save_name)
 	free(entity_data);
 	enet_host_destroy(enet_host);
 	enet_deinitialize();
+	
+	printf("Cleanup\n");
+
+#ifdef PROFILING
+	SpallBufferQuit(&spall_ctx, &spall_buffer);
+	SpallQuit(&spall_ctx);
+#endif
 }
