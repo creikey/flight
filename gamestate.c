@@ -3,7 +3,7 @@
 
 #include "ipsettings.h" // debug/developer settings
 
-#include <stdio.h>  // assert logging
+#include <stdio.h>	// assert logging
 #include <string.h> // memset
 
 // do not use any global variables to process gamestate
@@ -41,7 +41,8 @@ static cpVect v2_to_cp(V2 v)
 
 bool was_entity_deleted(GameState* gs, EntityID id)
 {
-	if (id.generation == 0) return false; // generation 0 means null entity ID, not a deleted entity
+	if (id.generation == 0)
+		return false; // generation 0 means null entity ID, not a deleted entity
 	Entity* the_entity = &gs->entities[id.index];
 	return (!the_entity->exists || the_entity->generation != id.generation);
 }
@@ -55,7 +56,7 @@ Entity* get_entity_even_if_dead(GameState* gs, EntityID id)
 	assert(id.index < gs->cur_next_entity || gs->cur_next_entity == 0);
 	assert(id.index < gs->max_entities);
 	Entity* to_return = &gs->entities[id.index];
-	// don't validate the generation either 
+	// don't validate the generation either
 	return to_return;
 }
 
@@ -230,7 +231,8 @@ V2 player_vel(GameState* gs, Entity* player)
 	{
 		return cp_to_v2(cpBodyGetVelocity(get_entity(gs, potential_seat->shape_parent_entity)->body));
 	}
-	else {
+	else
+	{
 		return cp_to_v2(cpBodyGetVelocity(player->body));
 	}
 }
@@ -383,16 +385,16 @@ static void grid_correct_for_holes(GameState* gs, struct Entity* grid)
 					const V2 dirs[] = {
 						(V2) {
 							.x = -1.0f, .y = 0.0f
-						},
-					   (V2) {
-						.x = 1.0f, .y = 0.0f
-						},
-						(V2) {
-						.x = 0.0f, .y = 1.0f
-						},
-						(V2) {
-						.x = 0.0f, .y = -1.0f
-						},
+},
+(V2) {
+	.x = 1.0f, .y = 0.0f
+},
+(V2) {
+	.x = 0.0f, .y = 1.0f
+},
+(V2) {
+	.x = 0.0f, .y = -1.0f
+},
 					};
 					int num_dirs = sizeof(dirs) / sizeof(*dirs);
 
@@ -498,12 +500,11 @@ static cpBool on_damage(cpArbiter* arb, cpSpace* space, cpDataPointer userData)
 		// Log("Collision with damage %f\n", damage);
 		entity_a->damage += damage;
 		entity_b->damage += damage;
-
 	}
 
 	// b must be the key passed into the post step removed, the key is cast into its shape
-	//cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, b, NULL);
-	//cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, a, NULL);
+	// cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, b, NULL);
+	// cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, a, NULL);
 
 	return true; // keep colliding
 }
@@ -515,7 +516,7 @@ void initialize(GameState* gs, void* entity_arena, size_t entity_arena_size)
 	gs->entities = (Entity*)entity_arena;
 	gs->max_entities = (unsigned int)(entity_arena_size / sizeof(Entity));
 	gs->space = cpSpaceNew();
-	cpSpaceSetUserData(gs->space, (cpDataPointer)gs);                          // needed in the handler
+	cpSpaceSetUserData(gs->space, (cpDataPointer)gs);						   // needed in the handler
 	cpCollisionHandler* handler = cpSpaceAddCollisionHandler(gs->space, 0, 0); // @Robust limit collision type to just blocks that can be damaged
 	handler->postSolveFunc = on_damage;
 }
@@ -533,7 +534,8 @@ void destroy(GameState* gs)
 
 	for (size_t i = 0; i < gs->cur_next_entity; i++)
 	{
-		if (gs->entities[i].exists) gs->entities[i] = (Entity){ 0 };
+		if (gs->entities[i].exists)
+			gs->entities[i] = (Entity){ 0 };
 	}
 	gs->cur_next_entity = 0;
 }
@@ -596,13 +598,16 @@ float box_rotation(Entity* box)
 }
 V2 entity_pos(Entity* e)
 {
-	if (e->is_box) {
+	if (e->is_box)
+	{
 		return V2add(entity_pos(box_grid(e)), V2rotate(entity_shape_pos(e), entity_rotation(box_grid(e))));
 	}
-	else if (e->is_explosion) {
+	else if (e->is_explosion)
+	{
 		return e->explosion_pos;
 	}
-	else {
+	else
+	{
 		assert(e->body != NULL);
 		return cp_to_v2(cpBodyGetPosition(e->body));
 	}
@@ -639,13 +644,41 @@ typedef struct SerState
 	size_t cursor; // points to next available byte, is the size of current message after serializing something
 	size_t max_size;
 	Entity* for_player;
+	size_t max_entity_index; // for error checking
 	bool write_varnames;
 	bool save_or_load_from_disk;
 
 	// output
 	uint32_t version;
 } SerState;
-void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name, const char* file, int line)
+
+typedef struct SerMaybeFailure
+{
+	bool failed;
+	int line;
+	const char* expression;
+} SerMaybeFailure;
+const static SerMaybeFailure ser_ok = { 0 };
+#define SER_ASSERT(cond)                                                                                  \
+	if (!(cond))                                                                                          \
+	{                                                                                                     \
+		__assert(false, __FILE__, __LINE__, #cond); \
+		if (ser->save_or_load_from_disk)                                                                  \
+		{                                                                                                 \
+			Log("While saving/loading, serialization assertion failed %s on line %d\n", #cond, __LINE__); \
+		}                                                                                                 \
+		else                                                                                              \
+		{                                                                                                 \
+			return (SerMaybeFailure){.failed = true, .line = __LINE__, .expression = #cond};              \
+		}                                                                                                 \
+	}
+#define SER_MAYBE_RETURN(maybe_failure)         \
+	{                                           \
+		SerMaybeFailure result = maybe_failure; \
+		if (result.failed)                      \
+			return result;                      \
+	}
+SerMaybeFailure ser_data(SerState* ser, char* data, size_t data_len, const char* name, const char* file, int line)
 {
 	char var_name[512] = { 0 };
 	snprintf(var_name, 512, "%d%s", line, name); // can't have separator before the name, when comparing names skips past the digit
@@ -657,23 +690,24 @@ void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name
 			memcpy(ser->bytes + ser->cursor, var_name, var_name_len);
 			ser->cursor += var_name_len;
 		}
-		for (int b = 0; b < var_size; b++)
+		for (int b = 0; b < data_len; b++)
 		{
-			ser->bytes[ser->cursor] = var_pointer[b];
+			ser->bytes[ser->cursor] = data[b];
 			ser->cursor += 1;
-			assert(ser->cursor < ser->max_size);
+			SER_ASSERT(ser->cursor < ser->max_size);
 		}
 	}
 	else
 	{
-		if (ser->write_varnames) {
+		if (ser->write_varnames)
+		{
 			char read_name[512] = { 0 };
 
 			for (int i = 0; i < var_name_len; i++)
 			{
 				read_name[i] = ser->bytes[ser->cursor];
 				ser->cursor += 1;
-				assert(ser->cursor <= ser->max_size);
+				SER_ASSERT(ser->cursor <= ser->max_size);
 			}
 			read_name[var_name_len] = '\0';
 			// advance past digits
@@ -683,90 +717,106 @@ void ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name
 				read++;
 			while (*var >= '0' && *var <= '9')
 				var++;
-			if (strcmp(read, var) != 0)
-			{
-				printf("%s:%d | Expected variable %s but got %sn\n", file, line, var_name, read_name);
-				*(char*)NULL = 0;
-			}
+			SER_ASSERT(strcmp(read, var) == 0);
 		}
-		for (int b = 0; b < var_size; b++)
+		for (int b = 0; b < data_len; b++)
 		{
-			var_pointer[b] = ser->bytes[ser->cursor];
+			data[b] = ser->bytes[ser->cursor];
 			ser->cursor += 1;
-			assert(ser->cursor <= ser->max_size);
+			SER_ASSERT(ser->cursor <= ser->max_size);
 		}
 	}
-
+	return ser_ok;
 }
-#define SER_VAR_NAME(var_pointer, name) ser_var(ser, (char*)var_pointer, sizeof(*var_pointer), name, __FILE__, __LINE__)
+SerMaybeFailure ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name, const char* file, int line)
+{
+	return ser_data(ser, var_pointer, var_size, name, file, line);
+}
+#define SER_DATA(data_pointer, data_length) SER_MAYBE_RETURN(ser_data(ser, data_pointer, data_length, #data_pointer, __FILE__, __LINE__))
+#define SER_VAR_NAME(var_pointer, name) SER_MAYBE_RETURN(ser_var(ser, (char *)var_pointer, sizeof(*var_pointer), name, __FILE__, __LINE__))
 #define SER_VAR(var_pointer) SER_VAR_NAME(var_pointer, #var_pointer)
 
-enum GameVersion {
+enum GameVersion
+{
 	VInitial,
 	VAddedTest,
 	VAddedSerToDisk,
+	VRemovedTest,
 	VMax, // this minus one will be the version used
 };
 
 // @Robust probably get rid of this as separate function, just use SER_VAR
-void ser_V2(SerState* ser, V2* var)
+SerMaybeFailure ser_V2(SerState* ser, V2* var)
 {
 	SER_VAR(&var->x);
 	SER_VAR(&var->y);
+	SER_ASSERT(!isnan(var->x));
+	SER_ASSERT(!isnan(var->y));
+	return ser_ok;
 }
 
-void ser_bodydata(SerState* ser, struct BodyData* data)
+SerMaybeFailure ser_bodydata(SerState* ser, struct BodyData* data)
 {
-	ser_V2(ser, &data->pos);
-	ser_V2(ser, &data->vel);
+	SER_MAYBE_RETURN(ser_V2(ser, &data->pos));
+	SER_MAYBE_RETURN(ser_V2(ser, &data->vel));
 	SER_VAR(&data->rotation);
 	SER_VAR(&data->angular_velocity);
+	SER_ASSERT(!isnan(data->rotation));
+	SER_ASSERT(!isnan(data->angular_velocity));
+	return ser_ok;
 }
 
-void ser_entityid(SerState* ser, EntityID* id)
+SerMaybeFailure ser_entityid(SerState* ser, EntityID* id)
 {
 	SER_VAR(&id->generation);
 	SER_VAR(&id->index);
+	if (id->generation > 0) SER_ASSERT(id->index < ser->max_entity_index);
+	return ser_ok;
 }
 
-void ser_inputframe(SerState* ser, InputFrame* i)
+SerMaybeFailure ser_inputframe(SerState* ser, InputFrame* i)
 {
 	SER_VAR(&i->tick);
-	SER_VAR(&i->movement);
+	SER_VAR(&i->id);
+	SER_MAYBE_RETURN(ser_V2(ser, &i->movement));
 
 	SER_VAR(&i->seat_action);
-	ser_entityid(ser, &i->seat_to_inhabit);
-	SER_VAR(&i->hand_pos);
-	ser_entityid(ser, &i->grid_hand_pos_local_to);
+	SER_MAYBE_RETURN(ser_entityid(ser, &i->seat_to_inhabit));
+	SER_MAYBE_RETURN(ser_V2(ser, &i->hand_pos));
+	SER_MAYBE_RETURN(ser_entityid(ser, &i->grid_hand_pos_local_to));
 
 	SER_VAR(&i->dobuild);
 	SER_VAR(&i->build_type);
+	SER_ASSERT(i->build_type >= 0);
+	SER_ASSERT(i->build_type < BoxLast);
 	SER_VAR(&i->build_rotation);
+	SER_ASSERT(!isnan(i->build_rotation));
+
+	return ser_ok;
 }
 
-void ser_player(SerState* ser, Player* p)
+SerMaybeFailure ser_player(SerState* ser, Player* p)
 {
 	SER_VAR(&p->connected);
 	if (p->connected)
 	{
 		SER_VAR(&p->unlocked_bombs);
-		ser_entityid(ser, &p->entity);
-		ser_inputframe(ser, &p->input);
+		SER_MAYBE_RETURN(ser_entityid(ser, &p->entity));
+		SER_MAYBE_RETURN(ser_inputframe(ser, &p->input));
 	}
+
+	return ser_ok;
 }
 
-void ser_entity(SerState* ser, GameState* gs, Entity* e)
+SerMaybeFailure ser_entity(SerState* ser, GameState* gs, Entity* e)
 {
-	SER_VAR(&e->no_save_to_disk);
+	SER_VAR(&e->no_save_to_disk); // this is always false when saving to disk?
 	SER_VAR(&e->generation);
 	SER_VAR(&e->damage);
 
 	int test;
-	if (ser->serializing) test = 27;
-	if (ser->version >= VAddedTest)
+	if (ser->version < VRemovedTest && ser->version >= VAddedTest)
 		SER_VAR(&test);
-	else test = 27;
-	assert(test == 27);
 
 	bool has_body = ser->serializing && e->body != NULL;
 	SER_VAR(&has_body);
@@ -776,7 +826,7 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 		struct BodyData body_data;
 		if (ser->serializing)
 			populate(e->body, &body_data);
-		ser_bodydata(ser, &body_data);
+		SER_MAYBE_RETURN(ser_bodydata(ser, &body_data));
 		if (!ser->serializing)
 		{
 			create_body(gs, e);
@@ -789,20 +839,21 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 
 	if (has_shape)
 	{
-		ser_V2(ser, &e->shape_size);
-		ser_entityid(ser, &e->shape_parent_entity);
+		SER_MAYBE_RETURN(ser_V2(ser, &e->shape_size));
+		SER_MAYBE_RETURN(ser_entityid(ser, &e->shape_parent_entity));
 		Entity* parent = get_entity(gs, e->shape_parent_entity);
-		assert(parent != NULL);
+		SER_ASSERT(parent != NULL);
 
 		V2 shape_pos;
 		if (ser->serializing)
 			shape_pos = entity_shape_pos(e);
-		SER_VAR(&shape_pos);
+		SER_MAYBE_RETURN(ser_V2(ser, &shape_pos));
 
 		float shape_mass;
 		if (ser->serializing)
 			shape_mass = entity_shape_mass(e);
 		SER_VAR(&shape_mass);
+		SER_ASSERT(!isnan(shape_mass));
 
 		cpShapeFilter filter;
 		if (ser->serializing)
@@ -822,16 +873,16 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 	SER_VAR(&e->is_player);
 	if (e->is_player)
 	{
-		assert(e->no_save_to_disk);
-		ser_entityid(ser, &e->currently_inside_of_box);
+		SER_ASSERT(e->no_save_to_disk);
+		SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
 		SER_VAR(&e->goldness);
 	}
 
 	SER_VAR(&e->is_explosion);
 	if (e->is_explosion)
 	{
-		ser_V2(ser, &e->explosion_pos);
-		ser_V2(ser, &e->explosion_vel);
+		SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_pos));
+		SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_vel));
 		SER_VAR(&e->explosion_progresss);
 	}
 
@@ -839,7 +890,7 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 	if (e->is_grid)
 	{
 		SER_VAR(&e->total_energy_capacity);
-		ser_entityid(ser, &e->boxes);
+		SER_MAYBE_RETURN(ser_entityid(ser, &e->boxes));
 	}
 
 	SER_VAR(&e->is_box);
@@ -848,21 +899,72 @@ void ser_entity(SerState* ser, GameState* gs, Entity* e)
 		SER_VAR(&e->box_type);
 		SER_VAR(&e->always_visible);
 		SER_VAR(&e->is_explosion_unlock);
-		ser_entityid(ser, &e->next_box);
-		ser_entityid(ser, &e->prev_box);
+		SER_MAYBE_RETURN(ser_entityid(ser, &e->next_box));
+		SER_MAYBE_RETURN(ser_entityid(ser, &e->prev_box));
 		SER_VAR(&e->compass_rotation);
 		SER_VAR(&e->indestructible);
 		SER_VAR(&e->thrust);
 		SER_VAR(&e->wanted_thrust);
 		SER_VAR(&e->energy_used);
 		SER_VAR(&e->sun_amount);
-		ser_entityid(ser, &e->player_who_is_inside_of_me);
+		SER_MAYBE_RETURN(ser_entityid(ser, &e->player_who_is_inside_of_me));
 	}
+
+	return ser_ok;
 }
 
-void ser_server_to_client(SerState* ser, ServerToClient* s)
+SerMaybeFailure ser_opus_packets(SerState* ser, OpusBuffer* mic_or_speaker_data)
+{
+	bool no_more_packets = false;
+	if (ser->serializing)
+	{
+		int queued = num_queued_packets(mic_or_speaker_data);
+		for (int i = 0; i < queued; i++)
+		{
+			SER_VAR(&no_more_packets);
+			OpusPacket* cur = pop_packet(mic_or_speaker_data);
+			bool isnull = cur == NULL;
+			SER_VAR(&isnull);
+			if (!isnull)
+			{
+				SER_VAR(&cur->length);
+				SER_DATA(cur->data, cur->length);
+			}
+		}
+		no_more_packets = true;
+		SER_VAR(&no_more_packets);
+	}
+	else
+	{
+		while (true)
+		{
+			SER_VAR(&no_more_packets);
+			if (no_more_packets) break;
+			OpusPacket* cur = push_packet(mic_or_speaker_data);
+			OpusPacket dummy;
+			if (cur == NULL) cur = &dummy; // throw away this packet
+			bool isnull = false;
+			SER_VAR(&isnull);
+			if (!isnull)
+			{
+				SER_VAR(&cur->length);
+				SER_ASSERT(cur->length < VOIP_PACKET_MAX_SIZE);
+				SER_ASSERT(cur->length >= 0);
+				SER_DATA(cur->data, cur->length);
+			}
+		}
+	}
+	return ser_ok;
+}
+
+SerMaybeFailure ser_server_to_client(SerState* ser, ServerToClient* s)
 {
 	SER_VAR(&ser->version);
+	SER_ASSERT(ser->version >= 0);
+	SER_ASSERT(ser->version < VMax);
+
+	if (!ser->save_or_load_from_disk)
+		SER_MAYBE_RETURN(ser_opus_packets(ser, s->playback_buffer));
 
 	GameState* gs = s->cur_gs;
 
@@ -870,10 +972,11 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 	if (ser->serializing)
 		cur_next_entity = gs->cur_next_entity;
 	SER_VAR(&cur_next_entity);
+	SER_ASSERT(cur_next_entity <= ser->max_entity_index);
 
 	if (!ser->serializing)
 	{
-		// avoid a memset here very expensive
+		// avoid a memset here very expensive. que rico!
 		destroy(gs);
 		initialize(gs, gs->entities, gs->max_entities * sizeof(*gs->entities));
 		gs->cur_next_entity = 0; // updated on deserialization
@@ -882,14 +985,14 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 	SER_VAR(&s->your_player);
 	SER_VAR(&gs->time);
 
-	ser_V2(ser, &gs->goldpos);
+	SER_MAYBE_RETURN(ser_V2(ser, &gs->goldpos));
 
 	if (!ser->save_or_load_from_disk)
 	{
 		// @Robust save player data with their ID or something somehow. Like local backup of their account
 		for (size_t i = 0; i < MAX_PLAYERS; i++)
 		{
-			ser_player(ser, &gs->players[i]);
+			SER_MAYBE_RETURN(ser_player(ser, &gs->players[i]));
 		}
 	}
 	if (ser->serializing)
@@ -898,7 +1001,10 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 		for (size_t i = 0; i < gs->cur_next_entity; i++)
 		{
 			Entity* e = &gs->entities[i];
-#define SER_ENTITY() SER_VAR(&entities_done); SER_VAR(&i); ser_entity(ser, gs, e)
+#define SER_ENTITY()         \
+	SER_VAR(&entities_done); \
+	SER_VAR(&i);             \
+	SER_MAYBE_RETURN(ser_entity(ser, gs, e))
 			if (e->exists && !(ser->save_or_load_from_disk && e->no_save_to_disk))
 			{
 				if (!e->is_box && !e->is_grid)
@@ -913,7 +1019,8 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 					BOXES_ITER(gs, cur, e)
 					{
 						bool this_box_in_range = (ser->for_player == NULL || (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur)) < VISION_RADIUS * VISION_RADIUS));
-						if (cur->always_visible) this_box_in_range = true;
+						if (cur->always_visible)
+							this_box_in_range = true;
 						if (this_box_in_range)
 						{
 							if (!serialized_grid_yet)
@@ -924,14 +1031,13 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 
 							// serialize this box
 							EntityID cur_id = get_id(gs, cur);
-							assert(cur_id.index < gs->max_entities);
+							SER_ASSERT(cur_id.index < gs->max_entities);
 							SER_VAR(&entities_done);
 							size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. @Robust add debug info in serialization for what size the expected type is, maybe string nameof the type
 							SER_VAR_NAME(&the_index, "&i");
-							ser_entity(ser, gs, cur);
+							SER_MAYBE_RETURN(ser_entity(ser, gs, cur));
 						}
 					}
-
 				}
 			}
 #undef SER_ENTITY
@@ -950,24 +1056,27 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 				break;
 			size_t next_index;
 			SER_VAR_NAME(&next_index, "&i");
-			assert(next_index < gs->max_entities);
+			SER_ASSERT(next_index < gs->max_entities);
+			SER_ASSERT(next_index >= 0);
 			Entity* e = &gs->entities[next_index];
 			e->exists = true;
-			//unsigned int possible_next_index = (unsigned int)(next_index + 2); // plus two because player entity refers to itself on deserialization
+			// unsigned int possible_next_index = (unsigned int)(next_index + 2); // plus two because player entity refers to itself on deserialization
 			unsigned int possible_next_index = (unsigned int)(next_index + 1);
 			gs->cur_next_entity = gs->cur_next_entity < possible_next_index ? possible_next_index : gs->cur_next_entity;
-			ser_entity(ser, gs, e);
-			
+			SER_MAYBE_RETURN(ser_entity(ser, gs, e));
+
 			if (e->is_box)
 			{
-				assert(last_grid != NULL);
-				assert(last_grid == get_entity(gs, e->shape_parent_entity));
+				SER_ASSERT(last_grid != NULL);
+				SER_ASSERT(get_entity(gs, e->shape_parent_entity) != NULL);
+				SER_ASSERT(last_grid == get_entity(gs, e->shape_parent_entity));
 				e->prev_box = (EntityID){ 0 };
 				e->next_box = (EntityID){ 0 };
 				box_add_to_boxes(gs, last_grid, e);
 			}
 
-			if (e->is_grid) {
+			if (e->is_grid)
+			{
 				e->boxes = (EntityID){ 0 };
 				last_grid = e;
 			}
@@ -984,10 +1093,11 @@ void ser_server_to_client(SerState* ser, ServerToClient* s)
 			}
 		}
 	}
+	return ser_ok;
 }
 
 // for_this_player can be null then the entire world will be sent
-void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player, bool write_varnames)
+bool server_to_client_serialize(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player, bool to_disk)
 {
 	assert(msg->cur_gs != NULL);
 	assert(msg != NULL);
@@ -998,6 +1108,7 @@ void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t
 		.cursor = 0,
 		.max_size = max_len,
 		.for_player = for_this_player,
+		.max_entity_index = msg->cur_gs->cur_next_entity,
 		.version = VMax - 1,
 	};
 
@@ -1006,35 +1117,122 @@ void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t
 		ser.save_or_load_from_disk = true;
 	}
 
-	ser.write_varnames = write_varnames;
+	ser.write_varnames = to_disk;
 #ifdef WRITE_VARNAMES
 	ser.write_varnames = true;
 #endif
 
-	ser_server_to_client(&ser, msg);
+	SerMaybeFailure result = ser_server_to_client(&ser, msg);
 	*out_len = ser.cursor + 1; // @Robust not sure why I need to add one to cursor, ser.cursor should be the length..
+	if (result.failed)
+	{
+		Log("Failed to serialize on line %d because of %s\n", result.line, result.expression);
+		return false;
+	}
+	else
+	{
+		return true;
+	}
 }
 
-void from_bytes(struct ServerToClient* msg, char* bytes, size_t max_len, bool write_varnames, bool from_disk)
+bool server_to_client_deserialize(struct ServerToClient* msg, char* bytes, size_t max_len, bool from_disk)
 {
 	assert(msg->cur_gs != NULL);
 	assert(msg != NULL);
 
-	SerState ser = (SerState){
+	SerState servar = (SerState){
 		.bytes = bytes,
 		.serializing = false,
 		.cursor = 0,
 		.max_size = max_len,
+		.max_entity_index = msg->cur_gs->max_entities,
 		.save_or_load_from_disk = from_disk,
 	};
 
-	ser.write_varnames = write_varnames;
+	if (from_disk)
+		servar.write_varnames = true;
 
+#ifdef WRITE_VARNAMES
+	servar.write_varnames = true;
+#endif
+
+	SerState* ser = &servar;
+	SerMaybeFailure result = ser_server_to_client(ser, msg);
+	if (result.failed)
+	{
+		Log("Failed to deserialize server to client on line %d because of %s\n", result.line, result.expression);
+		return false;
+	}
+	else
+	{
+		return true;
+	}
+}
+
+SerMaybeFailure ser_client_to_server(SerState* ser, ClientToServer* msg)
+{
+	SER_VAR(&ser->version);
+	SER_MAYBE_RETURN(ser_opus_packets(ser, msg->mic_data));
+	for (int i = 0; i < INPUT_BUFFER; i++)
+	{
+		SER_MAYBE_RETURN(ser_inputframe(ser, &msg->inputs[i]));
+	}
+	return ser_ok;
+}
+
+bool client_to_server_serialize(GameState* gs, struct ClientToServer* msg, char* bytes, size_t* out_len, size_t max_len)
+{
+	SerState ser = (SerState){
+		.bytes = bytes,
+		.serializing = true,
+		.cursor = 0,
+		.max_size = max_len,
+		.for_player = NULL,
+		.max_entity_index = gs->cur_next_entity,
+		.version = VMax - 1,
+	};
 #ifdef WRITE_VARNAMES
 	ser.write_varnames = true;
 #endif
 
-	ser_server_to_client(&ser, msg);
+	SerMaybeFailure result = ser_client_to_server(&ser, msg);
+	*out_len = ser.cursor + 1; // see other comment for server to client
+	if (result.failed)
+	{
+		Log("Failed to serialize client to server because %s was false, line %d\n", result.expression, result.line);
+		return false;
+	}
+	else
+	{
+		return true;
+	}
+}
+
+bool client_to_server_deserialize(GameState* gs, struct ClientToServer* msg, char* bytes, size_t max_len)
+{
+	SerState servar = (SerState){
+		.bytes = bytes,
+		.serializing = false,
+		.cursor = 0,
+		.max_size = max_len,
+		.max_entity_index = gs->cur_next_entity,
+		.save_or_load_from_disk = false,
+	};
+#ifdef WRITE_VARNAMES
+	servar.write_varnames = true;
+#endif
+
+	SerState* ser = &servar;
+	SerMaybeFailure result = ser_client_to_server(ser, msg);
+	if (result.failed)
+	{
+		Log("Failed to deserialize client to server on line %d because of %s\n", result.line, result.expression);
+		return false;
+	}
+	else
+	{
+		return true;
+	}
 }
 
 // has to be global var because can only get this information
@@ -1086,7 +1284,6 @@ static void explosion_callback_func(cpShape* shape, cpContactPointSet* points, v
 	V2 impulse = V2scale(V2normalize(V2sub(from_pos, explosion_origin)), EXPLOSION_PUSH_STRENGTH);
 	assert(parent->body != NULL);
 	cpBodyApplyImpulseAtWorldPoint(parent->body, v2_to_cp(impulse), v2_to_cp(from_pos));
-
 }
 
 static void do_explosion(GameState* gs, Entity* explosion, float dt)
@@ -1131,7 +1328,8 @@ V2 get_world_hand_pos(GameState* gs, InputFrame* input, Entity* player)
 	{
 		return grid_local_to_world(potential_grid, input->hand_pos);
 	}
-	else {
+	else
+	{
 		return V2add(entity_pos(player), input->hand_pos);
 	}
 }
@@ -1167,7 +1365,15 @@ V2 box_vel(Entity* box)
 
 EntityID create_spacestation(GameState* gs)
 {
-#define BOX_AT_TYPE(grid, pos, type) { Entity* box = new_entity(gs); box_create(gs, box, grid, pos); box->box_type = type; box->indestructible = indestructible; box->always_visible = true; box->no_save_to_disk = true; }
+#define BOX_AT_TYPE(grid, pos, type)          \
+	{                                         \
+		Entity *box = new_entity(gs);         \
+		box_create(gs, box, grid, pos);       \
+		box->box_type = type;                 \
+		box->indestructible = indestructible; \
+		box->always_visible = true;           \
+		box->no_save_to_disk = true;          \
+	}
 #define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
 
 	bool indestructible = false;
@@ -1180,28 +1386,28 @@ EntityID create_spacestation(GameState* gs)
 	box_create(gs, explosion_box, grid, (V2) { 0 });
 	explosion_box->is_explosion_unlock = true;
 	explosion_box->no_save_to_disk = true;
-	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE, 0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 2, 0 }), BoxHullpiece);
-	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 3, 0 }), BoxHullpiece);
-	BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 4, 0 }), BoxHullpiece);
+	BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0}), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 2, 0}), BoxHullpiece);
+	BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 3, 0}), BoxHullpiece);
+	BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 4, 0}), BoxHullpiece);
 
 	indestructible = true;
 	for (float y = -BOX_SIZE * 5.0; y <= BOX_SIZE * 5.0; y += BOX_SIZE)
 	{
-		BOX_AT_TYPE(grid, ((V2) { BOX_SIZE * 5.0, y }), BoxHullpiece);
+		BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 5.0, y}), BoxHullpiece);
 	}
 	for (float x = -BOX_SIZE * 5.0; x <= BOX_SIZE * 5.0; x += BOX_SIZE)
 	{
-		BOX_AT_TYPE(grid, ((V2) { x, BOX_SIZE * 5.0 }), BoxHullpiece);
-		BOX_AT_TYPE(grid, ((V2) { x, -BOX_SIZE * 5.0 }), BoxHullpiece);
+		BOX_AT_TYPE(grid, ((V2){x, BOX_SIZE * 5.0}), BoxHullpiece);
+		BOX_AT_TYPE(grid, ((V2){x, -BOX_SIZE * 5.0}), BoxHullpiece);
 	}
 	indestructible = false;
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, BOX_SIZE * 5.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, BOX_SIZE * 3.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, BOX_SIZE * 1.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, -BOX_SIZE * 2.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, -BOX_SIZE * 3.0 }), BoxExplosive);
-	BOX_AT_TYPE(grid, ((V2) { -BOX_SIZE * 6.0, -BOX_SIZE * 5.0 }), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, BOX_SIZE * 5.0}), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, BOX_SIZE * 3.0}), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, BOX_SIZE * 1.0}), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 2.0}), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 3.0}), BoxExplosive);
+	BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 5.0}), BoxExplosive);
 
 	return get_id(gs, grid);
 }
@@ -1311,7 +1517,8 @@ void process(GameState* gs, float dt)
 				cpBodySetVelocity(p->body, v2_to_cp(box_vel(seat_inside_of)));
 
 				// set thruster thrust from movement
-				if (seat_inside_of->box_type == BoxCockpit) {
+				if (seat_inside_of->box_type == BoxCockpit)
+				{
 					Entity* g = get_entity(gs, seat_inside_of->shape_parent_entity);
 
 					V2 target_direction = { 0 };
@@ -1331,7 +1538,7 @@ void process(GameState* gs, float dt)
 			}
 		}
 
-#if 1 // building 
+#if 1 // building
 		if (player->input.dobuild)
 		{
 			player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
@@ -1391,7 +1598,8 @@ void process(GameState* gs, float dt)
 	}
 
 	// process entities
-	for (size_t i = 0; i < gs->cur_next_entity; i++) {
+	for (size_t i = 0; i < gs->cur_next_entity; i++)
+	{
 		Entity* e = &gs->entities[i];
 		if (!e->exists)
 			continue;
@@ -1458,7 +1666,8 @@ void process(GameState* gs, float dt)
 			float energy_to_add = 0.0f;
 			BOXES_ITER(gs, cur, e)
 			{
-				if (cur->box_type == BoxSolarPanel) {
+				if (cur->box_type == BoxSolarPanel)
+				{
 					cur->sun_amount = clamp01(V2dot(box_facing_vector(cur), V2normalize(V2sub(SUN_POS, entity_pos(cur)))));
 					energy_to_add += cur->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
 				}

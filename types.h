@@ -16,7 +16,8 @@
 #define THRUSTER_FORCE 12.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.005f
 #define VISION_RADIUS 12.0f
-#define MAX_BYTES_SIZE 1024 * 512 // maximum size of serialized gamestate buffer
+#define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
+#define MAX_CLIENT_TO_SERVER 1024*10 // maximum size of serialized inputs and mic data
 #define SUN_RADIUS 10.0f
 #define INSTANT_DEATH_DISTANCE_FROM_SUN 2000.0f
 #define SUN_POS ((V2){50.0f,0.0f})
@@ -32,6 +33,13 @@
 #define EXPLOSION_DAMAGE_THRESHOLD 0.2f // how much damage until it explodes
 #define GOLD_UNLOCK_RADIUS 1.0f
 #define TIME_BETWEEN_WORLD_SAVE 30.0f
+
+// VOIP
+#define VOIP_PACKET_BUFFER_SIZE 15	 // audio. Must be bigger than 2
+#define VOIP_EXPECTED_FRAME_COUNT 480
+#define VOIP_SAMPLE_RATE 48000
+#define VOIP_TIME_PER_PACKET 1.0f / ((float)(VOIP_SAMPLE_RATE/VOIP_EXCPECTED_FRAME_COUNT)) // in seconds
+#define VOIP_PACKET_MAX_SIZE 4000
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -70,6 +78,10 @@ typedef void cpShape;
 
 #include <stdbool.h>
 
+#ifndef OPUS_TYPES_H
+typedef __int32 opus_int32;
+#endif
+
 #ifndef _STDBOOL
 
 #define bool _Bool
@@ -81,9 +93,9 @@ typedef void cpShape;
 typedef sgp_vec2 V2;
 typedef sgp_point P2;
 
-#define Log(...)                                     \
+#define Log(...){                                     \
     fprintf(stdout, "%s:%d | ", __FILE__, __LINE__); \
-    fprintf(stdout, __VA_ARGS__)
+    fprintf(stdout, __VA_ARGS__);}
 
 enum BoxType
 {
@@ -109,7 +121,7 @@ enum CompassRotation
 // when generation is 0, invalid ID
 typedef struct EntityID
 {
-	unsigned int generation; // if 0 then EntityID points to nothing, generation >= 1
+	unsigned int generation; // VERY IMPORTANT if 0 then EntityID points to nothing, generation >= 1
 	unsigned int index;      // index into the entity arena
 } EntityID;
 
@@ -246,16 +258,32 @@ static float rotangle(enum CompassRotation rot)
 	}
 }
 
+typedef struct OpusPacket {
+	bool exists;
+	struct OpusPacket* next;
+
+	char data[VOIP_PACKET_MAX_SIZE];
+	opus_int32 length;
+} OpusPacket;
+
+typedef struct OpusBuffer {
+	OpusPacket packets[VOIP_PACKET_BUFFER_SIZE];
+	OpusPacket* next;
+} OpusBuffer;
+
 typedef struct ServerToClient
 {
 	struct GameState* cur_gs;
+	OpusBuffer* playback_buffer;
 	int your_player;
 } ServerToClient;
 
-struct ClientToServer
+
+typedef struct ClientToServer
 {
+	OpusBuffer* mic_data; // on serialize, flushes this of packets. On deserialize, fills it
 	InputFrame inputs[INPUT_BUFFER];
-};
+} ClientToServer;
 
 // server
 void server(void* data); // data parameter required from thread api...
@@ -267,8 +295,12 @@ void destroy(struct GameState* gs);
 void process(struct GameState* gs, float dt); // does in place
 Entity* closest_to_point_in_radius(struct GameState* gs, V2 point, float radius);
 uint64_t tick(struct GameState* gs);
-void into_bytes(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player, bool write_varnames);
-void from_bytes(struct ServerToClient* msg, char* bytes, size_t max_len, bool write_varnames, bool from_disk);
+
+// all of these return if successful or not
+bool server_to_client_serialize(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player, bool to_disk);
+bool server_to_client_deserialize(struct ServerToClient* msg, char* bytes, size_t max_len, bool from_disk);
+bool client_to_server_deserialize(GameState* gs, struct ClientToServer* msg, char* bytes, size_t max_len);
+bool client_to_server_serialize(GameState* gs, struct ClientToServer* msg, char* bytes, size_t* out_len, size_t max_len);
 
 // entities
 Entity* get_entity(struct GameState* gs, EntityID id);
@@ -282,10 +314,6 @@ void entity_ensure_in_orbit(Entity* e);
 void entity_destroy(GameState* gs, Entity* e);
 #define BOX_CHAIN_ITER(gs, cur, starting_box) for (Entity *cur = get_entity(gs, starting_box); cur != NULL; cur = get_entity(gs, cur->next_box))
 #define BOXES_ITER(gs, cur, grid_entity_ptr) BOX_CHAIN_ITER(gs, cur, (grid_entity_ptr)->boxes)
-
-// player
-void player_destroy(struct Player* p);
-void player_new(struct Player* p);
 
 // grid
 void grid_create(struct GameState* gs, Entity* e);
@@ -309,10 +337,78 @@ void dbg_drawall();
 void dbg_line(V2 from, V2 to);
 void dbg_rect(V2 center);
 
-// helper
-#define SKIPNULL(thing) \
-    if (thing == NULL)  \
-    continue
+
+static void clear_buffer(OpusBuffer* buff)
+{
+	*buff = (OpusBuffer){ 0 };
+}
+
+// you push a packet, get the return value, and fill it with data. It's that easy!
+static OpusPacket* push_packet(OpusBuffer* buff)
+{
+	OpusPacket* to_return = NULL;
+	for (size_t i = 0; i < VOIP_PACKET_BUFFER_SIZE; i++)
+		if (!buff->packets[i].exists)
+		{
+			to_return = &buff->packets[i];
+			break;
+		}
+
+	// no free packet found in the buffer
+	if (to_return == NULL)
+	{
+		Log("Opus Buffer Full\n");
+		clear_buffer(buff);
+		to_return = &buff->packets[0];
+#if 0
+		to_return = buff->next;
+		buff->next = buff->next->next;
+#endif
+	}
+
+	*to_return = (OpusPacket){ 0 };
+	to_return->exists = true;
+
+	// add to the end of the linked list chain
+	if (buff->next != NULL)
+	{
+		OpusPacket* cur = buff->next;
+		while (cur->next != NULL) cur = cur->next;
+		cur->next = to_return;
+	}
+	else {
+		buff->next = to_return;
+	}
+
+	return to_return;
+}
+
+// how many unpopped packets there are, can't check for null on pop_packet because
+// could be a skipped packet. This is used in a for loop to flush a packet buffer
+static int num_queued_packets(OpusBuffer* buff)
+{
+	int to_return = 0;
+	for (size_t i = 0; i < VOIP_PACKET_BUFFER_SIZE; i++)
+		if (buff->packets[i].exists) to_return++;
+	return to_return;
+}
+
+// returns null if the packet was dropped, like if the buffer was too full
+static OpusPacket* pop_packet(OpusBuffer* buff)
+{
+#if 0
+	if (buff->skipped_packets > 0) {
+		buff->skipped_packets--;
+		return NULL;
+	}
+#endif
+
+	OpusPacket* to_return = buff->next;
+	if (buff->next != NULL) buff->next = buff->next->next;
+	if (to_return != NULL) to_return->exists = false; // feels janky to do this
+	return to_return;
+}
+
 
 // all the math is static so that it can be defined in each compilation unit its included in
 

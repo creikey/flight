@@ -8,7 +8,6 @@
 #include <process.h> // starting server thread
 
 #pragma warning ( disable: 33010 ) // this warning is so broken, doesn't understand assert()
-#pragma warning ( disable: 33010 ) // this warning is so broken, doesn't understand assert()
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -20,10 +19,15 @@
 #include "stb_image.h"
 #include "types.h"
 
+#include "opus.h"
+
 #include <inttypes.h>
 #include <string.h> // errno error message on file open
 
 #include "minilzo.h"
+
+#define MINIAUDIO_IMPLEMENTATION
+#include "miniaudio.h"
 
 static struct GameState gs = { 0 };
 static int myplayer = -1;
@@ -58,8 +62,20 @@ static sg_image image_medbay_used;
 static sg_image image_mystery;
 static sg_image image_explosion;
 static sg_image image_low_health;
+static sg_image image_mic_muted;
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
+
+// audio
+static bool muted = false;
+static ma_device microphone_device;
+static ma_device speaker_device;
+OpusEncoder* enc;
+OpusDecoder* dec;
+OpusBuffer packets_to_send = { 0 };
+OpusBuffer packets_to_play = { 0 };
+ma_mutex send_packets_mutex = { 0 };
+ma_mutex play_packets_mutex = { 0 };
 
 static struct BoxInfo {
 	enum BoxType type;
@@ -141,9 +157,112 @@ load_image(const char* path)
 
 	return to_return;
 }
+
+void microphone_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+	assert(frameCount == VOIP_EXPECTED_FRAME_COUNT);
+	if (peer != NULL)
+	{
+		ma_mutex_lock(&send_packets_mutex);
+		OpusPacket* packet = push_packet(&packets_to_send);
+		if (packet != NULL)
+		{
+			opus_int16 muted_audio[VOIP_EXPECTED_FRAME_COUNT] = { 0 };
+			const opus_int16* audio_buffer = (const opus_int16*)pInput;
+			if (muted)
+				audio_buffer = muted_audio;
+			opus_int32 written = opus_encode(enc, audio_buffer, VOIP_EXPECTED_FRAME_COUNT, packet->data, VOIP_PACKET_MAX_SIZE);
+			packet->length = written;
+		}
+		ma_mutex_unlock(&send_packets_mutex);
+	}
+	(void)pOutput;
+}
+
+void speaker_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+	assert(frameCount == VOIP_EXPECTED_FRAME_COUNT);
+	ma_mutex_lock(&play_packets_mutex);
+	OpusPacket* cur_packet = pop_packet(&packets_to_play);
+	if (cur_packet != NULL && cur_packet->length > 0) // length of 0 means skipped packet
+	{
+		opus_decode(dec, cur_packet->data, cur_packet->length, (opus_int16*)pOutput, frameCount, 0);
+	}
+	else
+	{
+		opus_decode(dec, NULL, 0, (opus_int16*)pOutput, frameCount, 0); // I think opus makes it sound good if packets are skipped with null
+	}
+	ma_mutex_unlock(&play_packets_mutex);
+	(void)pInput;
+}
+
 static void
 init(void)
 {
+	// audio
+	{
+		// opus
+		{
+			int error;
+			enc = opus_encoder_create(VOIP_SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP, &error);
+			assert(error == OPUS_OK);
+			dec = opus_decoder_create(VOIP_SAMPLE_RATE, 1, &error);
+			assert(error == OPUS_OK);
+		}
+
+
+		ma_device_config microphone_config = ma_device_config_init(ma_device_type_capture);
+
+		microphone_config.capture.format = ma_format_s16;
+		microphone_config.capture.channels = 1;
+		microphone_config.sampleRate = VOIP_SAMPLE_RATE;
+		microphone_config.dataCallback = microphone_data_callback;
+
+		ma_device_config speaker_config = ma_device_config_init(ma_device_type_playback);
+		speaker_config.playback.format = ma_format_s16;
+		speaker_config.playback.channels = 1;
+		speaker_config.sampleRate = VOIP_SAMPLE_RATE;
+		speaker_config.dataCallback = speaker_data_callback;
+
+		ma_result result;
+
+		result = ma_device_init(NULL, &microphone_config, &microphone_device);
+		if (result != MA_SUCCESS) {
+			Log("Failed to initialize capture device.\n");
+			exit(-1);
+		}
+
+		result = ma_device_init(NULL, &speaker_config, &speaker_device);
+		if (result != MA_SUCCESS)
+		{
+			ma_device_uninit(&microphone_device);
+			Log("Failed to init speaker\n");
+			exit(-1);
+		}
+
+		if (ma_mutex_init(&send_packets_mutex) != MA_SUCCESS) Log("Failed to init send mutex\n");
+		if (ma_mutex_init(&play_packets_mutex) != MA_SUCCESS) Log("Failed to init play mutex\n");
+
+		result = ma_device_start(&microphone_device);
+		if (result != MA_SUCCESS) {
+			ma_device_uninit(&microphone_device);
+			Log("Failed to start device.\n");
+			exit(-1);
+		}
+
+		result = ma_device_start(&speaker_device);
+		if (result != MA_SUCCESS)
+		{
+			ma_device_uninit(&microphone_device);
+			ma_device_uninit(&speaker_device);
+			Log("Failed to start speaker\n");
+			exit(-1);
+		}
+
+		Log("Initialized audio\n");
+
+	}
+
 	// @BeforeShip make all fprintf into logging to file, warning dialog grids on
 	// failure instead of exit(-1), replace the macros in sokol with this as well,
 	// like assert
@@ -184,6 +303,7 @@ init(void)
 		image_mystery = load_image("loaded/mystery.png");
 		image_explosion = load_image("loaded/explosion.png");
 		image_low_health = load_image("loaded/low_health.png");
+		image_mic_muted = load_image("loaded/mic_muted.png");
 	}
 
 	// socket initialization
@@ -314,7 +434,6 @@ ui(bool draw, float dt, float width, float height)
 	if (draw)
 		sgp_push_transform();
 
-	// if(draw) sgp_scale(1.0f, -1.0f);
 	//  draw spice bar
 	if (draw) {
 		static float damage = 0.5f;
@@ -324,12 +443,31 @@ ui(bool draw, float dt, float width, float height)
 		}
 
 		sgp_set_color(0.5f, 0.5f, 0.5f, cur_opacity);
-		float margin = width * 0.1f;
+		float margin = width * 0.2f;
 		float bar_width = width - margin * 2.0f;
-		sgp_draw_filled_rect(margin, 80.0f, bar_width, 30.0f);
+		float y = height - 150.0f;
+		sgp_draw_filled_rect(margin, y, bar_width, 30.0f);
 		sgp_set_color(1.0f, 1.0f, 1.0f, cur_opacity);
 		sgp_draw_filled_rect(
-			margin, 80.0f, bar_width * (1.0f - damage), 30.0f);
+			margin, y, bar_width * (1.0f - damage), 30.0f);
+	}
+
+	// draw muted
+	static float muted_opacity = 0.0f;
+	if (draw) {
+		muted_opacity = lerp(muted_opacity, muted ? 1.0f : 0.0f, 8.0f * dt);
+		sgp_set_color(1.0f, 1.0f, 1.0f, muted_opacity);
+		float size_x = 150.0f;
+		float size_y = 150.0f;
+		sgp_set_image(0, image_mic_muted);
+
+		float x = width - size_x - 40.0f;
+		float y = height - size_y - 40.0f;
+		transform_scope {
+			sgp_scale_at(1.0f, -1.0f, x + size_x / 2.0f, y + size_y / 2.0f);
+			sgp_draw_textured_rect(x, y, size_x, size_y);
+			sgp_reset_image(0);
+		}
 	}
 
 	// draw item toolbar
@@ -401,7 +539,7 @@ static void draw_dots(V2 camera_pos, float gap)
 	for (int x = -num; x < num; x++) {
 		for (int y = -num; y < num; y++) {
 			V2 star = (V2){ (float)x * gap, (float)y * gap };
-			if(V2lengthsqr(V2sub(star, camera_pos)) > VISION_RADIUS*VISION_RADIUS)
+			if (V2lengthsqr(V2sub(star, camera_pos)) > VISION_RADIUS * VISION_RADIUS)
 				continue;
 
 			star.x += hash11(star.x * 100.0f + star.y * 67.0f) * gap;
@@ -444,33 +582,27 @@ frame(void)
 				}
 
 				case ENET_EVENT_TYPE_RECEIVE: {
-					// @Robust @BeforeShip use some kind of serialization strategy that
-					// checks for out of bounds and other validation instead of just
-					// casting to a struct "Alignment of structure members can be
-					// different even among different compilers on the same platform,
-					// let alone different platforms."
-					// ^^ need serialization strategy that accounts for this if multiple
-					// platforms is happening
-					// https://stackoverflow.com/questions/28455163/how-can-i-portably-send-a-c-struct-through-a-network-socket
+					char* decompressed = malloc(sizeof * decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
+					size_t decompressed_max_len = MAX_SERVER_TO_CLIENT;
+					assert(LZO1X_MEM_DECOMPRESS == 0);
+
+					ma_mutex_lock(&play_packets_mutex);
 					ServerToClient msg = (ServerToClient){
 						.cur_gs = &gs,
+						.playback_buffer = &packets_to_play,
 					};
-					// @Robust @BeforeShip maximum acceptable message size?
-					char* decompressed = malloc(sizeof * decompressed * MAX_BYTES_SIZE);
-					size_t decompressed_max_len = MAX_BYTES_SIZE;
-					assert(LZO1X_MEM_DECOMPRESS == 0);
 					int return_value = lzo1x_decompress_safe(event.packet->data, event.packet->dataLength, decompressed, &decompressed_max_len, NULL);
-					// @Robust not sure what return_value is, error test on it somehow
 					if (return_value == LZO_E_OK)
 					{
-						from_bytes(&msg, decompressed, decompressed_max_len, false, false);
+						server_to_client_deserialize(&msg, decompressed, decompressed_max_len, false);
 						myplayer = msg.your_player;
 					}
 					else {
 						Log("Couldn't decompress gamestate packet, error code %d from lzo\n", return_value);
 					}
-					enet_packet_destroy(event.packet);
+					ma_mutex_unlock(&play_packets_mutex);
 					free(decompressed);
+					enet_packet_destroy(event.packet);
 					break;
 				}
 
@@ -556,8 +688,6 @@ frame(void)
 
 		// Create and send input packet
 		{
-			// @Robust accumulate total time and send input at rate like 20 hz, not
-			// every frame
 
 			static size_t last_frame_id = 0;
 			InputFrame cur_input_frame = { 0 };
@@ -600,19 +730,37 @@ frame(void)
 					InputFrame last_last_frame = last_frame;
 					last_frame = client_to_server.inputs[i + 1];
 					client_to_server.inputs[i + 1] = last_last_frame;
+
+					// these references, in old input frames, may have been deleted by the time we 
+					// want to send them.
+					client_to_server.inputs[i + 1].seat_to_inhabit = cur_input_frame.seat_to_inhabit;
+					client_to_server.inputs[i + 1].grid_hand_pos_local_to = cur_input_frame.grid_hand_pos_local_to;
 				}
 				cur_input_frame.tick = tick(&gs);
 				client_to_server.inputs[0] = cur_input_frame;
 				last_frame_id += 1;
 			}
 
-			static double last_input_sent_time = 0.0;
-			if (fabs(last_input_sent_time - time) > TIME_BETWEEN_INPUT_PACKETS) {
-				ENetPacket* packet = enet_packet_create((void*)&client_to_server,
-					sizeof(client_to_server),
-					ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
-				enet_peer_send(peer, 0, packet); // @Robust error check this
-				last_input_sent_time = time;
+			static int64_t last_sent_input_time = 0;
+			if (stm_sec(stm_diff(stm_now(), last_sent_input_time)) > TIME_BETWEEN_INPUT_PACKETS) {
+				ma_mutex_lock(&send_packets_mutex);
+				client_to_server.mic_data = &packets_to_send;
+				char serialized[MAX_CLIENT_TO_SERVER] = { 0 };
+				size_t out_len = 0;
+				if (client_to_server_serialize(&gs, &client_to_server, serialized, &out_len, MAX_CLIENT_TO_SERVER))
+				{
+					ENetPacket* packet = enet_packet_create((void*)serialized,
+						out_len,
+						ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+					enet_peer_send(peer, 0, packet); // @Robust error check this
+					last_sent_input_time = stm_now();
+				}
+				else {
+					Log("Failed to serialize client to server!\n");
+				}
+				client_to_server.mic_data = NULL;
+				ma_mutex_unlock(&send_packets_mutex);
+
 			}
 		}
 
@@ -873,13 +1021,13 @@ frame(void)
 		} // world space transform end
 
 		// low health
-		if (myentity() != NULL)
-		{
-			sgp_set_color(1.0f, 1.0f, 1.0f, myentity()->damage);
-			sgp_set_image(0, image_low_health);
-			draw_texture_rectangle_centered((V2) { width / 2.0f, height / 2.0f }, (V2) { width, height });
-			sgp_reset_image(0);
-		}
+			if (myentity() != NULL)
+			{
+				sgp_set_color(1.0f, 1.0f, 1.0f, myentity()->damage);
+				sgp_set_image(0, image_low_health);
+				draw_texture_rectangle_centered((V2) { width / 2.0f, height / 2.0f }, (V2) { width, height });
+				sgp_reset_image(0);
+			}
 
 		// UI drawn in screen space
 		ui(true, dt, width, height);
@@ -895,6 +1043,15 @@ frame(void)
 
 void cleanup(void)
 {
+	ma_mutex_uninit(&send_packets_mutex);
+	ma_mutex_uninit(&play_packets_mutex);
+
+	ma_device_uninit(&microphone_device);
+	ma_device_uninit(&speaker_device);
+
+	opus_encoder_destroy(enc);
+	opus_decoder_destroy(dec);
+
 	destroy(&gs);
 	free(gs.entities);
 	sgp_shutdown();
@@ -914,6 +1071,10 @@ void event(const sapp_event* e)
 		if (e->key_code == SAPP_KEYCODE_R) {
 			cur_editing_rotation += 1;
 			cur_editing_rotation %= RotationLast;
+		}
+		if (e->key_code == SAPP_KEYCODE_M)
+		{
+			muted = !muted;
 		}
 		if (e->key_code == SAPP_KEYCODE_F11)
 		{

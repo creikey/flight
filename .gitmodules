@@ -4,3 +4,6 @@
 [submodule "thirdparty/Chipmunk2D"]
 	path = thirdparty/Chipmunk2D
 	url = https://github.com/slembcke/Chipmunk2D.git
+[submodule "thirdparty/opus"]
+	path = thirdparty/opus
+	url = https://github.com/xiph/opus.git

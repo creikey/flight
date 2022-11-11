@@ -5,6 +5,11 @@
 WHERE sokol-shdc.exe
 IF %ERRORLEVEL% NEQ 0 ECHO ERROR download sokol-shdc from https://github.com/floooh/sokol-tools-bin/blob/master/bin/win32/sokol-shdc.exe and put it in this folder
 
+set OPUSLIB=thirdparty\opus\win32\VS2015\x64\Release\opus.lib
+
+WHERE %OPUSLIB%
+IF %ERRORLEVEL% NEQ 0 ECHO ERROR compile opus by opening the visual studio project in win32\VS2015 and building the release setting
+
 @REM example of how to compile shaders: sokol-shdc.exe --input triangle.glsl --output triangle.gen.h --slang glsl330:hlsl5:metal_macos
 
 setlocal enabledelayedexpansion enableextensions
@@ -16,8 +21,9 @@ popd
 @REM /DENET_DEBUG=1^
 cl /MP^
   %compileopts%^
-  /I"thirdparty" /I"thirdparty\minilzo" /I"thirdparty\enet\include" /I"thirdparty\Chipmunk2D\include\chipmunk" /I"thirdparty\Chipmunk2D\include"^
+  /I"thirdparty" /I"thirdparty\minilzo" /I"thirdparty\enet\include" /I"thirdparty\Chipmunk2D\include\chipmunk" /I"thirdparty\Chipmunk2D\include" /I"thirdparty\opus\include" /I"thirdparty\opus\src"^
   main.c gamestate.c server.c debugdraw.c^
   thirdparty\minilzo\minilzo.c^
   thirdparty\enet\callbacks.c thirdparty\enet\compress.c thirdparty\enet\host.c thirdparty\enet\list.c thirdparty\enet\packet.c thirdparty\enet\peer.c thirdparty\enet\protocol.c thirdparty\enet\win32.c Ws2_32.lib winmm.lib^
-  %MUNKSRC%
+  %MUNKSRC%^
+  %OPUSLIB%

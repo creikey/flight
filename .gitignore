@@ -1,3 +1,4 @@
+*.bin # world files
 debug_world.bin
 flight*.zip
 flight_server
