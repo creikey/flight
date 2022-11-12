@@ -681,8 +681,12 @@ const static SerMaybeFailure ser_ok = { 0 };
 SerMaybeFailure ser_data(SerState* ser, char* data, size_t data_len, const char* name, const char* file, int line)
 {
 	char var_name[512] = { 0 };
-	snprintf(var_name, 512, "%d%s", line, name); // can't have separator before the name, when comparing names skips past the digit
-	size_t var_name_len = strlen(var_name);
+	size_t var_name_len = 0;
+	if(ser->write_varnames)
+	{
+		snprintf(var_name, 512, "%d%s", line, name); // can't have separator before the name, when comparing names skips past the digit
+		var_name_len = strlen(var_name);
+	}
 	if (ser->serializing)
 	{
 		if (ser->write_varnames)
