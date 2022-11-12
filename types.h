@@ -40,7 +40,7 @@
 #define VOIP_SAMPLE_RATE 48000
 #define VOIP_TIME_PER_PACKET 1.0f / ((float)(VOIP_SAMPLE_RATE/VOIP_EXPECTED_FRAME_COUNT)) // in seconds
 #define VOIP_PACKET_MAX_SIZE 4000
-#define VOIP_DISTANCE_WHEN_CANT_HEAR (BOX_SIZE*13.0f)
+#define VOIP_DISTANCE_WHEN_CANT_HEAR (VISION_RADIUS*0.8f)
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
