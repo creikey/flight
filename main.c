@@ -1155,6 +1155,7 @@ sapp_desc
 sokol_main(int argc, char* argv[])
 {
 	bool hosting = false;
+	stm_setup();
 	ma_mutex_init(&server_info.info_mutex);
 	server_info.world_save = "debug_world.bin";
 	if (argc > 1) {

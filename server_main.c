@@ -5,6 +5,7 @@
 
 int main(int argc, char **argv)
 {
+	stm_setup();
 	server("world.bin");
 	return 0;
 }

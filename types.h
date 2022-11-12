@@ -38,8 +38,9 @@
 #define VOIP_PACKET_BUFFER_SIZE 15	 // audio. Must be bigger than 2
 #define VOIP_EXPECTED_FRAME_COUNT 480
 #define VOIP_SAMPLE_RATE 48000
-#define VOIP_TIME_PER_PACKET 1.0f / ((float)(VOIP_SAMPLE_RATE/VOIP_EXCPECTED_FRAME_COUNT)) // in seconds
+#define VOIP_TIME_PER_PACKET 1.0f / ((float)(VOIP_SAMPLE_RATE/VOIP_EXPECTED_FRAME_COUNT)) // in seconds
 #define VOIP_PACKET_MAX_SIZE 4000
+#define VOIP_DISTANCE_WHEN_CANT_HEAR (BOX_SIZE*13.0f)
 
 #define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -400,6 +401,23 @@ static int num_queued_packets(OpusBuffer* buff)
 	return to_return;
 }
 
+static OpusPacket* get_packet_at_index(OpusBuffer* buff, int i)
+{
+	OpusPacket* to_return = buff->next;
+	int index_at = 0;
+	while (index_at < i)
+	{
+		if (to_return->next == NULL)
+		{
+			Log("FAILED TO GET TO INDEX %d\n", i);
+			return to_return;
+		}
+		to_return = to_return->next;
+		index_at++;
+	}
+	return to_return;
+}
+
 // returns null if the packet was dropped, like if the buffer was too full
 static OpusPacket* pop_packet(OpusBuffer* buff)
 {
@@ -514,6 +532,11 @@ static inline float clamp01(float f)
 static float V2distsqr(V2 from, V2 to)
 {
 	return V2lengthsqr(V2sub(to, from));
+}
+
+static float V2dist(V2 from, V2 to)
+{
+	return sqrtf(V2distsqr(from, to));
 }
 
 static inline float clamp(float f, float minimum, float maximum)

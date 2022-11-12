@@ -53,7 +53,6 @@ static SpallBuffer  spall_buffer;
 
 #endif
 
-
 // started in a thread from host
 void server(void* info_raw)
 {
@@ -71,7 +70,6 @@ void server(void* info_raw)
 
 #endif
 
-	stm_setup();
 
 	struct GameState gs = { 0 };
 	size_t entities_size = (sizeof(Entity) * MAX_ENTITIES);
@@ -189,6 +187,8 @@ void server(void* info_raw)
 	ENetEvent event;
 	uint64_t last_processed_time = stm_now();
 	uint64_t last_saved_world_time = stm_now();
+	uint64_t last_sent_audio_time = stm_now();
+	float audio_time_to_send = 0.0f;
 	float total_time = 0.0f;
 	size_t player_to_latest_id_processed[MAX_PLAYERS] = { 0 };
 	char* world_save_buffer = malloc(entities_size);
@@ -269,7 +269,10 @@ void server(void* info_raw)
 					else {
 						int64_t player_slot = (int64_t)event.peer->data;
 						size_t length = event.packet->dataLength;
-						struct ClientToServer received = { .mic_data = player_voip_buffers[player_slot] };
+						OpusBuffer throwaway_buffer = { 0 };
+						OpusBuffer* buffer_to_fill = player_voip_buffers[player_slot];
+						if (get_entity(&gs, gs.players[player_slot].entity) == NULL) buffer_to_fill = &throwaway_buffer;
+						struct ClientToServer received = { .mic_data = buffer_to_fill };
 						if (!client_to_server_deserialize(&gs, &received, event.packet->data, event.packet->dataLength))
 						{
 							Log("Bad packet from client %d\n", (int)player_slot);
@@ -325,7 +328,9 @@ void server(void* info_raw)
 						entity_destroy(&gs, player_body);
 					}
 					opus_encoder_destroy(player_encoders[player_index]);
+					player_encoders[player_index] = NULL;
 					opus_decoder_destroy(player_decoders[player_index]);
+					player_decoders[player_index] = NULL;
 					gs.players[player_index].connected = false;
 					clear_buffer(player_voip_buffers[player_index]);
 					event.peer->data = NULL;
@@ -402,6 +407,38 @@ void server(void* info_raw)
 		{
 			PROFILE_SCOPE("send_data") {
 				static char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = { 0 };
+
+				audio_time_to_send += (float)stm_sec(stm_diff(stm_now(), last_sent_audio_time));
+				last_sent_audio_time = stm_now();
+				int num_audio_packets = (int)floor(1.0f / (VOIP_TIME_PER_PACKET / audio_time_to_send));
+
+#define MAX_AUDIO_PACKETS_TO_SEND 6
+				if (num_audio_packets > MAX_AUDIO_PACKETS_TO_SEND)
+				{
+					Log("Wants %d, this is too many packets. Greater than the maximum %d\n", num_audio_packets, MAX_AUDIO_PACKETS_TO_SEND);
+					num_audio_packets = MAX_AUDIO_PACKETS_TO_SEND;
+				}
+
+				opus_int16 decoded_audio_packets[MAX_PLAYERS][MAX_AUDIO_PACKETS_TO_SEND][VOIP_EXPECTED_FRAME_COUNT] = { 0 };
+
+				audio_time_to_send -= num_audio_packets * VOIP_TIME_PER_PACKET;
+
+				// decode what everybody said
+				CONNECTED_PEERS(enet_host, cur)
+				{
+					int this_player_index = (int)(int64_t)cur->data;
+					for (int packet_i = 0; packet_i < num_audio_packets; packet_i++)
+					{
+						opus_int16* to_dump_to = decoded_audio_packets[this_player_index][packet_i];
+						OpusPacket* cur_packet = pop_packet(player_voip_buffers[this_player_index]);
+						if (cur_packet == NULL)
+							opus_decode(player_decoders[this_player_index], NULL, 0, to_dump_to, VOIP_EXPECTED_FRAME_COUNT, 0);
+						else
+							opus_decode(player_decoders[this_player_index], cur_packet->data, cur_packet->length, to_dump_to, VOIP_EXPECTED_FRAME_COUNT, 0);
+					}
+				}
+
+				// send gamestate to each player
 				CONNECTED_PEERS(enet_host, cur)
 				{
 					int this_player_index = (int)(int64_t)cur->data;
@@ -411,10 +448,48 @@ void server(void* info_raw)
 					// @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
 					char* bytes_buffer = malloc(sizeof * bytes_buffer * MAX_SERVER_TO_CLIENT);
 					char* compressed_buffer = malloc(sizeof * compressed_buffer * MAX_SERVER_TO_CLIENT);
+
+					// mix audio to be sent
+					OpusBuffer* buffer_to_play = calloc(1, sizeof * buffer_to_play); // @Robust no malloc, also in all other places no malloc
+					{
+						for (int packet_i = 0; packet_i < num_audio_packets; packet_i++)
+						{
+							opus_int16 to_send_to_cur[VOIP_EXPECTED_FRAME_COUNT] = { 0 }; // mix what other players said into this buffer
+							CONNECTED_PEERS(enet_host, other_player)
+							{
+								if (other_player != cur)
+								{
+									int other_player_index = (int)(int64_t)other_player->data;
+									Entity* other_player_entity = get_entity(&gs, gs.players[other_player_index].entity);
+									if (other_player_entity != NULL)
+									{
+										float dist = V2dist(entity_pos(this_player_entity), entity_pos(other_player_entity));
+										float volume = lerp(1.0f, 0.0f, clamp01(dist / VOIP_DISTANCE_WHEN_CANT_HEAR));
+										if (volume > 0.01f)
+										{
+											for (int frame_i = 0; frame_i < VOIP_EXPECTED_FRAME_COUNT; frame_i++)
+											{
+												to_send_to_cur[frame_i] += (opus_int16)((float)decoded_audio_packets[other_player_index][packet_i][frame_i]*volume);
+											}
+										}
+									}
+								}
+							}
+							OpusPacket* this_packet = push_packet(buffer_to_play);
+							opus_int32 ret = opus_encode(player_encoders[this_player_index], to_send_to_cur, VOIP_EXPECTED_FRAME_COUNT, this_packet->data, VOIP_PACKET_MAX_SIZE);
+							if (ret < 0)
+							{
+								Log("Failed to encode audio packet for player %d: opus error code %d\n", this_player_index, ret);
+							}
+							else {
+								this_packet->length = ret;
+							}
+						}
+					}
 					ServerToClient to_send = (ServerToClient){
 						.cur_gs = &gs,
 						.your_player = this_player_index,
-						.playback_buffer = player_voip_buffers[this_player_index],
+						.playback_buffer = buffer_to_play,
 					};
 
 					size_t len = 0;
@@ -444,6 +519,7 @@ void server(void* info_raw)
 					{
 						Log("Failed to serialize data for client %d\n", this_player_index);
 					}
+					free(buffer_to_play);
 					free(bytes_buffer);
 					free(compressed_buffer);
 				}
@@ -464,7 +540,7 @@ void server(void* info_raw)
 	free(entity_data);
 	enet_host_destroy(enet_host);
 	enet_deinitialize();
-	
+
 	printf("Cleanup\n");
 
 #ifdef PROFILING
