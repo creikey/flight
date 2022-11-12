@@ -790,7 +790,6 @@ SerMaybeFailure ser_inputframe(SerState* ser, InputFrame* i)
 	SER_ASSERT(i->build_type >= 0);
 	SER_ASSERT(i->build_type < BoxLast);
 	SER_VAR(&i->build_rotation);
-	SER_ASSERT(!isnan(i->build_rotation));
 
 	return ser_ok;
 }

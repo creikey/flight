@@ -82,7 +82,7 @@ typedef void cpShape;
 #include <stdbool.h>
 
 #ifndef OPUS_TYPES_H
-typedef __int32 opus_int32;
+typedef int opus_int32;
 #endif
 
 #ifndef _STDBOOL
