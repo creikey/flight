@@ -19,7 +19,7 @@ enum
 	BOXES = 1 << 1,
 };
 
-void __assert(bool cond, const char *file, int line, const char *cond_string)
+void __assert(bool cond, const char* file, int line, const char* cond_string)
 {
 	if (!cond)
 	{
@@ -31,7 +31,7 @@ void __assert(bool cond, const char *file, int line, const char *cond_string)
 
 static V2 cp_to_v2(cpVect v)
 {
-	return (V2){.x = (float)v.x, .y = (float)v.y};
+	return (V2) { .x = (float)v.x, .y = (float)v.y };
 }
 
 static cpVect v2_to_cp(V2 v)
@@ -39,15 +39,15 @@ static cpVect v2_to_cp(V2 v)
 	return cpv(v.x, v.y);
 }
 
-bool was_entity_deleted(GameState *gs, EntityID id)
+bool was_entity_deleted(GameState* gs, EntityID id)
 {
 	if (id.generation == 0)
 		return false; // generation 0 means null entity ID, not a deleted entity
-	Entity *the_entity = &gs->entities[id.index];
+	Entity* the_entity = &gs->entities[id.index];
 	return (!the_entity->exists || the_entity->generation != id.generation);
 }
 
-Entity *get_entity_even_if_dead(GameState *gs, EntityID id)
+Entity* get_entity_even_if_dead(GameState* gs, EntityID id)
 {
 	if (id.generation == 0)
 	{
@@ -55,67 +55,67 @@ Entity *get_entity_even_if_dead(GameState *gs, EntityID id)
 	}
 	assert(id.index < gs->cur_next_entity || gs->cur_next_entity == 0);
 	assert(id.index < gs->max_entities);
-	Entity *to_return = &gs->entities[id.index];
+	Entity* to_return = &gs->entities[id.index];
 	// don't validate the generation either
 	return to_return;
 }
 
 // may return null if it doesn't exist anymore
-Entity *get_entity(GameState *gs, EntityID id)
+Entity* get_entity(GameState* gs, EntityID id)
 {
 
-	Entity *to_return = get_entity_even_if_dead(gs, id);
+	Entity* to_return = get_entity_even_if_dead(gs, id);
 	if (was_entity_deleted(gs, id))
 		return NULL;
 	return to_return;
 }
 
-EntityID get_id(GameState *gs, Entity *e)
+EntityID get_id(GameState* gs, Entity* e)
 {
 	if (e == NULL)
-		return (EntityID){0};
+		return (EntityID) { 0 };
 
 	size_t index = (e - gs->entities);
 	assert(index >= 0);
 	assert(index < gs->cur_next_entity);
 
-	return (EntityID){
+	return (EntityID) {
 		.generation = e->generation,
-		.index = (unsigned int)index,
+			.index = (unsigned int)index,
 	};
 }
 
-static Entity *cp_shape_entity(cpShape *shape)
+static Entity* cp_shape_entity(cpShape* shape)
 {
-	return (Entity *)cpShapeGetUserData(shape);
+	return (Entity*)cpShapeGetUserData(shape);
 }
 
-static Entity *cp_body_entity(cpBody *body)
+static Entity* cp_body_entity(cpBody* body)
 {
-	return (Entity *)cpBodyGetUserData(body);
+	return (Entity*)cpBodyGetUserData(body);
 }
 
-static GameState *cp_space_gs(cpSpace *space)
+static GameState* cp_space_gs(cpSpace* space)
 {
-	return (GameState *)cpSpaceGetUserData(space);
+	return (GameState*)cpSpaceGetUserData(space);
 }
 
-int grid_num_boxes(GameState *gs, Entity *e)
+int grid_num_boxes(GameState* gs, Entity* e)
 {
 	assert(e->is_grid);
 	int to_return = 0;
 
 	BOXES_ITER(gs, cur, e)
-	to_return++;
+		to_return++;
 
 	return to_return;
 }
 
-void box_remove_from_boxes(GameState *gs, Entity *box)
+void box_remove_from_boxes(GameState* gs, Entity* box)
 {
 	assert(box->is_box);
-	Entity *prev_box = get_entity(gs, box->prev_box);
-	Entity *next_box = get_entity(gs, box->next_box);
+	Entity* prev_box = get_entity(gs, box->prev_box);
+	Entity* next_box = get_entity(gs, box->next_box);
 	if (prev_box != NULL)
 	{
 		if (prev_box->is_box)
@@ -128,18 +128,18 @@ void box_remove_from_boxes(GameState *gs, Entity *box)
 		assert(next_box->is_box);
 		next_box->prev_box = get_id(gs, prev_box);
 	}
-	box->next_box = (EntityID){0};
-	box->prev_box = (EntityID){0};
+	box->next_box = (EntityID){ 0 };
+	box->prev_box = (EntityID){ 0 };
 }
 
-void on_entity_child_shape(cpBody *body, cpShape *shape, void *data);
+void on_entity_child_shape(cpBody* body, cpShape* shape, void* data);
 
 // gs is for iterating over all child shapes and destroying those, too
-static void destroy_body(GameState *gs, cpBody **body)
+static void destroy_body(GameState* gs, cpBody** body)
 {
 	if (*body != NULL)
 	{
-		cpBodyEachShape(*body, on_entity_child_shape, (void *)gs);
+		cpBodyEachShape(*body, on_entity_child_shape, (void*)gs);
 		cpSpaceRemoveBody(gs->space, *body);
 		cpBodyFree(*body);
 		*body = NULL;
@@ -147,14 +147,14 @@ static void destroy_body(GameState *gs, cpBody **body)
 	*body = NULL;
 }
 
-void entity_destroy(GameState *gs, Entity *e)
+void entity_destroy(GameState* gs, Entity* e)
 {
 	assert(e->exists);
 
 	if (e->is_grid)
 	{
 		BOXES_ITER(gs, cur, e)
-		entity_destroy(gs, cur);
+			entity_destroy(gs, cur);
 	}
 	if (e->is_box)
 	{
@@ -169,25 +169,25 @@ void entity_destroy(GameState *gs, Entity *e)
 	}
 	destroy_body(gs, &e->body);
 
-	Entity *front_of_free_list = get_entity(gs, gs->free_list);
+	Entity* front_of_free_list = get_entity(gs, gs->free_list);
 	if (front_of_free_list != NULL)
 		assert(!front_of_free_list->exists);
 	int gen = e->generation;
-	*e = (Entity){0};
+	*e = (Entity){ 0 };
 	e->generation = gen;
 	e->next_free_entity = gs->free_list;
 	gs->free_list = get_id(gs, e);
 }
 
-void on_entity_child_shape(cpBody *body, cpShape *shape, void *data)
+void on_entity_child_shape(cpBody* body, cpShape* shape, void* data)
 {
-	entity_destroy((GameState *)data, cp_shape_entity(shape));
+	entity_destroy((GameState*)data, cp_shape_entity(shape));
 }
 
-Entity *new_entity(GameState *gs)
+Entity* new_entity(GameState* gs)
 {
-	Entity *to_return = NULL;
-	Entity *possible_free_list = get_entity_even_if_dead(gs, gs->free_list);
+	Entity* to_return = NULL;
+	Entity* possible_free_list = get_entity_even_if_dead(gs, gs->free_list);
 	if (possible_free_list != NULL)
 	{
 		assert(possible_free_list->generation == gs->free_list.generation);
@@ -207,7 +207,7 @@ Entity *new_entity(GameState *gs)
 	return to_return;
 }
 
-void create_body(GameState *gs, Entity *e)
+void create_body(GameState* gs, Entity* e)
 {
 	assert(gs->space != NULL);
 
@@ -218,15 +218,15 @@ void create_body(GameState *gs, Entity *e)
 		e->body = NULL;
 	}
 
-	cpBody *body = cpSpaceAddBody(gs->space, cpBodyNew(0.0, 0.0)); // zeros for mass/moment of inertia means automatically calculated from its collision shapes
+	cpBody* body = cpSpaceAddBody(gs->space, cpBodyNew(0.0, 0.0)); // zeros for mass/moment of inertia means automatically calculated from its collision shapes
 	e->body = body;
-	cpBodySetUserData(e->body, (void *)e);
+	cpBodySetUserData(e->body, (void*)e);
 }
 
-V2 player_vel(GameState *gs, Entity *player)
+V2 player_vel(GameState* gs, Entity* player)
 {
 	assert(player->is_player);
-	Entity *potential_seat = get_entity(gs, player->currently_inside_of_box);
+	Entity* potential_seat = get_entity(gs, player->currently_inside_of_box);
 	if (potential_seat != NULL)
 	{
 		return cp_to_v2(cpBodyGetVelocity(get_entity(gs, potential_seat->shape_parent_entity)->body));
@@ -237,19 +237,19 @@ V2 player_vel(GameState *gs, Entity *player)
 	}
 }
 
-void grid_create(GameState *gs, Entity *e)
+void grid_create(GameState* gs, Entity* e)
 {
 	e->is_grid = true;
 	create_body(gs, e);
 }
 
-void entity_set_rotation(Entity *e, float rot)
+void entity_set_rotation(Entity* e, float rot)
 {
 	assert(e->body != NULL);
 	cpBodySetAngle(e->body, rot);
 }
 
-void entity_set_pos(Entity *e, V2 pos)
+void entity_set_pos(Entity* e, V2 pos)
 {
 	assert(e->is_grid);
 	assert(e->body != NULL);
@@ -257,7 +257,7 @@ void entity_set_pos(Entity *e, V2 pos)
 }
 
 // size is (1/2 the width, 1/2 the height)
-void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, V2 pos, V2 size, float mass)
+void create_rectangle_shape(GameState* gs, Entity* e, Entity* parent, V2 pos, V2 size, float mass)
 {
 	if (e->shape != NULL)
 	{
@@ -276,24 +276,24 @@ void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, V2 pos, V2
 
 	e->shape_size = size;
 	e->shape_parent_entity = get_id(gs, parent);
-	e->shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), parent->body, 4, verts, 0.0f); // this cast is done in chipmunk, not sure why it works
-	cpShapeSetUserData(e->shape, (void *)e);
+	e->shape = (cpShape*)cpPolyShapeInitRaw(cpPolyShapeAlloc(), parent->body, 4, verts, 0.0f); // this cast is done in chipmunk, not sure why it works
+	cpShapeSetUserData(e->shape, (void*)e);
 	cpShapeSetMass(e->shape, mass);
 	cpSpaceAddShape(gs->space, e->shape);
 }
 
 #define PLAYER_SHAPE_FILTER cpShapeFilterNew(CP_NO_GROUP, PLAYERS, CP_ALL_CATEGORIES)
 
-void create_player(GameState *gs, Entity *e)
+void create_player(GameState* gs, Entity* e)
 {
 	e->is_player = true;
 	e->no_save_to_disk = true;
 	create_body(gs, e);
-	create_rectangle_shape(gs, e, e, (V2){0}, V2scale(PLAYER_SIZE, 0.5f), PLAYER_MASS);
+	create_rectangle_shape(gs, e, e, (V2) { 0 }, V2scale(PLAYER_SIZE, 0.5f), PLAYER_MASS);
 	cpShapeSetFilter(e->shape, PLAYER_SHAPE_FILTER);
 }
 
-void box_add_to_boxes(GameState *gs, Entity *grid, Entity *box_to_add)
+void box_add_to_boxes(GameState* gs, Entity* grid, Entity* box_to_add)
 {
 	box_to_add->next_box = get_id(gs, get_entity(gs, grid->boxes));
 	box_to_add->prev_box = get_id(gs, grid);
@@ -306,7 +306,7 @@ void box_add_to_boxes(GameState *gs, Entity *grid, Entity *box_to_add)
 
 // box must be passed as a parameter as the box added to chipmunk uses this pointer in its
 // user data. pos is in local coordinates. Adds the box to the grid's chain of boxes
-void box_create(GameState *gs, Entity *new_box, Entity *grid, V2 pos)
+void box_create(GameState* gs, Entity* new_box, Entity* grid, V2 pos)
 {
 	new_box->is_box = true;
 	assert(gs->space != NULL);
@@ -314,7 +314,7 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, V2 pos)
 
 	float halfbox = BOX_SIZE / 2.0f;
 
-	create_rectangle_shape(gs, new_box, grid, pos, (V2){halfbox, halfbox}, 1.0f);
+	create_rectangle_shape(gs, new_box, grid, pos, (V2) { halfbox, halfbox }, 1.0f);
 
 	cpShapeSetFilter(new_box->shape, cpShapeFilterNew(CP_NO_GROUP, BOXES, CP_ALL_CATEGORIES));
 
@@ -323,7 +323,7 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, V2 pos)
 
 // removes boxes from grid, then ensures that the rule that grids must not have
 // holes in them is applied.
-static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
+static void grid_correct_for_holes(GameState* gs, struct Entity* grid)
 {
 	int num_boxes = grid_num_boxes(gs, grid);
 	if (num_boxes == 0)
@@ -334,16 +334,16 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 	if (num_boxes == 1)
 		return;
 
-		// could be a gap between boxes in the grid, separate into multiple grids
+	// could be a gap between boxes in the grid, separate into multiple grids
 
-		// goal: create list of "real grids" from this grid that have boxes which are
-		// ONLY connected horizontally and vertically. whichever one of these "real grids"
-		// has the most blocks stays the current grid, so
-		// if a player is inhabiting this ship it stays that ship.
-		// The other "real grids" are allocated as new grids
+	// goal: create list of "real grids" from this grid that have boxes which are
+	// ONLY connected horizontally and vertically. whichever one of these "real grids"
+	// has the most blocks stays the current grid, so
+	// if a player is inhabiting this ship it stays that ship.
+	// The other "real grids" are allocated as new grids
 
 #define MAX_SEPARATE_GRIDS 8
-	EntityID separate_grids[MAX_SEPARATE_GRIDS] = {0};
+	EntityID separate_grids[MAX_SEPARATE_GRIDS] = { 0 };
 	int cur_separate_grid_index = 0;
 	int cur_separate_grid_size = 0;
 	int processed_boxes = 0;
@@ -355,7 +355,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 	while (processed_boxes < num_boxes)
 	{
 		// grab an unprocessed box, one not in separate_grids, to start the flood fill
-		Entity *unprocessed = get_entity(gs, grid->boxes);
+		Entity* unprocessed = get_entity(gs, grid->boxes);
 		assert(unprocessed != NULL);
 		assert(unprocessed->is_box);
 		box_remove_from_boxes(gs, unprocessed); // no longer in the boxes list of the grid
@@ -366,7 +366,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 		{
 			// queue stuff @Robust use factored datastructure
 			EntityID Q = get_id(gs, unprocessed);
-			Entity *N = NULL;
+			Entity* N = NULL;
 			while (true)
 			{
 				assert(!was_entity_deleted(gs, Q));
@@ -383,14 +383,18 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 
 					V2 cur_local_pos = entity_shape_pos(N);
 					const V2 dirs[] = {
-						(V2){
-							.x = -1.0f, .y = 0.0f},
-						(V2){
-							.x = 1.0f, .y = 0.0f},
-						(V2){
-							.x = 0.0f, .y = 1.0f},
-						(V2){
-							.x = 0.0f, .y = -1.0f},
+						(V2) {
+							.x = -1.0f, .y = 0.0f
+},
+(V2) {
+	.x = 1.0f, .y = 0.0f
+},
+(V2) {
+	.x = 0.0f, .y = 1.0f
+},
+(V2) {
+	.x = 0.0f, .y = -1.0f
+},
 					};
 					int num_dirs = sizeof(dirs) / sizeof(*dirs);
 
@@ -400,7 +404,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 						// @Robust @Speed faster method, not O(N^2), of getting the box
 						// in the direction currently needed
 						V2 wanted_local_pos = V2add(cur_local_pos, V2scale(dir, BOX_SIZE));
-						EntityID box_in_direction = (EntityID){0};
+						EntityID box_in_direction = (EntityID){ 0 };
 						BOXES_ITER(gs, cur, grid)
 						{
 							if (V2equal(entity_shape_pos(cur), wanted_local_pos, 0.01f))
@@ -410,7 +414,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 							}
 						}
 
-						Entity *newbox = get_entity(gs, box_in_direction);
+						Entity* newbox = get_entity(gs, box_in_direction);
 						if (newbox != NULL)
 						{
 							box_remove_from_boxes(gs, newbox);
@@ -441,7 +445,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 		if (get_entity(gs, cur_separate_grid) == NULL)
 			continue; // this separate grid is empty
 
-		Entity *new_grid;
+		Entity* new_grid;
 		if (sepgrid_i == biggest_separate_grid_index)
 		{
 			new_grid = grid;
@@ -454,10 +458,10 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 			cpBodySetAngle(new_grid->body, cpBodyGetAngle(grid->body));
 		}
 
-		Entity *cur = get_entity(gs, cur_separate_grid);
+		Entity* cur = get_entity(gs, cur_separate_grid);
 		while (cur != NULL)
 		{
-			Entity *next = get_entity(gs, cur->next_box);
+			Entity* next = get_entity(gs, cur->next_box);
 			box_create(gs, cur, new_grid, entity_shape_pos(cur)); // destroys next/prev fields on cur
 			cur = next;
 		}
@@ -467,7 +471,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 	}
 }
 
-static void grid_remove_box(GameState *gs, struct Entity *grid, struct Entity *box)
+static void grid_remove_box(GameState* gs, struct Entity* grid, struct Entity* box)
 {
 	assert(grid->is_grid);
 	assert(box->is_box);
@@ -475,12 +479,12 @@ static void grid_remove_box(GameState *gs, struct Entity *grid, struct Entity *b
 	grid_correct_for_holes(gs, grid);
 }
 
-static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
+static cpBool on_damage(cpArbiter* arb, cpSpace* space, cpDataPointer userData)
 {
-	cpShape *a, *b;
+	cpShape* a, * b;
 	cpArbiterGetShapes(arb, &a, &b);
 
-	Entity *entity_a, *entity_b;
+	Entity* entity_a, * entity_b;
 	entity_a = cp_shape_entity(a);
 	entity_b = cp_shape_entity(b);
 
@@ -505,18 +509,18 @@ static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
 	return true; // keep colliding
 }
 
-void initialize(GameState *gs, void *entity_arena, size_t entity_arena_size)
+void initialize(GameState* gs, void* entity_arena, size_t entity_arena_size)
 {
-	*gs = (GameState){0};
+	*gs = (GameState){ 0 };
 	memset(entity_arena, 0, entity_arena_size); // SUPER critical. Random vals in the entity data causes big problem
-	gs->entities = (Entity *)entity_arena;
+	gs->entities = (Entity*)entity_arena;
 	gs->max_entities = (unsigned int)(entity_arena_size / sizeof(Entity));
 	gs->space = cpSpaceNew();
 	cpSpaceSetUserData(gs->space, (cpDataPointer)gs);						   // needed in the handler
-	cpCollisionHandler *handler = cpSpaceAddCollisionHandler(gs->space, 0, 0); // @Robust limit collision type to just blocks that can be damaged
+	cpCollisionHandler* handler = cpSpaceAddCollisionHandler(gs->space, 0, 0); // @Robust limit collision type to just blocks that can be damaged
 	handler->postSolveFunc = on_damage;
 }
-void destroy(GameState *gs)
+void destroy(GameState* gs)
 {
 	// can't zero out gs data because the entity memory arena is reused
 	// on deserialization
@@ -531,30 +535,30 @@ void destroy(GameState *gs)
 	for (size_t i = 0; i < gs->cur_next_entity; i++)
 	{
 		if (gs->entities[i].exists)
-			gs->entities[i] = (Entity){0};
+			gs->entities[i] = (Entity){ 0 };
 	}
 	gs->cur_next_entity = 0;
 }
 // center of mass, not the literal position
-V2 grid_com(Entity *grid)
+V2 grid_com(Entity* grid)
 {
 	return cp_to_v2(cpBodyLocalToWorld(grid->body, cpBodyGetCenterOfGravity(grid->body)));
 }
 
-V2 grid_vel(Entity *grid)
+V2 grid_vel(Entity* grid)
 {
 	return cp_to_v2(cpBodyGetVelocity(grid->body));
 }
-V2 grid_world_to_local(Entity *grid, V2 world)
+V2 grid_world_to_local(Entity* grid, V2 world)
 {
 	return cp_to_v2(cpBodyWorldToLocal(grid->body, v2_to_cp(world)));
 }
-V2 grid_local_to_world(Entity *grid, V2 local)
+V2 grid_local_to_world(Entity* grid, V2 local)
 {
 	return cp_to_v2(cpBodyLocalToWorld(grid->body, v2_to_cp(local)));
 }
 // returned snapped position is in world coordinates
-V2 grid_snapped_box_pos(Entity *grid, V2 world)
+V2 grid_snapped_box_pos(Entity* grid, V2 world)
 {
 	V2 local = grid_world_to_local(grid, world);
 	local.x /= BOX_SIZE;
@@ -566,33 +570,33 @@ V2 grid_snapped_box_pos(Entity *grid, V2 world)
 
 	return cp_to_v2(cpBodyLocalToWorld(grid->body, v2_to_cp(local)));
 }
-float entity_rotation(Entity *grid)
+float entity_rotation(Entity* grid)
 {
 	return (float)cpBodyGetAngle(grid->body);
 }
-float entity_angular_velocity(Entity *grid)
+float entity_angular_velocity(Entity* grid)
 {
 	return (float)cpBodyGetAngularVelocity(grid->body);
 }
-Entity *box_grid(Entity *box)
+Entity* box_grid(Entity* box)
 {
-	return (Entity *)cpBodyGetUserData(cpShapeGetBody(box->shape));
+	return (Entity*)cpBodyGetUserData(cpShapeGetBody(box->shape));
 }
 // in local space
-V2 entity_shape_pos(Entity *box)
+V2 entity_shape_pos(Entity* box)
 {
 	return cp_to_v2(cpShapeGetCenterOfGravity(box->shape));
 }
-float entity_shape_mass(Entity *box)
+float entity_shape_mass(Entity* box)
 {
 	assert(box->shape != NULL);
 	return (float)cpShapeGetMass(box->shape);
 }
-float box_rotation(Entity *box)
+float box_rotation(Entity* box)
 {
 	return (float)cpBodyGetAngle(cpShapeGetBody(box->shape));
 }
-V2 entity_pos(Entity *e)
+V2 entity_pos(Entity* e)
 {
 	if (e->is_box)
 	{
@@ -617,7 +621,7 @@ struct BodyData
 	float angular_velocity;
 };
 
-void populate(cpBody *body, struct BodyData *data)
+void populate(cpBody* body, struct BodyData* data)
 {
 	data->pos = cp_to_v2(cpBodyGetPosition(body));
 	data->vel = cp_to_v2(cpBodyGetVelocity(body));
@@ -625,7 +629,7 @@ void populate(cpBody *body, struct BodyData *data)
 	data->angular_velocity = (float)cpBodyGetAngularVelocity(body);
 }
 
-void update_from(cpBody *body, struct BodyData *data)
+void update_from(cpBody* body, struct BodyData* data)
 {
 	cpBodySetPosition(body, v2_to_cp(data->pos));
 	cpBodySetVelocity(body, v2_to_cp(data->vel));
@@ -635,11 +639,11 @@ void update_from(cpBody *body, struct BodyData *data)
 
 typedef struct SerState
 {
-	char *bytes;
+	char* bytes;
 	bool serializing;
 	size_t cursor; // points to next available byte, is the size of current message after serializing something
 	size_t max_size;
-	Entity *for_player;
+	Entity* for_player;
 	size_t max_entity_index; // for error checking
 	bool write_varnames;
 	bool save_or_load_from_disk;
@@ -652,9 +656,9 @@ typedef struct SerMaybeFailure
 {
 	bool failed;
 	int line;
-	const char *expression;
+	const char* expression;
 } SerMaybeFailure;
-const static SerMaybeFailure ser_ok = {0};
+const static SerMaybeFailure ser_ok = { 0 };
 #define SER_ASSERT(cond)                                                                                  \
 	if (!(cond))                                                                                          \
 	{                                                                                                     \
@@ -674,9 +678,9 @@ const static SerMaybeFailure ser_ok = {0};
 		if (result.failed)                      \
 			return result;                      \
 	}
-SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char *name, const char *file, int line)
+SerMaybeFailure ser_data(SerState* ser, char* data, size_t data_len, const char* name, const char* file, int line)
 {
-	char var_name[512] = {0};
+	char var_name[512] = { 0 };
 	snprintf(var_name, 512, "%d%s", line, name); // can't have separator before the name, when comparing names skips past the digit
 	size_t var_name_len = strlen(var_name);
 	if (ser->serializing)
@@ -697,7 +701,7 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
 	{
 		if (ser->write_varnames)
 		{
-			char read_name[512] = {0};
+			char read_name[512] = { 0 };
 
 			size_t just_field_name = strlen(name);
 			int i = 0;
@@ -710,10 +714,10 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
 					// still a digit
 					if (i >= 10)
 					{ // 10 is way too many digits for a line number...
-						return (SerMaybeFailure){
+						return (SerMaybeFailure) {
 							.expression = "Way too many digits as a line number before a field name",
-							.failed = true,
-							.line = __LINE__,
+								.failed = true,
+								.line = __LINE__,
 						};
 					}
 				}
@@ -729,8 +733,8 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
 			}
 			read_name[i + 1] = '\0';
 			// advance past digits
-			char *read = read_name;
-			char *var = var_name;
+			char* read = read_name;
+			char* var = var_name;
 			while (*read >= '0' && *read <= '9')
 				read++;
 			while (*var >= '0' && *var <= '9')
@@ -746,7 +750,7 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
 	}
 	return ser_ok;
 }
-SerMaybeFailure ser_var(SerState *ser, char *var_pointer, size_t var_size, const char *name, const char *file, int line)
+SerMaybeFailure ser_var(SerState* ser, char* var_pointer, size_t var_size, const char* name, const char* file, int line)
 {
 	return ser_data(ser, var_pointer, var_size, name, file, line);
 }
@@ -765,7 +769,7 @@ enum GameVersion
 };
 
 // @Robust probably get rid of this as separate function, just use SER_VAR
-SerMaybeFailure ser_V2(SerState *ser, V2 *var)
+SerMaybeFailure ser_V2(SerState* ser, V2* var)
 {
 	SER_VAR(&var->x);
 	SER_VAR(&var->y);
@@ -774,7 +778,7 @@ SerMaybeFailure ser_V2(SerState *ser, V2 *var)
 	return ser_ok;
 }
 
-SerMaybeFailure ser_bodydata(SerState *ser, struct BodyData *data)
+SerMaybeFailure ser_bodydata(SerState* ser, struct BodyData* data)
 {
 	SER_MAYBE_RETURN(ser_V2(ser, &data->pos));
 	SER_MAYBE_RETURN(ser_V2(ser, &data->vel));
@@ -785,7 +789,7 @@ SerMaybeFailure ser_bodydata(SerState *ser, struct BodyData *data)
 	return ser_ok;
 }
 
-SerMaybeFailure ser_entityid(SerState *ser, EntityID *id)
+SerMaybeFailure ser_entityid(SerState* ser, EntityID* id)
 {
 	SER_VAR(&id->generation);
 	SER_VAR(&id->index);
@@ -794,7 +798,7 @@ SerMaybeFailure ser_entityid(SerState *ser, EntityID *id)
 	return ser_ok;
 }
 
-SerMaybeFailure ser_inputframe(SerState *ser, InputFrame *i)
+SerMaybeFailure ser_inputframe(SerState* ser, InputFrame* i)
 {
 	SER_VAR(&i->tick);
 	SER_VAR(&i->id);
@@ -814,7 +818,7 @@ SerMaybeFailure ser_inputframe(SerState *ser, InputFrame *i)
 	return ser_ok;
 }
 
-SerMaybeFailure ser_player(SerState *ser, Player *p)
+SerMaybeFailure ser_player(SerState* ser, Player* p)
 {
 	SER_VAR(&p->connected);
 	if (p->connected)
@@ -827,7 +831,7 @@ SerMaybeFailure ser_player(SerState *ser, Player *p)
 	return ser_ok;
 }
 
-SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
+SerMaybeFailure ser_entity(SerState* ser, GameState* gs, Entity* e)
 {
 	SER_VAR(&e->no_save_to_disk); // this is always false when saving to disk?
 	SER_VAR(&e->generation);
@@ -860,7 +864,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 	{
 		SER_MAYBE_RETURN(ser_V2(ser, &e->shape_size));
 		SER_MAYBE_RETURN(ser_entityid(ser, &e->shape_parent_entity));
-		Entity *parent = get_entity(gs, e->shape_parent_entity);
+		Entity* parent = get_entity(gs, e->shape_parent_entity);
 		SER_ASSERT(parent != NULL);
 
 		V2 shape_pos;
@@ -939,7 +943,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 	return ser_ok;
 }
 
-SerMaybeFailure ser_opus_packets(SerState *ser, OpusBuffer *mic_or_speaker_data)
+SerMaybeFailure ser_opus_packets(SerState* ser, OpusBuffer* mic_or_speaker_data)
 {
 	bool no_more_packets = false;
 	if (ser->serializing)
@@ -948,7 +952,7 @@ SerMaybeFailure ser_opus_packets(SerState *ser, OpusBuffer *mic_or_speaker_data)
 		for (int i = 0; i < queued; i++)
 		{
 			SER_VAR(&no_more_packets);
-			OpusPacket *cur = pop_packet(mic_or_speaker_data);
+			OpusPacket* cur = pop_packet(mic_or_speaker_data);
 			bool isnull = cur == NULL;
 			SER_VAR(&isnull);
 			if (!isnull)
@@ -967,7 +971,7 @@ SerMaybeFailure ser_opus_packets(SerState *ser, OpusBuffer *mic_or_speaker_data)
 			SER_VAR(&no_more_packets);
 			if (no_more_packets)
 				break;
-			OpusPacket *cur = push_packet(mic_or_speaker_data);
+			OpusPacket* cur = push_packet(mic_or_speaker_data);
 			OpusPacket dummy;
 			if (cur == NULL)
 				cur = &dummy; // throw away this packet
@@ -985,7 +989,7 @@ SerMaybeFailure ser_opus_packets(SerState *ser, OpusBuffer *mic_or_speaker_data)
 	return ser_ok;
 }
 
-SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
+SerMaybeFailure ser_server_to_client(SerState* ser, ServerToClient* s)
 {
 	SER_VAR(&ser->version);
 	SER_ASSERT(ser->version >= 0);
@@ -994,7 +998,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 	if (!ser->save_or_load_from_disk)
 		SER_MAYBE_RETURN(ser_opus_packets(ser, s->playback_buffer));
 
-	GameState *gs = s->cur_gs;
+	GameState* gs = s->cur_gs;
 
 	int cur_next_entity = 0;
 	if (ser->serializing)
@@ -1028,7 +1032,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 		bool entities_done = false;
 		for (size_t i = 0; i < gs->cur_next_entity; i++)
 		{
-			Entity *e = &gs->entities[i];
+			Entity* e = &gs->entities[i];
 #define SER_ENTITY()         \
 	SER_VAR(&entities_done); \
 	SER_VAR(&i);             \
@@ -1075,7 +1079,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 	}
 	else
 	{
-		Entity *last_grid = NULL;
+		Entity* last_grid = NULL;
 		while (true)
 		{
 			bool entities_done = false;
@@ -1086,7 +1090,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 			SER_VAR_NAME(&next_index, "&i");
 			SER_ASSERT(next_index < gs->max_entities);
 			SER_ASSERT(next_index >= 0);
-			Entity *e = &gs->entities[next_index];
+			Entity* e = &gs->entities[next_index];
 			e->exists = true;
 			// unsigned int possible_next_index = (unsigned int)(next_index + 2); // plus two because player entity refers to itself on deserialization
 			unsigned int possible_next_index = (unsigned int)(next_index + 1);
@@ -1098,20 +1102,20 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 				SER_ASSERT(last_grid != NULL);
 				SER_ASSERT(get_entity(gs, e->shape_parent_entity) != NULL);
 				SER_ASSERT(last_grid == get_entity(gs, e->shape_parent_entity));
-				e->prev_box = (EntityID){0};
-				e->next_box = (EntityID){0};
+				e->prev_box = (EntityID){ 0 };
+				e->next_box = (EntityID){ 0 };
 				box_add_to_boxes(gs, last_grid, e);
 			}
 
 			if (e->is_grid)
 			{
-				e->boxes = (EntityID){0};
+				e->boxes = (EntityID){ 0 };
 				last_grid = e;
 			}
 		}
 		for (size_t i = 0; i < gs->cur_next_entity; i++)
 		{
-			Entity *e = &gs->entities[i];
+			Entity* e = &gs->entities[i];
 			if (!e->exists)
 			{
 				if (e->generation == 0)
@@ -1125,7 +1129,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 }
 
 // for_this_player can be null then the entire world will be sent
-bool server_to_client_serialize(struct ServerToClient *msg, char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk)
+bool server_to_client_serialize(struct ServerToClient* msg, char* bytes, size_t* out_len, size_t max_len, Entity* for_this_player, bool to_disk)
 {
 	assert(msg->cur_gs != NULL);
 	assert(msg != NULL);
@@ -1163,7 +1167,7 @@ bool server_to_client_serialize(struct ServerToClient *msg, char *bytes, size_t 
 	}
 }
 
-bool server_to_client_deserialize(struct ServerToClient *msg, char *bytes, size_t max_len, bool from_disk)
+bool server_to_client_deserialize(struct ServerToClient* msg, char* bytes, size_t max_len, bool from_disk)
 {
 	assert(msg->cur_gs != NULL);
 	assert(msg != NULL);
@@ -1184,7 +1188,7 @@ bool server_to_client_deserialize(struct ServerToClient *msg, char *bytes, size_
 	servar.write_varnames = true;
 #endif
 
-	SerState *ser = &servar;
+	SerState* ser = &servar;
 	SerMaybeFailure result = ser_server_to_client(ser, msg);
 	if (result.failed)
 	{
@@ -1197,7 +1201,7 @@ bool server_to_client_deserialize(struct ServerToClient *msg, char *bytes, size_
 	}
 }
 
-SerMaybeFailure ser_client_to_server(SerState *ser, ClientToServer *msg)
+SerMaybeFailure ser_client_to_server(SerState* ser, ClientToServer* msg)
 {
 	SER_VAR(&ser->version);
 	SER_MAYBE_RETURN(ser_opus_packets(ser, msg->mic_data));
@@ -1208,7 +1212,7 @@ SerMaybeFailure ser_client_to_server(SerState *ser, ClientToServer *msg)
 	return ser_ok;
 }
 
-bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, char *bytes, size_t *out_len, size_t max_len)
+bool client_to_server_serialize(GameState* gs, struct ClientToServer* msg, char* bytes, size_t* out_len, size_t max_len)
 {
 	SerState ser = (SerState){
 		.bytes = bytes,
@@ -1236,7 +1240,7 @@ bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, char 
 	}
 }
 
-bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, char *bytes, size_t max_len)
+bool client_to_server_deserialize(GameState* gs, struct ClientToServer* msg, char* bytes, size_t max_len)
 {
 	SerState servar = (SerState){
 		.bytes = bytes,
@@ -1250,7 +1254,7 @@ bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, cha
 	servar.write_varnames = true;
 #endif
 
-	SerState *ser = &servar;
+	SerState* ser = &servar;
 	SerMaybeFailure result = ser_client_to_server(ser, msg);
 	if (result.failed)
 	{
@@ -1264,9 +1268,9 @@ bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, cha
 }
 
 // has to be global var because can only get this information
-static cpShape *closest_to_point_in_radius_result = NULL;
+static cpShape* closest_to_point_in_radius_result = NULL;
 static float closest_to_point_in_radius_result_largest_dist = 0.0f;
-static void closest_point_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
+static void closest_point_callback_func(cpShape* shape, cpContactPointSet* points, void* data)
 {
 	assert(points->count == 1);
 	if (!cp_shape_entity(shape)->is_box)
@@ -1280,13 +1284,13 @@ static void closest_point_callback_func(cpShape *shape, cpContactPointSet *point
 	}
 }
 
-Entity *closest_to_point_in_radius(GameState *gs, V2 point, float radius)
+Entity* closest_to_point_in_radius(GameState* gs, V2 point, float radius)
 {
 	closest_to_point_in_radius_result = NULL;
 	closest_to_point_in_radius_result_largest_dist = 0.0f;
 
-	cpBody *tmpbody = cpBodyNew(0.0f, 0.0f);
-	cpShape *circle = cpCircleShapeNew(tmpbody, radius, v2_to_cp(point));
+	cpBody* tmpbody = cpBodyNew(0.0f, 0.0f);
+	cpShape* circle = cpCircleShapeNew(tmpbody, radius, v2_to_cp(point));
 	cpSpaceShapeQuery(gs->space, circle, closest_point_callback_func, NULL);
 
 	cpShapeFree(circle);
@@ -1302,36 +1306,36 @@ Entity *closest_to_point_in_radius(GameState *gs, V2 point, float radius)
 }
 
 static float cur_explosion_damage = 0.0f;
-static V2 explosion_origin = {0};
-static void explosion_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
+static V2 explosion_origin = { 0 };
+static void explosion_callback_func(cpShape* shape, cpContactPointSet* points, void* data)
 {
-	GameState *gs = (GameState *)data;
+	GameState* gs = (GameState*)data;
 	cp_shape_entity(shape)->damage += cur_explosion_damage;
-	Entity *parent = get_entity(gs, cp_shape_entity(shape)->shape_parent_entity);
+	Entity* parent = get_entity(gs, cp_shape_entity(shape)->shape_parent_entity);
 	V2 from_pos = entity_pos(cp_shape_entity(shape));
 	V2 impulse = V2scale(V2normalize(V2sub(from_pos, explosion_origin)), EXPLOSION_PUSH_STRENGTH);
 	assert(parent->body != NULL);
 	cpBodyApplyImpulseAtWorldPoint(parent->body, v2_to_cp(impulse), v2_to_cp(from_pos));
 }
 
-static void do_explosion(GameState *gs, Entity *explosion, float dt)
+static void do_explosion(GameState* gs, Entity* explosion, float dt)
 {
 	cur_explosion_damage = dt * EXPLOSION_DAMAGE_PER_SEC;
 	explosion_origin = explosion->explosion_pos;
 
-	cpBody *tmpbody = cpBodyNew(0.0f, 0.0f);
-	cpShape *circle = cpCircleShapeNew(tmpbody, EXPLOSION_RADIUS, v2_to_cp(explosion_origin));
+	cpBody* tmpbody = cpBodyNew(0.0f, 0.0f);
+	cpShape* circle = cpCircleShapeNew(tmpbody, EXPLOSION_RADIUS, v2_to_cp(explosion_origin));
 
-	cpSpaceShapeQuery(gs->space, circle, explosion_callback_func, (void *)gs);
+	cpSpaceShapeQuery(gs->space, circle, explosion_callback_func, (void*)gs);
 
 	cpShapeFree(circle);
 	cpBodyFree(tmpbody);
 }
 
-V2 box_facing_vector(Entity *box)
+V2 box_facing_vector(Entity* box)
 {
 	assert(box->is_box);
-	V2 to_return = (V2){.x = 1.0f, .y = 0.0f};
+	V2 to_return = (V2){ .x = 1.0f, .y = 0.0f };
 
 	to_return = V2rotate(to_return, rotangle(box->compass_rotation));
 	to_return = V2rotate(to_return, box_rotation(box));
@@ -1339,19 +1343,19 @@ V2 box_facing_vector(Entity *box)
 	return to_return;
 }
 
-V2 thruster_force(Entity *box)
+V2 thruster_force(Entity* box)
 {
 	return V2scale(box_facing_vector(box), -box->thrust * THRUSTER_FORCE);
 }
 
-uint64_t tick(GameState *gs)
+uint64_t tick(GameState* gs)
 {
 	return (uint64_t)floor(gs->time / ((double)TIMESTEP));
 }
 
-V2 get_world_hand_pos(GameState *gs, InputFrame *input, Entity *player)
+V2 get_world_hand_pos(GameState* gs, InputFrame* input, Entity* player)
 {
-	Entity *potential_grid = get_entity(gs, input->grid_hand_pos_local_to);
+	Entity* potential_grid = get_entity(gs, input->grid_hand_pos_local_to);
 	if (potential_grid != NULL)
 	{
 		return grid_local_to_world(potential_grid, input->hand_pos);
@@ -1363,7 +1367,7 @@ V2 get_world_hand_pos(GameState *gs, InputFrame *input, Entity *player)
 }
 
 // return true if used the energy
-bool possibly_use_energy(GameState *gs, Entity *grid, float wanted_energy)
+bool possibly_use_energy(GameState* gs, Entity* grid, float wanted_energy)
 {
 	BOXES_ITER(gs, possible_battery, grid)
 	{
@@ -1376,7 +1380,7 @@ bool possibly_use_energy(GameState *gs, Entity *grid, float wanted_energy)
 	return false;
 }
 
-void entity_ensure_in_orbit(Entity *e)
+void entity_ensure_in_orbit(Entity* e)
 {
 	cpVect pos = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
 	cpFloat r = cpvlength(pos);
@@ -1384,14 +1388,14 @@ void entity_ensure_in_orbit(Entity *e)
 	cpBodySetVelocity(e->body, cpvmult(cpvperp(pos), v));
 }
 
-V2 box_vel(Entity *box)
+V2 box_vel(Entity* box)
 {
 	assert(box->is_box);
-	Entity *grid = box_grid(box);
+	Entity* grid = box_grid(box);
 	return cp_to_v2(cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(entity_pos(box))));
 }
 
-EntityID create_spacestation(GameState *gs)
+EntityID create_spacestation(GameState* gs)
 {
 #define BOX_AT_TYPE(grid, pos, type)          \
 	{                                         \
@@ -1405,13 +1409,13 @@ EntityID create_spacestation(GameState *gs)
 #define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
 
 	bool indestructible = false;
-	Entity *grid = new_entity(gs);
+	Entity* grid = new_entity(gs);
 	grid_create(gs, grid);
 	grid->no_save_to_disk = true;
-	entity_set_pos(grid, (V2){-150.0f, 0.0f});
+	entity_set_pos(grid, (V2) { -150.0f, 0.0f });
 	entity_ensure_in_orbit(grid);
-	Entity *explosion_box = new_entity(gs);
-	box_create(gs, explosion_box, grid, (V2){0});
+	Entity* explosion_box = new_entity(gs);
+	box_create(gs, explosion_box, grid, (V2) { 0 });
 	explosion_box->is_explosion_unlock = true;
 	explosion_box->no_save_to_disk = true;
 	BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0}), BoxExplosive);
@@ -1440,14 +1444,14 @@ EntityID create_spacestation(GameState *gs)
 	return get_id(gs, grid);
 }
 
-void exit_seat(GameState *gs, Entity *seat_in, Entity *player)
+void exit_seat(GameState* gs, Entity* seat_in, Entity* player)
 {
 	V2 pilot_seat_exit_spot = V2add(entity_pos(seat_in), V2scale(box_facing_vector(seat_in), BOX_SIZE));
 	cpBodySetPosition(player->body, v2_to_cp(pilot_seat_exit_spot));
 	cpBodySetVelocity(player->body, v2_to_cp(player_vel(gs, player)));
 }
 
-void process(GameState *gs, float dt)
+void process(GameState* gs, float dt)
 {
 	assert(gs->space != NULL);
 
@@ -1457,13 +1461,13 @@ void process(GameState *gs, float dt)
 	// process input
 	PLAYERS_ITER(gs->players, player)
 	{
-		Entity *p = get_entity(gs, player->entity);
+		Entity* p = get_entity(gs, player->entity);
 		if (p == NULL)
 		{
 			p = new_entity(gs);
 			create_player(gs, p);
 			player->entity = get_id(gs, p);
-			Entity *medbay = get_entity(gs, player->last_used_medbay);
+			Entity* medbay = get_entity(gs, player->last_used_medbay);
 			if (medbay != NULL)
 			{
 				exit_seat(gs, medbay, p);
@@ -1480,21 +1484,21 @@ void process(GameState *gs, float dt)
 		{
 			p->goldness += 0.1f;
 			p->damage = 0.0f;
-			gs->goldpos = (V2){.x = hash11((float)gs->time) * 20.0f, .y = hash11((float)gs->time - 13.6f) * 20.0f};
+			gs->goldpos = (V2){ .x = hash11((float)gs->time) * 20.0f, .y = hash11((float)gs->time - 13.6f) * 20.0f };
 		}
 #if 1
 		V2 world_hand_pos = get_world_hand_pos(gs, &player->input, p);
 		if (player->input.seat_action)
 		{
 			player->input.seat_action = false; // "handle" the input
-			Entity *seat_maybe_in = get_entity(gs, p->currently_inside_of_box);
+			Entity* seat_maybe_in = get_entity(gs, p->currently_inside_of_box);
 			if (seat_maybe_in == NULL) // not in any seat
 			{
-				cpPointQueryInfo query_info = {0};
-				cpShape *result = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_hand_pos), 0.1f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
+				cpPointQueryInfo query_info = { 0 };
+				cpShape* result = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_hand_pos), 0.1f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
 				if (result != NULL)
 				{
-					Entity *potential_seat = cp_shape_entity(result);
+					Entity* potential_seat = cp_shape_entity(result);
 					assert(potential_seat->is_box);
 					if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
 					{
@@ -1515,8 +1519,8 @@ void process(GameState *gs, float dt)
 			else
 			{
 				exit_seat(gs, seat_maybe_in, p);
-				seat_maybe_in->player_who_is_inside_of_me = (EntityID){0};
-				p->currently_inside_of_box = (EntityID){0};
+				seat_maybe_in->player_who_is_inside_of_me = (EntityID){ 0 };
+				p->currently_inside_of_box = (EntityID){ 0 };
 			}
 		}
 #endif
@@ -1529,7 +1533,7 @@ void process(GameState *gs, float dt)
 			{
 				player->input.movement = V2scale(V2normalize(player->input.movement), clamp(V2length(player->input.movement), 0.0f, 1.0f));
 			}
-			Entity *seat_inside_of = get_entity(gs, p->currently_inside_of_box);
+			Entity* seat_inside_of = get_entity(gs, p->currently_inside_of_box);
 
 			if (seat_inside_of == NULL)
 			{
@@ -1547,9 +1551,9 @@ void process(GameState *gs, float dt)
 				// set thruster thrust from movement
 				if (seat_inside_of->box_type == BoxCockpit)
 				{
-					Entity *g = get_entity(gs, seat_inside_of->shape_parent_entity);
+					Entity* g = get_entity(gs, seat_inside_of->shape_parent_entity);
 
-					V2 target_direction = {0};
+					V2 target_direction = { 0 };
 					if (V2length(player->input.movement) > 0.0f)
 					{
 						target_direction = V2normalize(player->input.movement);
@@ -1571,38 +1575,38 @@ void process(GameState *gs, float dt)
 		{
 			player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
 
-			cpPointQueryInfo info = {0};
+			cpPointQueryInfo info = { 0 };
 			V2 world_build = world_hand_pos;
 
 			// @Robust sanitize this input so player can't build on any grid in the world
-			Entity *target_grid = get_entity(gs, player->input.grid_hand_pos_local_to);
-			cpShape *nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
+			Entity* target_grid = get_entity(gs, player->input.grid_hand_pos_local_to);
+			cpShape* nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
 			if (nearest != NULL)
 			{
-				Entity *cur_box = cp_shape_entity(nearest);
+				Entity* cur_box = cp_shape_entity(nearest);
 				if (!cur_box->indestructible)
 				{
-					Entity *cur_grid = cp_body_entity(cpShapeGetBody(nearest));
+					Entity* cur_grid = cp_body_entity(cpShapeGetBody(nearest));
 					p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK * ((BATTERY_CAPACITY - cur_box->energy_used) / BATTERY_CAPACITY);
 					grid_remove_box(gs, cur_grid, cur_box);
 				}
 			}
 			else if (target_grid == NULL)
 			{
-				Entity *new_grid = new_entity(gs);
+				Entity* new_grid = new_entity(gs);
 				grid_create(gs, new_grid);
 				p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
 				entity_set_pos(new_grid, world_build);
 
-				Entity *new_box = new_entity(gs);
-				box_create(gs, new_box, new_grid, (V2){0});
+				Entity* new_box = new_entity(gs);
+				box_create(gs, new_box, new_grid, (V2) { 0 });
 				new_box->box_type = player->input.build_type;
 				new_box->compass_rotation = player->input.build_rotation;
 				cpBodySetVelocity(new_grid->body, v2_to_cp(player_vel(gs, p)));
 			}
 			else
 			{
-				Entity *new_box = new_entity(gs);
+				Entity* new_box = new_entity(gs);
 				box_create(gs, new_box, target_grid, grid_world_to_local(target_grid, world_build));
 				grid_correct_for_holes(gs, target_grid); // no holey ship for you!
 				new_box->box_type = player->input.build_type;
@@ -1614,7 +1618,7 @@ void process(GameState *gs, float dt)
 		if (p->damage >= 1.0f)
 		{
 			entity_destroy(gs, p);
-			player->entity = (EntityID){0};
+			player->entity = (EntityID){ 0 };
 		}
 
 		p->damage = clamp01(p->damage);
@@ -1628,7 +1632,7 @@ void process(GameState *gs, float dt)
 	// process entities
 	for (size_t i = 0; i < gs->cur_next_entity; i++)
 	{
-		Entity *e = &gs->entities[i];
+		Entity* e = &gs->entities[i];
 		if (!e->exists)
 			continue;
 
@@ -1636,7 +1640,7 @@ void process(GameState *gs, float dt)
 		{
 			PLAYERS_ITER(gs->players, player)
 			{
-				Entity *player_entity = get_entity(gs, player->entity);
+				Entity* player_entity = get_entity(gs, player->entity);
 				if (player_entity != NULL && V2length(V2sub(entity_pos(player_entity), entity_pos(e))) < GOLD_UNLOCK_RADIUS)
 				{
 					player->unlocked_bombs = true;
@@ -1677,7 +1681,7 @@ void process(GameState *gs, float dt)
 		{
 			if (e->box_type == BoxExplosive && e->damage >= EXPLOSION_DAMAGE_THRESHOLD)
 			{
-				Entity *explosion = new_entity(gs);
+				Entity* explosion = new_entity(gs);
 				explosion->is_explosion = true;
 				explosion->explosion_pos = entity_pos(e);
 				explosion->explosion_vel = grid_vel(box_grid(e));
@@ -1730,7 +1734,7 @@ void process(GameState *gs, float dt)
 				}
 				if (cur->box_type == BoxMedbay)
 				{
-					Entity *potential_meatbag_to_heal = get_entity(gs, cur->player_who_is_inside_of_me);
+					Entity* potential_meatbag_to_heal = get_entity(gs, cur->player_who_is_inside_of_me);
 					if (potential_meatbag_to_heal != NULL)
 					{
 						float energy_to_recharge = fminf(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
