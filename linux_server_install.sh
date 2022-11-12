@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+systemctl stop flight
 ./build_linux_server_release.sh
 cp flight.service /etc/systemd/system/
 systemctl enable flight
