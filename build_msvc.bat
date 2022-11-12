@@ -5,10 +5,10 @@
 WHERE sokol-shdc.exe
 IF %ERRORLEVEL% NEQ 0 ECHO ERROR download sokol-shdc from https://github.com/floooh/sokol-tools-bin/blob/master/bin/win32/sokol-shdc.exe and put it in this folder
 
-set OPUSLIB=thirdparty\opus\win32\VS2015\x64\Release\opus.lib
+set OPUSLIB=%~dp0\thirdparty\opus\win32\VS2015\x64\Release\opus.lib
 
 WHERE %OPUSLIB%
-IF %ERRORLEVEL% NEQ 0 ECHO ERROR compile opus by opening the visual studio project in win32\VS2015 and building the release setting
+IF %ERRORLEVEL% NEQ 0 ECHO ERROR Couldn't find %OPUSLIB% compile opus by opening the visual studio project in win32\VS2015 and building the release setting
 
 @REM example of how to compile shaders: sokol-shdc.exe --input triangle.glsl --output triangle.gen.h --slang glsl330:hlsl5:metal_macos
 
