@@ -174,14 +174,14 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)\thirdparty\enet\include;$(ProjectDir)\flight\thirdparty\Chipmunk2D\include\chipmunk;$(ProjectDir)\thirdparty;$(ProjectDir)\thirdparty\Chipmunk2D\include;$(ProjectDir)\thirdparty\minilzo;$(ProjectDir)\thirdparty\opus\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)\thirdparty\enet\include;$(ProjectDir)\thirdparty\Chipmunk2D\include\chipmunk;$(ProjectDir)\thirdparty;$(ProjectDir)\thirdparty\Chipmunk2D\include;$(ProjectDir)\thirdparty\minilzo;$(ProjectDir)\thirdparty\opus\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);Ws2_32.lib;winmm.lib</AdditionalDependencies>
+      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);Ws2_32.lib;winmm.lib;$(ProjectDir)\thirdparty\opus\win32\VS2015\x64\Release\opus.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -223,7 +223,9 @@
     <ClCompile Include="thirdparty\Chipmunk2D\src\cpSpatialIndex.c" />
     <ClCompile Include="thirdparty\Chipmunk2D\src\cpSweep1D.c" />
     <ClCompile Include="thirdparty\enet\callbacks.c" />
-    <ClCompile Include="thirdparty\enet\compress.c" />
+    <ClCompile Include="thirdparty\enet\compress.c">
+      <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)\thirdparty\enet\include;$(ProjectDir)\thirdparty\Chipmunk2D\include\chipmunk;$(ProjectDir)\thirdparty;$(ProjectDir)\thirdparty\Chipmunk2D\include;$(ProjectDir)\thirdparty\minilzo;$(ProjectDir)\thirdparty\opus\include</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="thirdparty\enet\host.c" />
     <ClCompile Include="thirdparty\enet\list.c" />
     <ClCompile Include="thirdparty\enet\packet.c" />
