@@ -769,6 +769,7 @@ enum GameVersion
 	VAddedSerToDisk,
 	VRemovedTest,
 	VChangedVectorSerializing,
+	VAddedLastUsedMedbay,
 	VMax, // this minus one will be the version used
 };
 
@@ -829,6 +830,8 @@ SerMaybeFailure ser_player(SerState* ser, Player* p)
 	{
 		SER_VAR(&p->unlocked_bombs);
 		SER_MAYBE_RETURN(ser_entityid(ser, &p->entity));
+		if (ser->version >= VAddedLastUsedMedbay)
+			SER_MAYBE_RETURN(ser_entityid(ser, &p->last_used_medbay));
 		SER_MAYBE_RETURN(ser_inputframe(ser, &p->input));
 	}
 
