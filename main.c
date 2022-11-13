@@ -561,6 +561,7 @@ ui(bool draw, float dt, float width, float height)
 				.width = center_panel_width,
 				.height = center_panel_height,
 			};
+
 			if (choosing_flags && mouse_pressed && !has_point(panel_rect, mouse_pos))
 			{
 				mouse_pressed = false;
@@ -635,6 +636,8 @@ ui(bool draw, float dt, float width, float height)
 				}
 			}
 		}
+
+		if (choosing_flags) mouse_pressed = false; // no more inputs beyond flags when the flag choice modal is open
 	}
 #undef FLAG_ITER
 
