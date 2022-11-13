@@ -235,6 +235,7 @@
     <ClCompile Include="thirdparty\minilzo\minilzo.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="hueshift.gen.h" />
     <ClInclude Include="ipsettings.h" />
     <ClInclude Include="thirdparty\minilzo\lzoconf.h" />
     <ClInclude Include="thirdparty\minilzo\lzodefs.h" />

@@ -578,9 +578,10 @@ ui(bool draw, float dt, float width, float height)
 			enum Squad this_squad = (enum Squad)i;
 			bool this_squad_available = true;
 			if (this_squad != SquadNone)
-				PLAYERS_ITER(gs.players, other_player)
+			 PLAYERS_ITER()
+				for (int player_i = 0; player_i < MAX_PLAYERS; player_i++)
 				{
-					if (other_player->squad == this_squad)
+					if (gs.players[player_i].connected && gs.players[player_i].squad == this_squad)
 					{
 						this_squad_available = false;
 						break;

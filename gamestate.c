@@ -770,6 +770,7 @@ enum GameVersion
 	VRemovedTest,
 	VChangedVectorSerializing,
 	VAddedLastUsedMedbay,
+	VAddedSquads,
 	VMax, // this minus one will be the version used
 };
 
@@ -808,6 +809,7 @@ SerMaybeFailure ser_inputframe(SerState* ser, InputFrame* i)
 	SER_VAR(&i->tick);
 	SER_VAR(&i->id);
 	SER_MAYBE_RETURN(ser_V2(ser, &i->movement));
+	SER_VAR(&i->take_over_squad);
 
 	SER_VAR(&i->seat_action);
 	SER_MAYBE_RETURN(ser_entityid(ser, &i->seat_to_inhabit));
@@ -829,6 +831,8 @@ SerMaybeFailure ser_player(SerState* ser, Player* p)
 	if (p->connected)
 	{
 		SER_VAR(&p->unlocked_bombs);
+		if(ser->version >= VAddedSquads)
+			SER_VAR(&p->squad);
 		SER_MAYBE_RETURN(ser_entityid(ser, &p->entity));
 		if (ser->version >= VAddedLastUsedMedbay)
 			SER_MAYBE_RETURN(ser_entityid(ser, &p->last_used_medbay));
@@ -912,6 +916,8 @@ SerMaybeFailure ser_entity(SerState* ser, GameState* gs, Entity* e)
 	{
 		SER_ASSERT(e->no_save_to_disk);
 		SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
+		if(ser->version >= VAddedSquads)
+			SER_VAR(&e->presenting_squad);
 		SER_VAR(&e->goldness);
 	}
 
@@ -1468,6 +1474,27 @@ void process(GameState* gs, float dt)
 	// process input
 	PLAYERS_ITER(gs->players, player)
 	{
+		if (player->input.take_over_squad >= 0)
+		{
+			if (player->input.take_over_squad == SquadNone)
+			{
+				player->squad = SquadNone;
+			}
+			else {
+				bool squad_taken = false;
+				PLAYERS_ITER(gs->players, other_player)
+				{
+					if (other_player->squad == player->input.take_over_squad)
+					{
+						squad_taken = true;
+						break;
+					}
+				}
+				if (!squad_taken)
+					player->squad = player->input.take_over_squad;
+			}
+			player->input.take_over_squad = -1;
+		}
 		Entity* p = get_entity(gs, player->entity);
 		if (p == NULL)
 		{
@@ -1482,6 +1509,7 @@ void process(GameState* gs, float dt)
 			entity_ensure_in_orbit(p);
 		}
 		assert(p->is_player);
+		p->presenting_squad = player->squad;
 
 #ifdef INFINITE_RESOURCES
 		p->damage = 0.0f;

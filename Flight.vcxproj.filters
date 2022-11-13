@@ -191,6 +191,9 @@
     <ClInclude Include="thirdparty\minilzo\minilzo.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="hueshift.gen.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="thirdparty\enet\enet_dll.cbp" />

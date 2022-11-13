@@ -253,6 +253,7 @@ void server(void* info_raw)
 #ifdef UNLOCK_ALL
 						gs.players[player_slot].unlocked_bombs = true;
 #endif
+						gs.players[player_slot].squad = SquadPurple;
 					}
 				}
 				break;
@@ -296,6 +297,8 @@ void server(void* info_raw)
 									// for these "event" inputs, only modify the current input if the event is true.
 									// while processing the gamestate, will mark it as false once processed. This
 									// prevents setting the event input to false before it's been processed.
+									if (cur_input.take_over_squad >= 0)
+										gs.players[player_slot].input.take_over_squad = cur_input.take_over_squad;
 									if (cur_input.seat_action)
 									{
 										gs.players[player_slot].input.seat_action = cur_input.seat_action;

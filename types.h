@@ -121,6 +121,16 @@ enum CompassRotation
 	RotationLast,
 };
 
+enum Squad
+{
+	SquadNone,
+	SquadRed,
+	SquadGreen,
+	SquadBlue,
+	SquadPurple,
+	SquadLast,
+};
+
 // when generation is 0, invalid ID
 typedef struct EntityID
 {
@@ -140,6 +150,8 @@ typedef struct InputFrame
 	uint64_t tick;
 	size_t id; // each input has unique, incrementing, I.D, so server doesn't double process inputs. Inputs to server should be ordered from 0-max like biggest id-smallest. This is done so if packet loss server still processes input
 	V2 movement;
+
+	int take_over_squad; // -1 means not taking over any squad
 
 	bool seat_action;
 	EntityID seat_to_inhabit;
@@ -172,6 +184,7 @@ typedef struct Entity
 
 	// player
 	bool is_player;
+	enum Squad presenting_squad;
 	EntityID currently_inside_of_box;
 	float goldness;         // how much the player is a winner
 
@@ -206,6 +219,7 @@ typedef struct Player
 {
 	bool connected;
 	bool unlocked_bombs;
+	enum Squad squad;
 	EntityID entity;
 	EntityID last_used_medbay;
 	InputFrame input;
@@ -236,6 +250,7 @@ typedef struct GameState
 #define PLAYERS_ITER(players, cur) for(Player * cur = players; cur < players+MAX_PLAYERS; cur++) if(cur->connected)
 
 #define PI 3.14159f
+#define TAU (PI*2.0f)
 
 // returns in radians
 static float rotangle(enum CompassRotation rot)
@@ -391,8 +406,6 @@ static OpusPacket* push_packet(OpusBuffer* buff)
 	return to_return;
 }
 
-// how many unpopped packets there are, can't check for null on pop_packet because
-// could be a skipped packet. This is used in a for loop to flush a packet buffer
 static int num_queued_packets(OpusBuffer* buff)
 {
 	int to_return = 0;
@@ -556,6 +569,12 @@ static float fract(float f)
 static float lerp(float a, float b, float f)
 {
 	return a * (1.0f - f) + (b * f);
+}
+
+static float lerp_angle(float p_from, float p_to, float p_weight) {
+	float difference = fmodf(p_to - p_from, (float)TAU);
+	float distance = fmodf(2.0f * difference, (float)TAU) - difference;
+	return p_from + distance * p_weight;
 }
 
 static V2 V2floor(V2 p)
