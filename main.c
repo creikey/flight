@@ -36,17 +36,27 @@ static sg_pipeline pip;
 static struct GameState gs = {0};
 static int myplayer = -1;
 static bool right_mouse_down = false;
-static bool keydown[SAPP_KEYCODE_MENU] = {0};
+#define MAX_KEYDOWN SAPP_KEYCODE_MENU
+static bool keydown[MAX_KEYDOWN] = {0};
 typedef struct KeyPressed
 {
 	bool pressed;
 	uint64_t frame;
 } KeyPressed;
-static KeyPressed keypressed[SAPP_KEYCODE_MENU] = {0};
+static KeyPressed keypressed[MAX_KEYDOWN] = {0};
 static V2 mouse_pos = {0};
 static bool fullscreened = false;
-static bool mouse_pressed = false;
-static uint64_t mouse_pressed_frame = 0;
+
+static bool build_pressed = false;
+static bool interact_pressed = false;
+#define MAX_MOUSEBUTTON SAPP_MOUSEBUTTON_MIDDLE
+typedef struct MousePressed
+{
+	bool pressed;
+	uint64_t frame;
+} MousePressed;
+static MousePressed mousepressed[MAX_MOUSEBUTTON] = { 0 };
+
 static bool mouse_frozen = false; // @BeforeShip make this debug only thing
 static float funval = 0.0f;		  // easy to play with value controlled by left mouse button when held
 // down @BeforeShip remove on release builds
@@ -562,9 +572,9 @@ ui(bool draw, float dt, float width, float height)
 				.height = center_panel_height,
 			};
 
-			if (choosing_flags && mouse_pressed && !has_point(panel_rect, mouse_pos))
+			if (choosing_flags && build_pressed && !has_point(panel_rect, mouse_pos))
 			{
-				mouse_pressed = false;
+				build_pressed = false;
 				choosing_flags = false;
 			}
 			if (draw)
@@ -591,16 +601,16 @@ ui(bool draw, float dt, float width, float height)
 			float size = 128.0f;
 			bool hovering = V2dist(mouse_pos, flag_pos[i]) < size * 0.25f && this_squad_available;
 
-			if (!choosing_flags && hovering && mouse_pressed)
+			if (!choosing_flags && hovering && build_pressed)
 			{
 				choosing_flags = true;
-				mouse_pressed = false;
+				build_pressed = false;
 			}
 
-			if (this_squad_available && choosing_flags && hovering && mouse_pressed)
+			if (this_squad_available && choosing_flags && hovering && build_pressed)
 			{
 				take_over_squad = this_squad;
-				mouse_pressed = false;
+				build_pressed = false;
 			}
 
 			flag_scaling_increase[i] = lerp(flag_scaling_increase[i], hovering ? 0.2f : 0.0f, dt * 9.0f);
@@ -637,7 +647,7 @@ ui(bool draw, float dt, float width, float height)
 			}
 		}
 
-		if (choosing_flags) mouse_pressed = false; // no more inputs beyond flags when the flag choice modal is open
+		if (choosing_flags) build_pressed = false; // no more inputs beyond flags when the flag choice modal is open
 	}
 #undef FLAG_ITER
 
@@ -703,11 +713,11 @@ ui(bool draw, float dt, float width, float height)
 						.height = itemframe_height,
 					},
 					mouse_pos) &&
-				mouse_pressed)
+				build_pressed)
 			{
 				// "handle" mouse pressed
 				attempt_to_build(i);
-				mouse_pressed = false;
+				build_pressed = false;
 			}
 
 			if (draw)
@@ -778,18 +788,24 @@ frame(void)
 
 	// pressed input management
 	{
-		for (int i = 0; i < SAPP_KEYCODE_MENU; i++)
+		for (int i = 0; i < MAX_KEYDOWN; i++)
 		{
 			if (keypressed[i].frame < sapp_frame_count())
 			{
 				keypressed[i].pressed = false;
 			}
 		}
-		if (mouse_pressed_frame < sapp_frame_count())
+		for (int i = 0; i < MAX_MOUSEBUTTON; i++)
 		{
-			mouse_pressed = false;
+			if (mousepressed[i].frame < sapp_frame_count())
+			{
+				mousepressed[i].pressed = false;
+			}
 		}
-	}
+	} 
+
+	build_pressed = mousepressed[SAPP_MOUSEBUTTON_LEFT].pressed;
+	interact_pressed = mousepressed[SAPP_MOUSEBUTTON_RIGHT].pressed;
 
 	// networking
 	{
@@ -937,14 +953,14 @@ frame(void)
 			if (V2length(input) > 0.0)
 				input = V2normalize(input);
 			cur_input_frame.movement = input;
-			cur_input_frame.seat_action = keypressed[SAPP_KEYCODE_G].pressed;
+			cur_input_frame.seat_action = interact_pressed;
 			cur_input_frame.grid_hand_pos_local_to = grid_to_build_on;
 			cur_input_frame.hand_pos = possibly_local_hand_pos;
 			cur_input_frame.take_over_squad = take_over_squad;
 
-			if (mouse_pressed && cur_editing_boxtype != -1)
+			if (build_pressed && cur_editing_boxtype != -1)
 			{
-				cur_input_frame.dobuild = mouse_pressed;
+				cur_input_frame.dobuild = build_pressed;
 				cur_input_frame.build_type = cur_editing_boxtype;
 				cur_input_frame.build_rotation = cur_editing_rotation;
 			}
@@ -1391,26 +1407,15 @@ void event(const sapp_event *e)
 		zoom_target = clamp(zoom_target, 0.5f, 900.0f);
 		break;
 	case SAPP_EVENTTYPE_MOUSE_DOWN:
-		if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
+		if (mousepressed[e->mouse_button].frame == 0)
 		{
-			mouse_pressed = true;
-			mouse_pressed_frame = e->frame_count;
-		}
-		if (e->mouse_button == SAPP_MOUSEBUTTON_RIGHT)
-		{
-			right_mouse_down = true;
+			mousepressed[e->mouse_button].pressed = true;
+			mousepressed[e->mouse_button].frame = e->frame_count;
 		}
 		break;
 	case SAPP_EVENTTYPE_MOUSE_UP:
-		if (e->mouse_button == SAPP_MOUSEBUTTON_LEFT)
-		{
-			mouse_pressed = false;
-			mouse_pressed_frame = 0;
-		}
-		if (e->mouse_button == SAPP_MOUSEBUTTON_RIGHT)
-		{
-			right_mouse_down = false;
-		}
+		mousepressed[e->mouse_button].pressed = false;
+		mousepressed[e->mouse_button].frame = 0;
 		break;
 	case SAPP_EVENTTYPE_MOUSE_MOVE:
 		if (!mouse_frozen)
