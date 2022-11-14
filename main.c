@@ -33,39 +33,46 @@
 #include "hueshift.gen.h"
 static sg_pipeline pip;
 
-static struct GameState gs = {0};
-static int myplayer = -1;
+static struct GameState gs = { 0 };
+static int my_player_index = -1;
 static bool right_mouse_down = false;
 #define MAX_KEYDOWN SAPP_KEYCODE_MENU
-static bool keydown[MAX_KEYDOWN] = {0};
+static bool keydown[MAX_KEYDOWN] = { 0 };
 typedef struct KeyPressed
 {
 	bool pressed;
 	uint64_t frame;
 } KeyPressed;
-static KeyPressed keypressed[MAX_KEYDOWN] = {0};
-static V2 mouse_pos = {0};
+static KeyPressed keypressed[MAX_KEYDOWN] = { 0 };
+static V2 mouse_pos = { 0 };
 static bool fullscreened = false;
 
 static bool build_pressed = false;
 static bool interact_pressed = false;
-#define MAX_MOUSEBUTTON SAPP_MOUSEBUTTON_MIDDLE
+#define MAX_MOUSEBUTTON (SAPP_MOUSEBUTTON_MIDDLE+1)
+static bool mousedown[MAX_MOUSEBUTTON] = { 0 };
 typedef struct MousePressed
 {
 	bool pressed;
 	uint64_t frame;
 } MousePressed;
 static MousePressed mousepressed[MAX_MOUSEBUTTON] = { 0 };
+static EntityID maybe_inviting_this_player = { 0 };
+bool confirm_invite_this_player = false;
+bool accept_invite = false;
+bool reject_invite = false;
+static V2 camera_pos = { 0 }; // it being a global variable keeps camera at same position after player death
+static float player_scaling = 1.0f;
 
 static bool mouse_frozen = false; // @BeforeShip make this debug only thing
 static float funval = 0.0f;		  // easy to play with value controlled by left mouse button when held
 // down @BeforeShip remove on release builds
-static struct ClientToServer client_to_server = {0}; // buffer of inputs
-static ENetHost *client;
-static ENetPeer *peer;
+static struct ClientToServer client_to_server = { 0 }; // buffer of inputs
+static ENetHost* client;
+static ENetPeer* peer;
 static float zoom_target = 300.0f;
 static float zoom = 300.0f;
-static enum Squad take_over_squad = (enum Squad) - 1; // -1 means not taking over any squad
+static enum Squad take_over_squad = (enum Squad)-1; // -1 means not taking over any squad
 
 // images
 static sg_image image_itemframe;
@@ -83,6 +90,9 @@ static sg_image image_low_health;
 static sg_image image_mic_muted;
 static sg_image image_flag_available;
 static sg_image image_flag_taken;
+static sg_image image_squad_invite;
+static sg_image image_check;
+static sg_image image_no;
 
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
@@ -91,21 +101,21 @@ static int cur_editing_rotation = 0;
 static bool muted = false;
 static ma_device microphone_device;
 static ma_device speaker_device;
-OpusEncoder *enc;
-OpusDecoder *dec;
-OpusBuffer packets_to_send = {0};
-OpusBuffer packets_to_play = {0};
-ma_mutex send_packets_mutex = {0};
-ma_mutex play_packets_mutex = {0};
+OpusEncoder* enc;
+OpusDecoder* dec;
+OpusBuffer packets_to_send = { 0 };
+OpusBuffer packets_to_play = { 0 };
+ma_mutex send_packets_mutex = { 0 };
+ma_mutex play_packets_mutex = { 0 };
 
 // server thread
-void *server_thread_handle = 0;
-ServerThreadInfo server_info = {0};
+void* server_thread_handle = 0;
+ServerThreadInfo server_info = { 0 };
 
 static struct BoxInfo
 {
 	enum BoxType type;
-	const char *image_path;
+	const char* image_path;
 	sg_image image;
 	bool needs_tobe_unlocked;
 } boxes[] = {
@@ -140,6 +150,7 @@ static struct BoxInfo
 		.needs_tobe_unlocked = true,
 	},
 };
+#define ENTITIES_ITER(cur) for(Entity* cur = gs.entities; cur < gs.entities + gs.cur_next_entity; cur++) if(cur->exists)
 #define ARRLEN(arr) (sizeof(arr) / sizeof(*arr))
 
 static struct SquadMeta
@@ -178,11 +189,11 @@ struct SquadMeta squad_meta(enum Squad squad)
 			return squad_metas[i];
 	}
 	Log("Could not find squad %d!\n", squad);
-	return (struct SquadMeta){0};
+	return (struct SquadMeta) { 0 };
 }
 
 struct BoxInfo
-boxinfo(enum BoxType type)
+	boxinfo(enum BoxType type)
 {
 	for (int i = 0; i < ARRLEN(boxes); i++)
 	{
@@ -190,11 +201,11 @@ boxinfo(enum BoxType type)
 			return boxes[i];
 	}
 	Log("No box info found for type %d\n", type);
-	return (struct BoxInfo){0};
+	return (struct BoxInfo) { 0 };
 }
 
 static sg_image
-load_image(const char *path)
+load_image(const char* path)
 {
 	sg_image to_return = sg_alloc_image();
 
@@ -203,39 +214,39 @@ load_image(const char *path)
 	int comp = 0;
 	const int desired_channels = 4;
 	stbi_set_flip_vertically_on_load(true);
-	stbi_uc *image_data = stbi_load(path, &x, &y, &comp, desired_channels);
+	stbi_uc* image_data = stbi_load(path, &x, &y, &comp, desired_channels);
 	if (!image_data)
 	{
-		fprintf(stderr, "Failed to load image: %s\n", stbi_failure_reason());
+		fprintf(stderr, "Failed to load %s image: %s\n", path,stbi_failure_reason());
 		exit(-1);
 	}
 	sg_init_image(to_return,
-				  &(sg_image_desc){.width = x,
-								   .height = y,
-								   .pixel_format = SG_PIXELFORMAT_RGBA8,
-								   .min_filter = SG_FILTER_NEAREST,
-								   .mag_filter = SG_FILTER_NEAREST,
-								   .data.subimage[0][0] = {
-									   .ptr = image_data,
-									   .size = (size_t)(x * y * desired_channels),
-								   }});
+		&(sg_image_desc){.width = x,
+		.height = y,
+		.pixel_format = SG_PIXELFORMAT_RGBA8,
+		.min_filter = SG_FILTER_NEAREST,
+		.mag_filter = SG_FILTER_NEAREST,
+		.data.subimage[0][0] = {
+			.ptr = image_data,
+			.size = (size_t)(x * y * desired_channels),
+		}});
 
 	stbi_image_free(image_data);
 
 	return to_return;
 }
 
-void microphone_data_callback(ma_device *pDevice, void *pOutput, const void *pInput, ma_uint32 frameCount)
+void microphone_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
 	assert(frameCount == VOIP_EXPECTED_FRAME_COUNT);
 	if (peer != NULL)
 	{
 		ma_mutex_lock(&send_packets_mutex);
-		OpusPacket *packet = push_packet(&packets_to_send);
+		OpusPacket* packet = push_packet(&packets_to_send);
 		if (packet != NULL)
 		{
-			opus_int16 muted_audio[VOIP_EXPECTED_FRAME_COUNT] = {0};
-			const opus_int16 *audio_buffer = (const opus_int16 *)pInput;
+			opus_int16 muted_audio[VOIP_EXPECTED_FRAME_COUNT] = { 0 };
+			const opus_int16* audio_buffer = (const opus_int16*)pInput;
 			if (muted)
 				audio_buffer = muted_audio;
 			opus_int32 written = opus_encode(enc, audio_buffer, VOIP_EXPECTED_FRAME_COUNT, packet->data, VOIP_PACKET_MAX_SIZE);
@@ -246,18 +257,18 @@ void microphone_data_callback(ma_device *pDevice, void *pOutput, const void *pIn
 	(void)pOutput;
 }
 
-void speaker_data_callback(ma_device *pDevice, void *pOutput, const void *pInput, ma_uint32 frameCount)
+void speaker_data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
 	assert(frameCount == VOIP_EXPECTED_FRAME_COUNT);
 	ma_mutex_lock(&play_packets_mutex);
-	OpusPacket *cur_packet = pop_packet(&packets_to_play);
+	OpusPacket* cur_packet = pop_packet(&packets_to_play);
 	if (cur_packet != NULL && cur_packet->length > 0) // length of 0 means skipped packet
 	{
-		opus_decode(dec, cur_packet->data, cur_packet->length, (opus_int16 *)pOutput, frameCount, 0);
+		opus_decode(dec, cur_packet->data, cur_packet->length, (opus_int16*)pOutput, frameCount, 0);
 	}
 	else
 	{
-		opus_decode(dec, NULL, 0, (opus_int16 *)pOutput, frameCount, 0); // I think opus makes it sound good if packets are skipped with null
+		opus_decode(dec, NULL, 0, (opus_int16*)pOutput, frameCount, 0); // I think opus makes it sound good if packets are skipped with null
 	}
 	ma_mutex_unlock(&play_packets_mutex);
 	(void)pInput;
@@ -337,10 +348,10 @@ init(void)
 	// failure instead of exit(-1), replace the macros in sokol with this as well,
 	// like assert
 
-	Entity *entity_data = malloc(sizeof *entity_data * MAX_ENTITIES);
-	initialize(&gs, entity_data, sizeof *entity_data * MAX_ENTITIES);
+	Entity* entity_data = malloc(sizeof * entity_data * MAX_ENTITIES);
+	initialize(&gs, entity_data, sizeof * entity_data * MAX_ENTITIES);
 
-	sg_desc sgdesc = {.context = sapp_sgcontext()};
+	sg_desc sgdesc = { .context = sapp_sgcontext() };
 	sg_setup(&sgdesc);
 	if (!sg_isvalid())
 	{
@@ -348,13 +359,13 @@ init(void)
 		exit(-1);
 	}
 
-	sgp_desc sgpdesc = {0};
+	sgp_desc sgpdesc = { 0 };
 	sgp_setup(&sgpdesc);
 	if (!sgp_is_valid())
 	{
 		fprintf(stderr,
-				"Failed to create Sokol GP context: %s\n",
-				sgp_get_error_message(sgp_get_last_error()));
+			"Failed to create Sokol GP context: %s\n",
+			sgp_get_error_message(sgp_get_last_error()));
 		exit(-1);
 	}
 
@@ -394,6 +405,9 @@ init(void)
 		image_mic_muted = load_image("loaded/mic_muted.png");
 		image_flag_available = load_image("loaded/flag_available.png");
 		image_flag_taken = load_image("loaded/flag_ripped.png");
+		image_squad_invite = load_image("loaded/squad_invite.png");
+		image_check = load_image("loaded/check.png");
+		image_no = load_image("loaded/no.png");
 	}
 
 	// socket initialization
@@ -404,10 +418,10 @@ init(void)
 			exit(-1);
 		}
 		client = enet_host_create(NULL /* create a client host */,
-								  1 /* only allow 1 outgoing connection */,
-								  2 /* allow up 2 channels to be used, 0 and 1 */,
-								  0 /* assume any amount of incoming bandwidth */,
-								  0 /* assume any amount of outgoing bandwidth */);
+			1 /* only allow 1 outgoing connection */,
+			2 /* allow up 2 channels to be used, 0 and 1 */,
+			0 /* assume any amount of incoming bandwidth */,
+			0 /* assume any amount of outgoing bandwidth */);
 		if (client == NULL)
 		{
 			fprintf(
@@ -424,7 +438,7 @@ init(void)
 		if (peer == NULL)
 		{
 			fprintf(stderr,
-					"No available peers for initiating an ENet connection.\n");
+				"No available peers for initiating an ENet connection.\n");
 			exit(-1);
 		}
 		// the timeout is the third parameter here
@@ -459,15 +473,15 @@ draw_texture_rectangle_centered(V2 center, V2 width_height)
 {
 	V2 halfsize = V2scale(width_height, 0.5f);
 	sgp_draw_textured_rect(center.x - halfsize.x,
-						   center.y - halfsize.y,
-						   width_height.x,
-						   width_height.y);
+		center.y - halfsize.y,
+		width_height.x,
+		width_height.y);
 }
 
 static void
 draw_texture_centered(V2 center, float size)
 {
-	draw_texture_rectangle_centered(center, (V2){size, size});
+	draw_texture_rectangle_centered(center, (V2) { size, size });
 }
 
 static void
@@ -479,22 +493,30 @@ draw_circle(V2 point, float radius)
 	{
 		float progress = (float)i / (float)POINTS;
 		float next_progress = (float)(i + 1) / (float)POINTS;
-		lines[i].a = (V2){.x = cosf(progress * 2.0f * PI) * radius,
-						  .y = sinf(progress * 2.0f * PI) * radius};
-		lines[i].b = (V2){.x = cosf(next_progress * 2.0f * PI) * radius,
-						  .y = sinf(next_progress * 2.0f * PI) * radius};
+		lines[i].a = (V2){ .x = cosf(progress * 2.0f * PI) * radius,
+						  .y = sinf(progress * 2.0f * PI) * radius };
+		lines[i].b = (V2){ .x = cosf(next_progress * 2.0f * PI) * radius,
+						  .y = sinf(next_progress * 2.0f * PI) * radius };
 		lines[i].a = V2add(lines[i].a, point);
 		lines[i].b = V2add(lines[i].b, point);
 	}
 	sgp_draw_lines(lines, POINTS);
 }
 
-static Entity *
+
+static Player* myplayer()
+{
+	if (my_player_index == -1)
+		return NULL;
+	return &gs.players[my_player_index];
+}
+
+static Entity*
 myentity()
 {
-	if (myplayer == -1)
+	if (myplayer() == NULL)
 		return NULL;
-	Entity *to_return = get_entity(&gs, gs.players[myplayer].entity);
+	Entity* to_return = get_entity(&gs, myplayer()->entity);
 	if (to_return != NULL)
 		assert(to_return->is_player);
 	return to_return;
@@ -505,7 +527,9 @@ bool can_build(int i)
 	bool allow_building = true;
 	if (boxinfo((enum BoxType)i).needs_tobe_unlocked)
 	{
-		allow_building = gs.players[myplayer].unlocked_bombs;
+		allow_building = false;
+		if (myplayer() != NULL)
+			allow_building = myplayer()->unlocked_bombs;
 	}
 	return allow_building;
 }
@@ -514,6 +538,26 @@ void attempt_to_build(int i)
 {
 	if (can_build(i))
 		cur_editing_boxtype = i;
+}
+
+static V2 screen_to_world(float width, float height, V2 screen)
+{
+	V2 world = screen;
+	world = V2sub(world, (V2) { .x = width / 2.0f, .y = height / 2.0f });
+	world.x /= zoom;
+	world.y /= -zoom;
+	world = V2add(world, camera_pos);
+	return world;
+}
+
+static V2 world_to_screen(float width, float height, V2 world)
+{
+	V2 screen = world;
+	screen = V2sub(screen, camera_pos);
+	screen.x *= zoom;
+	screen.y *= -zoom;
+	screen = V2add(screen, (V2) { .x = width / 2.0f, .y = height / 2.0f });
+	return screen;
 }
 
 static void
@@ -529,20 +573,127 @@ ui(bool draw, float dt, float width, float height)
 	if (draw)
 		sgp_push_transform();
 
+	// draw squad invite
+	static float invite_y = -200.0f;
+	static enum Squad draw_as_squad = SquadNone;
+	static float yes_size = 50.0f;
+	static float no_size = 50.0f;
+	{
+		bool invited = myentity() != NULL && myentity()->squad_invited_to != SquadNone;
+		float size = 200.0f;
+		float yes_no_size = 50.0f;
+		float x_center = 0.75f * width;
+		float x = x_center - size / 2.0f;
+		//AABB box = (AABB){ .x = x, .y = invite_y, .width = size, .height = size };
+		float yes_x = x - size/4.0f;
+		float no_x = x + size/4.0f;
+		float buttons_y = invite_y + size / 2.0f;
+
+		bool yes_hovered = invited && V2dist(mouse_pos, (V2) { yes_x, buttons_y }) < yes_size/2.0f;
+		bool no_hovered = invited && V2dist(mouse_pos, (V2) { no_x, buttons_y }) < no_size/2.0f;
+
+		yes_size = lerp(yes_size, yes_hovered ? 75.0f : 50.0f, dt * 9.0f);
+		no_size = lerp(no_size, no_hovered ? 75.0f : 50.0f, dt * 9.0f);
+
+		if (invited && build_pressed && yes_hovered) accept_invite = true;
+		if (invited && build_pressed && no_hovered) reject_invite = true;
+
+		if (draw)
+		{
+			invite_y = lerp(invite_y, invited ? 50.0f : -200.0f, dt * 5.0f);
+
+			if (invited) draw_as_squad = myentity()->squad_invited_to;
+
+			transform_scope{
+				sgp_set_pipeline(pip);
+				struct SquadMeta meta = squad_meta(draw_as_squad);
+				hueshift_uniforms_t uniform = { 0 };
+				uniform.is_colorless = meta.is_colorless;
+				uniform.target_hue = meta.hue;
+				sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+
+				sgp_scale_at(1.0f, -1.0f, x, invite_y); // images upside down by default :(
+				sgp_set_image(0, image_squad_invite);
+				draw_texture_centered((V2) { x, invite_y }, size);
+				sgp_reset_image(0);
+				sgp_reset_pipeline();
+			}
+
+			// yes
+			transform_scope{
+				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+				sgp_scale_at(1.0f, -1.0f, yes_x, buttons_y);
+				sgp_set_image(0, image_check);
+				draw_texture_centered((V2) { yes_x, buttons_y }, yes_size);
+				sgp_reset_image(0);
+			}
+
+			// no
+			transform_scope{
+				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+				sgp_scale_at(1.0f, -1.0f, no_x, buttons_y);
+				sgp_set_image(0, image_no);
+				draw_texture_centered((V2) { no_x, buttons_y }, no_size);
+				sgp_reset_image(0);
+			}
+
+		}
+	}
+
+	// draw maybe inviting
+	{
+		Entity* inviting = get_entity(&gs, maybe_inviting_this_player);
+		if (inviting != NULL && myplayer() != NULL)
+		{
+			V2 top_of_head = world_to_screen(width, height, V2add(entity_pos(inviting), (V2) { .y = player_scaling * PLAYER_SIZE.y / 2.0f }));
+			V2 pos = V2add(top_of_head, (V2) { .y = -30.0f });
+			V2 to_mouse = V2sub(mouse_pos, world_to_screen(width, height, entity_pos(inviting)));
+			bool selecting_to_invite = V2dot(V2normalize(to_mouse), (V2) { 0.0f, -1.0f }) > 0.5f && V2length(to_mouse) > 15.0f;
+			if (!mousedown[SAPP_MOUSEBUTTON_RIGHT])
+			{
+				if (selecting_to_invite)
+					confirm_invite_this_player = true;
+			}
+			if (draw)
+				transform_scope {
+					const float size = 64.0f;
+
+					if (selecting_to_invite)
+					{
+							sgp_set_color(0.5f, 0.5f, 0.5f, 0.4f);
+							sgp_draw_filled_rect(pos.x - size / 2.0f, pos.y - size / 2.0f, size, size);
+							sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+					}
+					sgp_set_pipeline(pip);
+					struct SquadMeta meta = squad_meta(myplayer()->squad);
+					hueshift_uniforms_t uniform = { 0 };
+					uniform.is_colorless = meta.is_colorless;
+					uniform.target_hue = meta.hue;
+					sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+
+					sgp_scale_at(1.0f, -1.0f, pos.x, pos.y); // images upside down by default :(
+					sgp_set_image(0, image_squad_invite);
+					draw_texture_centered(pos, size);
+					sgp_reset_image(0);
+					sgp_reset_pipeline();
+			}
+		}
+	}
+
 	// draw flags
-	static V2 flag_pos[SquadLast] = {0};
-	static float flag_rot[SquadLast] = {0};
-	static float flag_scaling_increase[SquadLast] = {0};
+	static V2 flag_pos[SquadLast] = { 0 };
+	static float flag_rot[SquadLast] = { 0 };
+	static float flag_scaling_increase[SquadLast] = { 0 };
 	static bool choosing_flags = false;
 	const float flag_padding = 70.0f;
 	const float center_panel_height = 200.0f;
 	static float center_panel_width = 0.0f;
-	const float target_center_panel_width = ((SquadLast) + 2) * flag_padding;
+	const float target_center_panel_width = ((SquadLast)+2) * flag_padding;
 #define FLAG_ITER(i) for (int i = 0; i < SquadLast; i++)
 	{
 		FLAG_ITER(i)
 		{
-			V2 target_pos = {0};
+			V2 target_pos = { 0 };
 			float target_rot = 0.0f;
 			float flag_progress = (float)i / (float)(SquadLast - 1.0f);
 			if (choosing_flags)
@@ -590,13 +741,13 @@ ui(bool draw, float dt, float width, float height)
 			bool this_squad_available = true;
 			if (this_squad != SquadNone)
 				PLAYERS_ITER(gs.players, other_player)
+			{
+				if (other_player->squad == this_squad)
 				{
-					if (other_player->squad == this_squad)
-					{
-						this_squad_available = false;
-						break;
-					}
+					this_squad_available = false;
+					break;
 				}
+			}
 
 			float size = 128.0f;
 			bool hovering = V2dist(mouse_pos, flag_pos[i]) < size * 0.25f && this_squad_available;
@@ -706,13 +857,13 @@ ui(bool draw, float dt, float width, float height)
 		for (int i = 0; i < ARRLEN(boxes); i++)
 		{
 			if (has_point(
-					(AABB){
-						.x = x,
-						.y = y,
-						.width = itemframe_width,
-						.height = itemframe_height,
-					},
-					mouse_pos) &&
+				(AABB) {
+				.x = x,
+					.y = y,
+					.width = itemframe_width,
+					.height = itemframe_height,
+			},
+				mouse_pos) &&
 				build_pressed)
 			{
 				// "handle" mouse pressed
@@ -720,38 +871,38 @@ ui(bool draw, float dt, float width, float height)
 				build_pressed = false;
 			}
 
-			if (draw)
-			{
-				sgp_set_color(1.0f, 1.0f, 1.0f, cur_opacity);
-				if (cur_editing_boxtype == i)
+				if (draw)
 				{
-					sgp_set_image(0, image_itemframe_selected);
+					sgp_set_color(1.0f, 1.0f, 1.0f, cur_opacity);
+					if (cur_editing_boxtype == i)
+					{
+						sgp_set_image(0, image_itemframe_selected);
+					}
+					else
+					{
+						sgp_set_image(0, image_itemframe);
+					}
+					sgp_draw_textured_rect(x, y, itemframe_width, itemframe_height);
+					struct BoxInfo info = boxinfo((enum BoxType)i);
+					if (can_build(i))
+					{
+						sgp_set_image(0, info.image);
+					}
+					else
+					{
+						sgp_set_image(0, image_mystery);
+					}
+					transform_scope
+					{
+						float item_x = x + item_offset_x;
+						float item_y = y + item_offset_y;
+						sgp_scale_at(1.0f, -1.0f, item_x + item_width / 2.0f, item_y + item_height / 2.0f);
+						// sgp_scale(1.0f, -1.0f);
+						sgp_draw_textured_rect(item_x, item_y, item_width, item_height);
+					}
+					sgp_reset_image(0);
 				}
-				else
-				{
-					sgp_set_image(0, image_itemframe);
-				}
-				sgp_draw_textured_rect(x, y, itemframe_width, itemframe_height);
-				struct BoxInfo info = boxinfo((enum BoxType)i);
-				if (can_build(i))
-				{
-					sgp_set_image(0, info.image);
-				}
-				else
-				{
-					sgp_set_image(0, image_mystery);
-				}
-				transform_scope
-				{
-					float item_x = x + item_offset_x;
-					float item_y = y + item_offset_y;
-					sgp_scale_at(1.0f, -1.0f, item_x + item_width / 2.0f, item_y + item_height / 2.0f);
-					// sgp_scale(1.0f, -1.0f);
-					sgp_draw_textured_rect(item_x, item_y, item_width, item_height);
-				}
-				sgp_reset_image(0);
-			}
-			x += itemframe_width;
+				x += itemframe_width;
 		}
 	}
 
@@ -767,7 +918,7 @@ static void draw_dots(V2 camera_pos, float gap)
 	{
 		for (int y = -num; y < num; y++)
 		{
-			V2 star = (V2){(float)x * gap, (float)y * gap};
+			V2 star = (V2){ (float)x * gap, (float)y * gap };
 			if (V2lengthsqr(V2sub(star, camera_pos)) > VISION_RADIUS * VISION_RADIUS)
 				continue;
 
@@ -777,6 +928,7 @@ static void draw_dots(V2 camera_pos, float gap)
 		}
 	}
 }
+
 
 static void
 frame(void)
@@ -802,7 +954,7 @@ frame(void)
 				mousepressed[i].pressed = false;
 			}
 		}
-	} 
+	}
 
 	build_pressed = mousepressed[SAPP_MOUSEBUTTON_LEFT].pressed;
 	interact_pressed = mousepressed[SAPP_MOUSEBUTTON_RIGHT].pressed;
@@ -825,7 +977,7 @@ frame(void)
 
 				case ENET_EVENT_TYPE_RECEIVE:
 				{
-					char *decompressed = malloc(sizeof *decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
+					char* decompressed = malloc(sizeof * decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
 					size_t decompressed_max_len = MAX_SERVER_TO_CLIENT;
 					assert(LZO1X_MEM_DECOMPRESS == 0);
 
@@ -838,7 +990,7 @@ frame(void)
 					if (return_value == LZO_E_OK)
 					{
 						server_to_client_deserialize(&msg, decompressed, decompressed_max_len, false);
-						myplayer = msg.your_player;
+						my_player_index = msg.your_player;
 					}
 					else
 					{
@@ -872,17 +1024,15 @@ frame(void)
 
 	// gameplay
 	ui(false, dt, width, height); // handle events
-	V2 build_target_pos = {0};
+	V2 build_target_pos = { 0 };
 	float build_target_rotation = 0.0f;
-	static V2 camera_pos = {
-		0};							// keeps camera at same position after player death
-	V2 world_mouse_pos = mouse_pos; // processed later in scope
+	V2 world_mouse_pos = screen_to_world(width, height, mouse_pos); // processed later in scope
 	struct BuildPreviewInfo
 	{
 		V2 grid_pos;
 		float grid_rotation;
-	} build_preview = {0};
-	V2 hand_pos = {0}; // in local space of grid when hovering over a grid
+	} build_preview = { 0 };
+	V2 hand_pos = { 0 }; // in local space of grid when hovering over a grid
 	bool hand_at_arms_length = false;
 	{
 		// interpolate zoom
@@ -894,15 +1044,11 @@ frame(void)
 			{
 				camera_pos = entity_pos(myentity());
 			}
-			world_mouse_pos = V2sub(world_mouse_pos, (V2){.x = width / 2.0f, .y = height / 2.0f});
-			world_mouse_pos.x /= zoom;
-			world_mouse_pos.y /= -zoom;
-			world_mouse_pos = V2add(world_mouse_pos, (V2){.x = camera_pos.x, .y = camera_pos.y});
 		}
 
 		// calculate build preview stuff
-		EntityID grid_to_build_on = (EntityID){0};
-		V2 possibly_local_hand_pos = (V2){0};
+		EntityID grid_to_build_on = (EntityID){ 0 };
+		V2 possibly_local_hand_pos = (V2){ 0 };
 		if (myentity() != NULL)
 		{
 			hand_pos = V2sub(world_mouse_pos, entity_pos(myentity()));
@@ -920,7 +1066,7 @@ frame(void)
 			hand_pos = V2add(hand_pos, entity_pos(myentity()));
 
 			possibly_local_hand_pos = V2sub(hand_pos, entity_pos(myentity()));
-			Entity *placing_grid = closest_to_point_in_radius(&gs, hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP);
+			Entity* placing_grid = closest_to_point_in_radius(&gs, hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP);
 			if (placing_grid == NULL)
 			{
 				build_preview = (struct BuildPreviewInfo){
@@ -940,11 +1086,22 @@ frame(void)
 			}
 		}
 
+		// process player interaction (squad invites)
+		if (interact_pressed && myplayer() != NULL && myplayer()->squad != SquadNone)
+			ENTITIES_ITER(cur)
+		{
+			if (cur != myentity() && cur->is_player && has_point(centered_at(entity_pos(cur), V2scale(PLAYER_SIZE, player_scaling)), world_mouse_pos))
+			{
+				maybe_inviting_this_player = get_id(&gs, cur);
+				interact_pressed = false;
+			}
+		}
+
 		// Create and send input packet
 		{
 
 			static size_t last_frame_id = 0;
-			InputFrame cur_input_frame = {0};
+			InputFrame cur_input_frame = { 0 };
 			cur_input_frame.id = last_frame_id;
 			V2 input = (V2){
 				.x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
@@ -956,7 +1113,29 @@ frame(void)
 			cur_input_frame.seat_action = interact_pressed;
 			cur_input_frame.grid_hand_pos_local_to = grid_to_build_on;
 			cur_input_frame.hand_pos = possibly_local_hand_pos;
-			cur_input_frame.take_over_squad = take_over_squad;
+			if (take_over_squad >= 0)
+			{
+				cur_input_frame.take_over_squad = take_over_squad;
+				take_over_squad = -1;
+			}
+			else {
+				cur_input_frame.take_over_squad = -1; // @Robust make this zero initialized
+			}
+			if (confirm_invite_this_player)
+			{
+				cur_input_frame.invite_this_player = maybe_inviting_this_player;
+				maybe_inviting_this_player = (EntityID){ 0 };
+			}
+			if (accept_invite) {
+				cur_input_frame.accept_cur_squad_invite = true;
+				accept_invite = false;
+			}
+			if (reject_invite)
+			{
+				cur_input_frame.reject_cur_squad_invite = true;
+				reject_invite = false;
+			}
+			confirm_invite_this_player = false;
 
 			if (build_pressed && cur_editing_boxtype != -1)
 			{
@@ -980,6 +1159,9 @@ frame(void)
 			input_differs = input_differs || cur_input_frame.build_rotation != latest.build_rotation;
 			input_differs = input_differs || !entityids_same(cur_input_frame.grid_hand_pos_local_to, latest.grid_hand_pos_local_to);
 
+			input_differs = input_differs || cur_input_frame.accept_cur_squad_invite != latest.accept_cur_squad_invite;
+			input_differs = input_differs || cur_input_frame.reject_cur_squad_invite != latest.reject_cur_squad_invite;
+			input_differs = input_differs || !entityids_same(cur_input_frame.invite_this_player, latest.invite_this_player);
 			input_differs = input_differs || cur_input_frame.take_over_squad != latest.take_over_squad;
 
 			if (input_differs)
@@ -1006,13 +1188,13 @@ frame(void)
 			{
 				ma_mutex_lock(&send_packets_mutex);
 				client_to_server.mic_data = &packets_to_send;
-				char serialized[MAX_CLIENT_TO_SERVER] = {0};
+				char serialized[MAX_CLIENT_TO_SERVER] = { 0 };
 				size_t out_len = 0;
 				if (client_to_server_serialize(&gs, &client_to_server, serialized, &out_len, MAX_CLIENT_TO_SERVER))
 				{
-					ENetPacket *packet = enet_packet_create((void *)serialized,
-															out_len,
-															ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+					ENetPacket* packet = enet_packet_create((void*)serialized,
+						out_len,
+						ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 					enet_peer_send(peer, 0, packet); // @Robust error check this
 					last_sent_input_time = stm_now();
 				}
@@ -1098,226 +1280,223 @@ frame(void)
 			}
 #endif
 
-			// camera go to player
-			sgp_translate(-camera_pos.x, -camera_pos.y);
+				// camera go to player
+				sgp_translate(-camera_pos.x, -camera_pos.y);
 
-			draw_dots(camera_pos, 1.5f); // in plane dots
+				draw_dots(camera_pos, 1.5f); // in plane dots
 
-			// hand reached limit circle
-			if (myentity() != NULL)
-			{
-				static float hand_reach_alpha = 1.0f;
-				hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt * 5.0f);
-				sgp_set_color(1.0f, 1.0f, 1.0f, hand_reach_alpha);
-				draw_circle(entity_pos(myentity()), MAX_HAND_REACH);
-			}
-
-			// vision circle, what player can see
-			if (myentity() != NULL)
-			{
-				set_color(colhexcode(0x4685e3));
-				draw_circle(entity_pos(myentity()), VISION_RADIUS);
-			}
-
-			float halfbox = BOX_SIZE / 2.0f;
-
-			// mouse frozen, debugging tool
-			if (mouse_frozen)
-			{
-				sgp_set_color(1.0f, 0.0f, 0.0f, 0.5f);
-				sgp_draw_filled_rect(world_mouse_pos.x, world_mouse_pos.y, 0.1f, 0.1f);
-			}
-
-			// building preview
-			if (cur_editing_boxtype != -1)
-			{
-				sgp_set_color(0.5f, 0.5f, 0.5f, (sinf((float)time * 9.0f) + 1.0f) / 3.0f + 0.2f);
-
-				transform_scope
+				// hand reached limit circle
+				if (myentity() != NULL)
 				{
-					sgp_set_image(0, boxinfo(cur_editing_boxtype).image);
-					sgp_rotate_at(build_preview.grid_rotation + rotangle(cur_editing_rotation),
-								  hand_pos.x,
-								  hand_pos.y);
-					draw_texture_centered(hand_pos, BOX_SIZE);
-					// drawbox(hand_pos, build_preview.grid_rotation, 0.0f,
-					// cur_editing_boxtype, cur_editing_rotation);
-					sgp_reset_image(0);
-				}
-			}
-
-			static float player_scaling = 1.0f;
-			player_scaling = lerp(player_scaling, zoom < 6.5f ? 100.0f : 1.0f, dt * 7.0f);
-			for (size_t i = 0; i < gs.cur_next_entity; i++)
-			{
-				Entity *e = &gs.entities[i];
-				if (!e->exists)
-					continue;
-				// draw grid
-				if (e->is_grid)
-				{
-					Entity *g = e;
-					BOXES_ITER(&gs, b, g)
-					{
-						if (b->is_explosion_unlock)
-						{
-							set_color(colhexcode(0xfcba03));
-							draw_circle(entity_pos(b), GOLD_UNLOCK_RADIUS);
-						}
-						sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-// debug draw force vectors for thrusters
-#if 0
-																			{
-																				if (b->type == BoxThruster)
-																				{
-																					dbg_rect(entity_pos(b));
-																					dbg_line(entity_pos(b), V2add(entity_pos(b), V2scale(thruster_force(b), -1.0f)));
-																				}
-																			}
-#endif
-						if (b->box_type == BoxBattery)
-						{
-							float cur_alpha = sgp_get_color().a;
-							Color from = WHITE;
-							Color to = colhex(255, 0, 0);
-							Color result = Collerp(from, to, b->energy_used / BATTERY_CAPACITY);
-							sgp_set_color(result.r, result.g, result.b, cur_alpha);
-						}
-						transform_scope
-						{
-							sgp_rotate_at(entity_rotation(g) + rotangle(b->compass_rotation),
-										  entity_pos(b).x,
-										  entity_pos(b).y);
-
-							if (b->box_type == BoxThruster)
-							{
-								transform_scope
-								{
-									sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-									sgp_set_image(0, image_thrusterburn);
-									// float scaling = 1.0 + (hash11(time*3.0)/2.0)*lerp(0.0,
-									// 0.07, b->thrust); printf("%f\n", b->thrust);
-									float scaling = 0.95f + lerp(0.0f, 0.3f, b->thrust);
-									// float scaling = 1.1;
-									// sgp_translate(-(scaling*BOX_SIZE - BOX_SIZE), 0.0);
-									// sgp_scale(scaling, 1.0);
-									sgp_scale_at(scaling, 1.0f, entity_pos(b).x, entity_pos(b).y);
-									draw_texture_centered(entity_pos(b), BOX_SIZE);
-									sgp_reset_image(0);
-								}
-							}
-							sg_image img = boxinfo(b->box_type).image;
-							if (b->box_type == BoxCockpit)
-							{
-								if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
-									img = image_cockpit_used;
-							}
-							if (b->box_type == BoxMedbay)
-							{
-								if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
-									img = image_medbay_used;
-							}
-							sgp_set_image(0, img);
-							if (b->indestructible)
-							{
-								sgp_set_color(0.2f, 0.2f, 0.2f, 1.0f);
-							}
-							draw_texture_centered(entity_pos(b), BOX_SIZE);
-							sgp_reset_image(0);
-
-							if (b->box_type == BoxSolarPanel)
-							{
-								Color to_set = colhexcode(0xeb9834);
-								to_set.a = b->sun_amount * 0.5f;
-								set_color(to_set);
-								draw_color_rect_centered(entity_pos(b), BOX_SIZE);
-							}
-
-							sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
-							draw_color_rect_centered(entity_pos(b), BOX_SIZE);
-						}
-					}
-
-					// draw the velocity
-#if 0
-						sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
-						V2 vel = grid_vel(g);
-						V2 to = V2add(grid_com(g), vel);
-						sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
-#endif
+					static float hand_reach_alpha = 1.0f;
+					hand_reach_alpha = lerp(hand_reach_alpha, hand_at_arms_length ? 1.0f : 0.0f, dt * 5.0f);
+					sgp_set_color(1.0f, 1.0f, 1.0f, hand_reach_alpha);
+					draw_circle(entity_pos(myentity()), MAX_HAND_REACH);
 				}
 
-				// draw player
-				if (e->is_player && get_entity(&gs, e->currently_inside_of_box) == NULL)
+				// vision circle, what player can see
+				if (myentity() != NULL)
 				{
+					set_color(colhexcode(0x4685e3));
+					draw_circle(entity_pos(myentity()), VISION_RADIUS);
+				}
+
+				float halfbox = BOX_SIZE / 2.0f;
+
+				// mouse frozen, debugging tool
+				if (mouse_frozen)
+				{
+					sgp_set_color(1.0f, 0.0f, 0.0f, 0.5f);
+					sgp_draw_filled_rect(world_mouse_pos.x, world_mouse_pos.y, 0.1f, 0.1f);
+				}
+
+				// building preview
+				if (cur_editing_boxtype != -1)
+				{
+					sgp_set_color(0.5f, 0.5f, 0.5f, (sinf((float)time * 9.0f) + 1.0f) / 3.0f + 0.2f);
+
 					transform_scope
 					{
-						sgp_rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
-						sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-
-						sgp_set_pipeline(pip);
-						struct SquadMeta meta = squad_meta(e->presenting_squad);
-						hueshift_uniforms_t uniform = {0};
-						uniform.is_colorless = meta.is_colorless;
-						uniform.target_hue = meta.hue;
-						sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
-						sgp_set_image(0, image_player);
-						draw_texture_rectangle_centered(entity_pos(e), V2scale(PLAYER_SIZE, player_scaling));
+						sgp_set_image(0, boxinfo(cur_editing_boxtype).image);
+						sgp_rotate_at(build_preview.grid_rotation + rotangle(cur_editing_rotation),
+									  hand_pos.x,
+									  hand_pos.y);
+						draw_texture_centered(hand_pos, BOX_SIZE);
+						// drawbox(hand_pos, build_preview.grid_rotation, 0.0f,
+						// cur_editing_boxtype, cur_editing_rotation);
 						sgp_reset_image(0);
-						sgp_reset_pipeline();
 					}
 				}
-				if (e->is_explosion)
+
+				player_scaling = lerp(player_scaling, zoom < 6.5f ? 100.0f : 1.0f, dt * 7.0f);
+				ENTITIES_ITER(e)
 				{
-					sgp_set_image(0, image_explosion);
-					sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f - (e->explosion_progresss / EXPLOSION_TIME));
-					draw_texture_centered(e->explosion_pos, EXPLOSION_RADIUS * 2.0f);
-					sgp_reset_image(0);
+					// draw grid
+					if (e->is_grid)
+					{
+						Entity* g = e;
+						BOXES_ITER(&gs, b, g)
+						{
+							if (b->is_explosion_unlock)
+							{
+								set_color(colhexcode(0xfcba03));
+								draw_circle(entity_pos(b), GOLD_UNLOCK_RADIUS);
+							}
+							sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+							// debug draw force vectors for thrusters
+							#if 0
+																										{
+																											if (b->type == BoxThruster)
+																											{
+																												dbg_rect(entity_pos(b));
+																												dbg_line(entity_pos(b), V2add(entity_pos(b), V2scale(thruster_force(b), -1.0f)));
+																											}
+																										}
+							#endif
+													if (b->box_type == BoxBattery)
+													{
+														float cur_alpha = sgp_get_color().a;
+														Color from = WHITE;
+														Color to = colhex(255, 0, 0);
+														Color result = Collerp(from, to, b->energy_used / BATTERY_CAPACITY);
+														sgp_set_color(result.r, result.g, result.b, cur_alpha);
+													}
+													transform_scope
+													{
+														sgp_rotate_at(entity_rotation(g) + rotangle(b->compass_rotation),
+																	  entity_pos(b).x,
+																	  entity_pos(b).y);
+
+														if (b->box_type == BoxThruster)
+														{
+															transform_scope
+															{
+																sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+																sgp_set_image(0, image_thrusterburn);
+																// float scaling = 1.0 + (hash11(time*3.0)/2.0)*lerp(0.0,
+																// 0.07, b->thrust); printf("%f\n", b->thrust);
+																float scaling = 0.95f + lerp(0.0f, 0.3f, b->thrust);
+																// float scaling = 1.1;
+																// sgp_translate(-(scaling*BOX_SIZE - BOX_SIZE), 0.0);
+																// sgp_scale(scaling, 1.0);
+																sgp_scale_at(scaling, 1.0f, entity_pos(b).x, entity_pos(b).y);
+																draw_texture_centered(entity_pos(b), BOX_SIZE);
+																sgp_reset_image(0);
+															}
+														}
+														sg_image img = boxinfo(b->box_type).image;
+														if (b->box_type == BoxCockpit)
+														{
+															if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
+																img = image_cockpit_used;
+														}
+														if (b->box_type == BoxMedbay)
+														{
+															if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
+																img = image_medbay_used;
+														}
+														sgp_set_image(0, img);
+														if (b->indestructible)
+														{
+															sgp_set_color(0.2f, 0.2f, 0.2f, 1.0f);
+														}
+														draw_texture_centered(entity_pos(b), BOX_SIZE);
+														sgp_reset_image(0);
+
+														if (b->box_type == BoxSolarPanel)
+														{
+															Color to_set = colhexcode(0xeb9834);
+															to_set.a = b->sun_amount * 0.5f;
+															set_color(to_set);
+															draw_color_rect_centered(entity_pos(b), BOX_SIZE);
+														}
+
+														sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
+														draw_color_rect_centered(entity_pos(b), BOX_SIZE);
+													}
+												}
+
+						// draw the velocity
+	#if 0
+							sgp_set_color(1.0f, 0.0f, 0.0f, 1.0f);
+							V2 vel = grid_vel(g);
+							V2 to = V2add(grid_com(g), vel);
+							sgp_draw_line(grid_com(g).x, grid_com(g).y, to.x, to.y);
+	#endif
+					}
+
+					// draw player
+					if (e->is_player && get_entity(&gs, e->currently_inside_of_box) == NULL)
+					{
+						transform_scope
+						{
+
+							sgp_rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
+							sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+
+							sgp_set_pipeline(pip);
+							struct SquadMeta meta = squad_meta(e->presenting_squad);
+							hueshift_uniforms_t uniform = {0};
+							uniform.is_colorless = meta.is_colorless;
+							uniform.target_hue = meta.hue;
+							sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+							sgp_set_image(0, image_player);
+							draw_texture_rectangle_centered(entity_pos(e), V2scale(PLAYER_SIZE, player_scaling));
+							sgp_reset_image(0);
+							sgp_reset_pipeline();
+						}
+					}
+					if (e->is_explosion)
+					{
+						sgp_set_image(0, image_explosion);
+						sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f - (e->explosion_progresss / EXPLOSION_TIME));
+						draw_texture_centered(e->explosion_pos, EXPLOSION_RADIUS * 2.0f);
+						sgp_reset_image(0);
+					}
 				}
-			}
 
-			// gold target
-			set_color(GOLD);
-			sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
+				// gold target
+				set_color(GOLD);
+				sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
 
-			// the SUN
-			transform_scope
-			{
-				sgp_translate(SUN_POS.x, SUN_POS.y);
-				set_color(WHITE);
-				sgp_set_image(0, image_sun);
-				draw_texture_centered((V2){0}, SUN_RADIUS * 2.0f);
-				sgp_reset_image(0);
+				// the SUN
+				transform_scope
+				{
+					sgp_translate(SUN_POS.x, SUN_POS.y);
+					set_color(WHITE);
+					sgp_set_image(0, image_sun);
+					draw_texture_centered((V2) { 0 }, SUN_RADIUS * 2.0f);
+					sgp_reset_image(0);
 
-				// sun DEATH RADIUS
-				set_color(RED);
-				draw_circle((V2){0}, INSTANT_DEATH_DISTANCE_FROM_SUN);
-			}
+					// sun DEATH RADIUS
+					set_color(RED);
+					draw_circle((V2) { 0 }, INSTANT_DEATH_DISTANCE_FROM_SUN);
+				}
 
-			sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-			dbg_drawall();
-		} // world space transform end
+				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+				dbg_drawall();
+				} // world space transform end
 
-		// low health
-		if (myentity() != NULL)
-		{
-			sgp_set_color(1.0f, 1.0f, 1.0f, myentity()->damage);
-			sgp_set_image(0, image_low_health);
-			draw_texture_rectangle_centered((V2){width / 2.0f, height / 2.0f}, (V2){width, height});
-			sgp_reset_image(0);
+				// low health
+					if (myentity() != NULL)
+					{
+						sgp_set_color(1.0f, 1.0f, 1.0f, myentity()->damage);
+						sgp_set_image(0, image_low_health);
+						draw_texture_rectangle_centered((V2) { width / 2.0f, height / 2.0f }, (V2) { width, height });
+						sgp_reset_image(0);
+					}
+
+				// UI drawn in screen space
+				ui(true, dt, width, height);
 		}
 
-		// UI drawn in screen space
-		ui(true, dt, width, height);
-	}
-
-	sg_pass_action pass_action = {0};
+	sg_pass_action pass_action = { 0 };
 	sg_begin_default_pass(&pass_action, (int)width, (int)height);
 	sgp_flush();
 	sgp_end();
 	sg_end_pass();
 	sg_commit();
-}
+	}
 
 void cleanup(void)
 {
@@ -1346,7 +1525,7 @@ void cleanup(void)
 	ma_mutex_uninit(&server_info.info_mutex);
 }
 
-void event(const sapp_event *e)
+void event(const sapp_event* e)
 {
 	switch (e->type)
 	{
@@ -1399,6 +1578,8 @@ void event(const sapp_event *e)
 			keydown[e->key_code] = false;
 			keypressed[e->key_code].pressed = false;
 
+
+
 			keypressed[e->key_code].frame = 0;
 		}
 		break;
@@ -1407,6 +1588,7 @@ void event(const sapp_event *e)
 		zoom_target = clamp(zoom_target, 0.5f, 900.0f);
 		break;
 	case SAPP_EVENTTYPE_MOUSE_DOWN:
+		mousedown[e->mouse_button] = true;
 		if (mousepressed[e->mouse_button].frame == 0)
 		{
 			mousepressed[e->mouse_button].pressed = true;
@@ -1414,13 +1596,14 @@ void event(const sapp_event *e)
 		}
 		break;
 	case SAPP_EVENTTYPE_MOUSE_UP:
+		mousedown[e->mouse_button] = false;
 		mousepressed[e->mouse_button].pressed = false;
 		mousepressed[e->mouse_button].frame = 0;
 		break;
 	case SAPP_EVENTTYPE_MOUSE_MOVE:
 		if (!mouse_frozen)
 		{
-			mouse_pos = (V2){.x = e->mouse_x, .y = e->mouse_y};
+			mouse_pos = (V2){ .x = e->mouse_x, .y = e->mouse_y };
 		}
 		if (right_mouse_down)
 		{
@@ -1432,7 +1615,7 @@ void event(const sapp_event *e)
 }
 
 sapp_desc
-sokol_main(int argc, char *argv[])
+sokol_main(int argc, char* argv[])
 {
 	bool hosting = false;
 	stm_setup();
@@ -1440,21 +1623,21 @@ sokol_main(int argc, char *argv[])
 	server_info.world_save = "debug_world.bin";
 	if (argc > 1)
 	{
-		server_thread_handle = (void *)_beginthread(server, 0, (void *)&server_info);
+		server_thread_handle = (void*)_beginthread(server, 0, (void*)&server_info);
 		hosting = true;
 	}
 	(void)argv;
-	return (sapp_desc){
+	return (sapp_desc) {
 		.init_cb = init,
-		.frame_cb = frame,
-		.cleanup_cb = cleanup,
-		.width = 640,
-		.height = 480,
-		.gl_force_gles2 = true,
-		.window_title = hosting ? "Flight Hosting" : "Flight Not Hosting",
-		.icon.sokol_default = true,
-		.event_cb = event,
-		.win32_console_attach = true,
-		.sample_count = 4, // anti aliasing
+			.frame_cb = frame,
+			.cleanup_cb = cleanup,
+			.width = 640,
+			.height = 480,
+			.gl_force_gles2 = true,
+			.window_title = hosting ? "Flight Hosting" : "Flight Not Hosting",
+			.icon.sokol_default = true,
+			.event_cb = event,
+			.win32_console_attach = true,
+			.sample_count = 4, // anti aliasing
 	};
 }

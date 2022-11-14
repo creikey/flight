@@ -299,6 +299,14 @@ void server(void* info_raw)
 									// prevents setting the event input to false before it's been processed.
 									if (cur_input.take_over_squad >= 0)
 										gs.players[player_slot].input.take_over_squad = cur_input.take_over_squad;
+									if (cur_input.accept_cur_squad_invite)
+										gs.players[player_slot].input.accept_cur_squad_invite = cur_input.accept_cur_squad_invite;
+									if (cur_input.reject_cur_squad_invite)
+										gs.players[player_slot].input.reject_cur_squad_invite = cur_input.reject_cur_squad_invite;
+									if (cur_input.invite_this_player.generation > 0)
+									{
+										gs.players[player_slot].input.invite_this_player = cur_input.invite_this_player;
+									}
 									if (cur_input.seat_action)
 									{
 										gs.players[player_slot].input.seat_action = cur_input.seat_action;

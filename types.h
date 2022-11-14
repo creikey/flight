@@ -143,8 +143,8 @@ static bool entityids_same(EntityID a, EntityID b)
 	return (a.generation == b.generation) && (a.index == b.index);
 }
 
-// when updated, must update serialization, AND comparison
-// function in main.c
+// when updated, must update serialization, comparison in main.c, and the server
+// on input received processing function
 typedef struct InputFrame
 {
 	uint64_t tick;
@@ -152,6 +152,9 @@ typedef struct InputFrame
 	V2 movement;
 
 	int take_over_squad; // -1 means not taking over any squad
+	bool accept_cur_squad_invite;
+	bool reject_cur_squad_invite;
+	EntityID invite_this_player; // null means inviting nobody! @Robust make it so just sends interact pos input, and server processes who to invite. This depends on client side prediction + proper input processing at the right tick.
 
 	bool seat_action;
 	EntityID seat_to_inhabit;
@@ -186,6 +189,7 @@ typedef struct Entity
 	bool is_player;
 	enum Squad presenting_squad;
 	EntityID currently_inside_of_box;
+	enum Squad squad_invited_to; // if squad none, then no squad invite
 	float goldness;         // how much the player is a winner
 
 	// explosion
@@ -456,6 +460,17 @@ typedef struct AABB
 {
 	float x, y, width, height;
 } AABB;
+
+static AABB centered_at(V2 point, V2 size)
+{
+	return (AABB)
+	{
+		.x = point.x - size.x / 2.0f,
+		.y = point.y - size.y / 2.0f,
+		.width = size.x,
+		.height = size.y,
+	};
+}
 
 static bool has_point(AABB aabb, V2 point)
 {

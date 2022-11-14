@@ -682,7 +682,7 @@ SerMaybeFailure ser_data(SerState* ser, char* data, size_t data_len, const char*
 {
 	char var_name[512] = { 0 };
 	size_t var_name_len = 0;
-	if(ser->write_varnames)
+	if (ser->write_varnames)
 	{
 		snprintf(var_name, 512, "%d%s", line, name); // can't have separator before the name, when comparing names skips past the digit
 		var_name_len = strlen(var_name);
@@ -771,6 +771,7 @@ enum GameVersion
 	VChangedVectorSerializing,
 	VAddedLastUsedMedbay,
 	VAddedSquads,
+	VAddedSquadInvites,
 	VMax, // this minus one will be the version used
 };
 
@@ -810,6 +811,14 @@ SerMaybeFailure ser_inputframe(SerState* ser, InputFrame* i)
 	SER_VAR(&i->id);
 	SER_MAYBE_RETURN(ser_V2(ser, &i->movement));
 	SER_VAR(&i->take_over_squad);
+	SER_ASSERT(i->take_over_squad >= 0 || i->take_over_squad == -1);
+	SER_ASSERT(i->take_over_squad < SquadLast);
+	if (ser->version >= VAddedSquadInvites)
+	{
+		SER_VAR(&i->accept_cur_squad_invite);
+		SER_VAR(&i->reject_cur_squad_invite);
+		SER_MAYBE_RETURN(ser_entityid(ser, &i->invite_this_player));
+	}
 
 	SER_VAR(&i->seat_action);
 	SER_MAYBE_RETURN(ser_entityid(ser, &i->seat_to_inhabit));
@@ -831,7 +840,7 @@ SerMaybeFailure ser_player(SerState* ser, Player* p)
 	if (p->connected)
 	{
 		SER_VAR(&p->unlocked_bombs);
-		if(ser->version >= VAddedSquads)
+		if (ser->version >= VAddedSquads)
 			SER_VAR(&p->squad);
 		SER_MAYBE_RETURN(ser_entityid(ser, &p->entity));
 		if (ser->version >= VAddedLastUsedMedbay)
@@ -915,9 +924,12 @@ SerMaybeFailure ser_entity(SerState* ser, GameState* gs, Entity* e)
 	if (e->is_player)
 	{
 		SER_ASSERT(e->no_save_to_disk);
+
 		SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
-		if(ser->version >= VAddedSquads)
+		if (ser->version >= VAddedSquads)
 			SER_VAR(&e->presenting_squad);
+		if (ser->version >= VAddedSquadInvites)
+			SER_VAR(&e->squad_invited_to);
 		SER_VAR(&e->goldness);
 	}
 
@@ -1495,6 +1507,15 @@ void process(GameState* gs, float dt)
 			}
 			player->input.take_over_squad = -1;
 		}
+
+		// squad invites
+		Entity* possibly_to_invite = get_entity(gs, player->input.invite_this_player);
+		if (player->input.invite_this_player.generation > 0)
+			player->input.invite_this_player = (EntityID){ 0 }; // just in case
+		if (player->squad != SquadNone && possibly_to_invite != NULL && possibly_to_invite->is_player)
+		{
+			possibly_to_invite->squad_invited_to = player->squad;
+		}
 		Entity* p = get_entity(gs, player->entity);
 		if (p == NULL)
 		{
@@ -1510,6 +1531,21 @@ void process(GameState* gs, float dt)
 		}
 		assert(p->is_player);
 		p->presenting_squad = player->squad;
+
+		if (p->squad_invited_to != SquadNone)
+		{
+			if (player->input.accept_cur_squad_invite)
+			{
+				player->squad = p->squad_invited_to;
+				p->squad_invited_to = SquadNone;
+				player->input.accept_cur_squad_invite = false;
+			}
+			if (player->input.reject_cur_squad_invite)
+			{
+				p->squad_invited_to = SquadNone;
+				player->input.reject_cur_squad_invite = false;
+			}
+	}
 
 #ifdef INFINITE_RESOURCES
 		p->damage = 0.0f;
@@ -1657,7 +1693,7 @@ void process(GameState* gs, float dt)
 		}
 
 		p->damage = clamp01(p->damage);
-	}
+}
 
 	if (get_entity(gs, gs->cur_spacestation) == NULL)
 	{
