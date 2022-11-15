@@ -88,6 +88,7 @@ static sg_image image_mystery;
 static sg_image image_explosion;
 static sg_image image_low_health;
 static sg_image image_mic_muted;
+static sg_image image_mic_unmuted;
 static sg_image image_flag_available;
 static sg_image image_flag_taken;
 static sg_image image_squad_invite;
@@ -217,7 +218,7 @@ load_image(const char* path)
 	stbi_uc* image_data = stbi_load(path, &x, &y, &comp, desired_channels);
 	if (!image_data)
 	{
-		fprintf(stderr, "Failed to load %s image: %s\n", path,stbi_failure_reason());
+		fprintf(stderr, "Failed to load %s image: %s\n", path, stbi_failure_reason());
 		exit(-1);
 	}
 	sg_init_image(to_return,
@@ -403,6 +404,7 @@ init(void)
 		image_explosion = load_image("loaded/explosion.png");
 		image_low_health = load_image("loaded/low_health.png");
 		image_mic_muted = load_image("loaded/mic_muted.png");
+		image_mic_unmuted = load_image("loaded/mic_unmuted.png");
 		image_flag_available = load_image("loaded/flag_available.png");
 		image_flag_taken = load_image("loaded/flag_ripped.png");
 		image_squad_invite = load_image("loaded/squad_invite.png");
@@ -564,7 +566,7 @@ static void
 ui(bool draw, float dt, float width, float height)
 {
 	static float cur_opacity = 1.0f;
-	cur_opacity = lerp(cur_opacity, myentity() != NULL ? 1.0f : 0.0f, dt * 5.0f);
+	cur_opacity = lerp(cur_opacity, myentity() != NULL ? 1.0f : 0.0f, dt * 4.0f);
 	if (cur_opacity <= 0.01f)
 	{
 		return;
@@ -585,12 +587,12 @@ ui(bool draw, float dt, float width, float height)
 		float x_center = 0.75f * width;
 		float x = x_center - size / 2.0f;
 		//AABB box = (AABB){ .x = x, .y = invite_y, .width = size, .height = size };
-		float yes_x = x - size/4.0f;
-		float no_x = x + size/4.0f;
+		float yes_x = x - size / 4.0f;
+		float no_x = x + size / 4.0f;
 		float buttons_y = invite_y + size / 2.0f;
 
-		bool yes_hovered = invited && V2dist(mouse_pos, (V2) { yes_x, buttons_y }) < yes_size/2.0f;
-		bool no_hovered = invited && V2dist(mouse_pos, (V2) { no_x, buttons_y }) < no_size/2.0f;
+		bool yes_hovered = invited && V2dist(mouse_pos, (V2) { yes_x, buttons_y }) < yes_size / 2.0f;
+		bool no_hovered = invited && V2dist(mouse_pos, (V2) { no_x, buttons_y }) < no_size / 2.0f;
 
 		yes_size = lerp(yes_size, yes_hovered ? 75.0f : 50.0f, dt * 9.0f);
 		no_size = lerp(no_size, no_hovered ? 75.0f : 50.0f, dt * 9.0f);
@@ -619,22 +621,22 @@ ui(bool draw, float dt, float width, float height)
 				sgp_reset_pipeline();
 			}
 
-			// yes
-			transform_scope{
-				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-				sgp_scale_at(1.0f, -1.0f, yes_x, buttons_y);
-				sgp_set_image(0, image_check);
-				draw_texture_centered((V2) { yes_x, buttons_y }, yes_size);
-				sgp_reset_image(0);
+				// yes
+				transform_scope{
+					sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+					sgp_scale_at(1.0f, -1.0f, yes_x, buttons_y);
+					sgp_set_image(0, image_check);
+					draw_texture_centered((V2) { yes_x, buttons_y }, yes_size);
+					sgp_reset_image(0);
 			}
 
-			// no
-			transform_scope{
-				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-				sgp_scale_at(1.0f, -1.0f, no_x, buttons_y);
-				sgp_set_image(0, image_no);
-				draw_texture_centered((V2) { no_x, buttons_y }, no_size);
-				sgp_reset_image(0);
+				// no
+				transform_scope{
+					sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+					sgp_scale_at(1.0f, -1.0f, no_x, buttons_y);
+					sgp_set_image(0, image_no);
+					draw_texture_centered((V2) { no_x, buttons_y }, no_size);
+					sgp_reset_image(0);
 			}
 
 		}
@@ -655,7 +657,7 @@ ui(bool draw, float dt, float width, float height)
 					confirm_invite_this_player = true;
 			}
 			if (draw)
-				transform_scope {
+				transform_scope{
 					const float size = 64.0f;
 
 					if (selecting_to_invite)
@@ -823,21 +825,32 @@ ui(bool draw, float dt, float width, float height)
 	}
 
 	// draw muted
-	static float muted_opacity = 0.0f;
+	static float toggle_mute_opacity = 0.2f;
+	const float size = 150.0f;
+	AABB button = (AABB){
+		.x = width - size - 40.0f,
+		.y = height - size - 40.0f,
+		.width = size,
+		.height = size,
+	};
+	bool hovered = has_point(button, mouse_pos);
+	if (build_pressed && hovered)
+	{
+		muted = !muted;
+		build_pressed = false;
+	}
 	if (draw)
 	{
-		muted_opacity = lerp(muted_opacity, muted ? 1.0f : 0.0f, 8.0f * dt);
-		sgp_set_color(1.0f, 1.0f, 1.0f, muted_opacity);
-		float size_x = 150.0f;
-		float size_y = 150.0f;
-		sgp_set_image(0, image_mic_muted);
-
-		float x = width - size_x - 40.0f;
-		float y = height - size_y - 40.0f;
+		toggle_mute_opacity = lerp(toggle_mute_opacity, hovered ? 1.0f : 0.2f, 6.0f * dt);
+		sgp_set_color(1.0f, 1.0f, 1.0f, toggle_mute_opacity);
+		if (muted)
+			sgp_set_image(0, image_mic_muted);
+		else
+			sgp_set_image(0, image_mic_unmuted);
 		transform_scope
 		{
-			sgp_scale_at(1.0f, -1.0f, x + size_x / 2.0f, y + size_y / 2.0f);
-			sgp_draw_textured_rect(x, y, size_x, size_y);
+			sgp_scale_at(1.0f, -1.0f, button.x + button.width / 2.0f, button.y + button.height / 2.0f);
+			sgp_draw_textured_rect(button.x, button.y, button.width, button.height);
 			sgp_reset_image(0);
 		}
 	}
@@ -1475,20 +1488,20 @@ frame(void)
 
 				sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
 				dbg_drawall();
-				} // world space transform end
+		} // world space transform end
 
-				// low health
-					if (myentity() != NULL)
-					{
-						sgp_set_color(1.0f, 1.0f, 1.0f, myentity()->damage);
-						sgp_set_image(0, image_low_health);
-						draw_texture_rectangle_centered((V2) { width / 2.0f, height / 2.0f }, (V2) { width, height });
-						sgp_reset_image(0);
-					}
+		// low health
+			if (myentity() != NULL)
+			{
+				sgp_set_color(1.0f, 1.0f, 1.0f, myentity()->damage);
+				sgp_set_image(0, image_low_health);
+				draw_texture_rectangle_centered((V2) { width / 2.0f, height / 2.0f }, (V2) { width, height });
+				sgp_reset_image(0);
+			}
 
-				// UI drawn in screen space
-				ui(true, dt, width, height);
-		}
+		// UI drawn in screen space
+		ui(true, dt, width, height);
+	}
 
 	sg_pass_action pass_action = { 0 };
 	sg_begin_default_pass(&pass_action, (int)width, (int)height);
@@ -1496,7 +1509,7 @@ frame(void)
 	sgp_end();
 	sg_end_pass();
 	sg_commit();
-	}
+}
 
 void cleanup(void)
 {
@@ -1540,10 +1553,6 @@ void event(const sapp_event* e)
 		{
 			cur_editing_rotation += 1;
 			cur_editing_rotation %= RotationLast;
-		}
-		if (e->key_code == SAPP_KEYCODE_M)
-		{
-			muted = !muted;
 		}
 		if (e->key_code == SAPP_KEYCODE_F11)
 		{
