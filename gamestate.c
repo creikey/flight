@@ -1,4 +1,7 @@
 #include <chipmunk.h>
+#define QUEUE_IMPL
+#include "stdbool.h"
+#include "queue.h"
 #include "types.h"
 
 #include "ipsettings.h" // debug/developer settings
@@ -27,7 +30,6 @@ void __assert(bool cond, const char* file, int line, const char* cond_string)
 	}
 }
 
-#define assert(condition) __assert(condition, __FILE__, __LINE__, #condition)
 
 static V2 cp_to_v2(cpVect v)
 {
@@ -968,19 +970,19 @@ SerMaybeFailure ser_entity(SerState* ser, GameState* gs, Entity* e)
 	return ser_ok;
 }
 
-SerMaybeFailure ser_opus_packets(SerState* ser, OpusBuffer* mic_or_speaker_data)
+SerMaybeFailure ser_opus_packets(SerState* ser, Queue* mic_or_speaker_data)
 {
 	bool no_more_packets = false;
 	if (ser->serializing)
 	{
-		int queued = num_queued_packets(mic_or_speaker_data);
-		for (int i = 0; i < queued; i++)
+		size_t queued = queue_num_elements(mic_or_speaker_data);
+		for (size_t i = 0; i < queued; i++)
 		{
 			SER_VAR(&no_more_packets);
-			OpusPacket* cur = pop_packet(mic_or_speaker_data);
+			OpusPacket* cur = (OpusPacket*)queue_pop_element(mic_or_speaker_data);
 			bool isnull = cur == NULL;
 			SER_VAR(&isnull);
-			if (!isnull)
+			if (!isnull && cur != NULL) // cur != NULL is to suppress VS warning
 			{
 				SER_VAR(&cur->length);
 				SER_DATA(cur->data, cur->length);
@@ -996,7 +998,7 @@ SerMaybeFailure ser_opus_packets(SerState* ser, OpusBuffer* mic_or_speaker_data)
 			SER_VAR(&no_more_packets);
 			if (no_more_packets)
 				break;
-			OpusPacket* cur = push_packet(mic_or_speaker_data);
+			OpusPacket* cur = (OpusPacket*)queue_push_element(mic_or_speaker_data);
 			OpusPacket dummy;
 			if (cur == NULL)
 				cur = &dummy; // throw away this packet

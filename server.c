@@ -77,8 +77,9 @@ void server(void* info_raw)
 	initialize(&gs, entity_data, entities_size);
 	Log("Allocated %zu bytes for entities\n", entities_size);
 
-	OpusBuffer* player_voip_buffers[MAX_PLAYERS] = { 0 };
-	for (int i = 0; i < MAX_PLAYERS; i++) player_voip_buffers[i] = calloc(1, sizeof * player_voip_buffers[i]);
+	Queue player_voip_buffers[MAX_PLAYERS] = { 0 };
+	size_t player_voip_buffer_size = QUEUE_SIZE_FOR_ELEMENTS(sizeof(OpusPacket), VOIP_PACKET_BUFFER_SIZE);
+	for (int i = 0; i < MAX_PLAYERS; i++) queue_init(&player_voip_buffers[i], sizeof(OpusPacket), calloc(1, player_voip_buffer_size), player_voip_buffer_size);
 	OpusEncoder* player_encoders[MAX_PLAYERS] = { 0 };
 	OpusDecoder* player_decoders[MAX_PLAYERS] = { 0 };
 
@@ -270,8 +271,9 @@ void server(void* info_raw)
 					else {
 						int64_t player_slot = (int64_t)event.peer->data;
 						size_t length = event.packet->dataLength;
-						OpusBuffer throwaway_buffer = { 0 };
-						OpusBuffer* buffer_to_fill = player_voip_buffers[player_slot];
+#define VOIP_QUEUE_DECL(queue_name, queue_data_name) Queue queue_name = {0}; char queue_data_name[QUEUE_SIZE_FOR_ELEMENTS(sizeof(OpusPacket), VOIP_PACKET_BUFFER_SIZE)] = {0}; queue_init(&queue_name, sizeof(OpusPacket), queue_data_name, QUEUE_SIZE_FOR_ELEMENTS(sizeof(OpusPacket), VOIP_PACKET_BUFFER_SIZE))
+						VOIP_QUEUE_DECL(throwaway_buffer, throwaway_buffer_data);
+						Queue* buffer_to_fill = &player_voip_buffers[player_slot];
 						if (get_entity(&gs, gs.players[player_slot].entity) == NULL) buffer_to_fill = &throwaway_buffer;
 						struct ClientToServer received = { .mic_data = buffer_to_fill };
 						if (!client_to_server_deserialize(&gs, &received, event.packet->data, event.packet->dataLength))
@@ -343,7 +345,7 @@ void server(void* info_raw)
 					opus_decoder_destroy(player_decoders[player_index]);
 					player_decoders[player_index] = NULL;
 					gs.players[player_index].connected = false;
-					clear_buffer(player_voip_buffers[player_index]);
+					queue_clear(&player_voip_buffers[player_index]);
 					event.peer->data = NULL;
 				}
 				break;
@@ -441,7 +443,7 @@ void server(void* info_raw)
 					for (int packet_i = 0; packet_i < num_audio_packets; packet_i++)
 					{
 						opus_int16* to_dump_to = decoded_audio_packets[this_player_index][packet_i];
-						OpusPacket* cur_packet = pop_packet(player_voip_buffers[this_player_index]);
+						OpusPacket* cur_packet = (OpusPacket*)queue_pop_element(&player_voip_buffers[this_player_index]);
 						if (cur_packet == NULL)
 							opus_decode(player_decoders[this_player_index], NULL, 0, to_dump_to, VOIP_EXPECTED_FRAME_COUNT, 0);
 						else
@@ -461,7 +463,7 @@ void server(void* info_raw)
 					char* compressed_buffer = malloc(sizeof * compressed_buffer * MAX_SERVER_TO_CLIENT);
 
 					// mix audio to be sent
-					OpusBuffer* buffer_to_play = calloc(1, sizeof * buffer_to_play); // @Robust no malloc, also in all other places no malloc
+					VOIP_QUEUE_DECL(buffer_to_play, buffer_to_play_data);
 					{
 						for (int packet_i = 0; packet_i < num_audio_packets; packet_i++)
 						{
@@ -480,13 +482,13 @@ void server(void* info_raw)
 										{
 											for (int frame_i = 0; frame_i < VOIP_EXPECTED_FRAME_COUNT; frame_i++)
 											{
-												to_send_to_cur[frame_i] += (opus_int16)((float)decoded_audio_packets[other_player_index][packet_i][frame_i]*volume);
+												to_send_to_cur[frame_i] += (opus_int16)((float)decoded_audio_packets[other_player_index][packet_i][frame_i] * volume);
 											}
 										}
 									}
 								}
 							}
-							OpusPacket* this_packet = push_packet(buffer_to_play);
+							OpusPacket* this_packet = (OpusPacket*)queue_push_element(&buffer_to_play);
 							opus_int32 ret = opus_encode(player_encoders[this_player_index], to_send_to_cur, VOIP_EXPECTED_FRAME_COUNT, this_packet->data, VOIP_PACKET_MAX_SIZE);
 							if (ret < 0)
 							{
@@ -500,7 +502,7 @@ void server(void* info_raw)
 					ServerToClient to_send = (ServerToClient){
 						.cur_gs = &gs,
 						.your_player = this_player_index,
-						.playback_buffer = buffer_to_play,
+						.playback_buffer = &buffer_to_play,
 					};
 
 					size_t len = 0;
@@ -530,7 +532,6 @@ void server(void* info_raw)
 					{
 						Log("Failed to serialize data for client %d\n", this_player_index);
 					}
-					free(buffer_to_play);
 					free(bytes_buffer);
 					free(compressed_buffer);
 				}
@@ -545,7 +546,7 @@ void server(void* info_raw)
 		if (player_decoders[i] != NULL)
 			opus_decoder_destroy(player_decoders[i]);
 	}
-	for (int i = 0; i < MAX_PLAYERS; i++) free(player_voip_buffers[i]);
+	for (int i = 0; i < MAX_PLAYERS; i++) free(player_voip_buffers[i].data);
 	free(world_save_buffer);
 	destroy(&gs);
 	free(entity_data);

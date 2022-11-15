@@ -18,6 +18,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "types.h"
+#include "queue.h"
 
 #include "opus.h"
 
@@ -104,8 +105,10 @@ static ma_device microphone_device;
 static ma_device speaker_device;
 OpusEncoder* enc;
 OpusDecoder* dec;
-OpusBuffer packets_to_send = { 0 };
-OpusBuffer packets_to_play = { 0 };
+Queue packets_to_send = { 0 };
+char packets_to_send_data[QUEUE_SIZE_FOR_ELEMENTS(sizeof(OpusPacket), VOIP_PACKET_BUFFER_SIZE)];
+Queue packets_to_play = { 0 };
+char packets_to_play_data[QUEUE_SIZE_FOR_ELEMENTS(sizeof(OpusPacket), VOIP_PACKET_BUFFER_SIZE)];
 ma_mutex send_packets_mutex = { 0 };
 ma_mutex play_packets_mutex = { 0 };
 
@@ -243,8 +246,13 @@ void microphone_data_callback(ma_device* pDevice, void* pOutput, const void* pIn
 	if (peer != NULL)
 	{
 		ma_mutex_lock(&send_packets_mutex);
-		OpusPacket* packet = push_packet(&packets_to_send);
-		if (packet != NULL)
+		OpusPacket* packet = queue_push_element(&packets_to_send);
+		if (packet == NULL)
+		{
+			queue_clear(&packets_to_send);
+			packet = queue_push_element(&packets_to_send);
+		}
+		assert(packet != NULL);
 		{
 			opus_int16 muted_audio[VOIP_EXPECTED_FRAME_COUNT] = { 0 };
 			const opus_int16* audio_buffer = (const opus_int16*)pInput;
@@ -262,8 +270,8 @@ void speaker_data_callback(ma_device* pDevice, void* pOutput, const void* pInput
 {
 	assert(frameCount == VOIP_EXPECTED_FRAME_COUNT);
 	ma_mutex_lock(&play_packets_mutex);
-	OpusPacket* cur_packet = pop_packet(&packets_to_play);
-	if (cur_packet != NULL && cur_packet->length > 0) // length of 0 means skipped packet
+	OpusPacket* cur_packet = (OpusPacket*)queue_pop_element(&packets_to_play);
+	if (cur_packet != NULL)
 	{
 		opus_decode(dec, cur_packet->data, cur_packet->length, (opus_int16*)pOutput, frameCount, 0);
 	}
@@ -278,6 +286,8 @@ void speaker_data_callback(ma_device* pDevice, void* pOutput, const void* pInput
 static void
 init(void)
 {
+	queue_init(&packets_to_play, sizeof(OpusPacket), packets_to_play_data, ARRLEN(packets_to_play_data));
+	queue_init(&packets_to_send, sizeof(OpusPacket), packets_to_send_data, ARRLEN(packets_to_send_data));
 
 	// audio
 	{

@@ -17,7 +17,7 @@
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.005f
 #define VISION_RADIUS 12.0f
 #define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
-#define MAX_CLIENT_TO_SERVER 1024*10 // maximum size of serialized inputs and mic data
+#define MAX_CLIENT_TO_SERVER 1024 * 10 // maximum size of serialized inputs and mic data
 #define SUN_RADIUS 10.0f
 #define INSTANT_DEATH_DISTANCE_FROM_SUN 2000.0f
 #define SUN_POS ((V2){50.0f,0.0f})
@@ -42,8 +42,9 @@
 #define VOIP_PACKET_MAX_SIZE 4000
 #define VOIP_DISTANCE_WHEN_CANT_HEAR (VISION_RADIUS*0.8f)
 
-#define TIMESTEP (1.0f / 60.0f) // not required to simulate at this, but this defines what tick the game is on
+#define TIME_BETWEEN_SEND_GAMESTATE (1.0f / 20.0f)
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
+#define TIMESTEP (1.0f / 60.0f) // server required to simulate at this, defines what tick the game is on
 #define SERVER_PORT 2551
 #define INPUT_BUFFER 6
 
@@ -56,6 +57,11 @@
 #include <math.h>
 #include <stdint.h> // tick is unsigned integer
 #include <stdio.h>  // logging on errors for functions
+
+// defined in gamestate.c. Janky
+#ifndef assert
+#define assert(condition) __assert(condition, __FILE__, __LINE__, #condition)
+#endif
 
 // including headers from headers bad
 #ifndef SOKOL_GP_INCLUDED
@@ -80,6 +86,7 @@ typedef void cpShape;
 #endif
 
 #include <stdbool.h>
+#include "queue.h"
 
 #ifndef OPUS_TYPES_H
 typedef int opus_int32;
@@ -281,31 +288,25 @@ static float rotangle(enum CompassRotation rot)
 }
 
 typedef struct OpusPacket {
-	bool exists;
-	struct OpusPacket* next;
-
-	char data[VOIP_PACKET_MAX_SIZE];
 	opus_int32 length;
+	char data[VOIP_PACKET_MAX_SIZE];
 } OpusPacket;
-
-typedef struct OpusBuffer {
-	OpusPacket packets[VOIP_PACKET_BUFFER_SIZE];
-	OpusPacket* next;
-} OpusBuffer;
 
 typedef struct ServerToClient
 {
 	struct GameState* cur_gs;
-	OpusBuffer* playback_buffer;
+	Queue* playback_buffer;
 	int your_player;
 } ServerToClient;
 
-
 typedef struct ClientToServer
 {
-	OpusBuffer* mic_data; // on serialize, flushes this of packets. On deserialize, fills it
+	Queue* mic_data; // on serialize, flushes this of packets. On deserialize, fills it
 	InputFrame inputs[INPUT_BUFFER];
 } ClientToServer;
+
+#define DeferLoop(start, end) \
+    for (int _i_ = ((start), 0); _i_ == 0; _i_ += 1, (end))
 
 // server
 void server(void* info); // data parameter required from thread api...
@@ -364,96 +365,6 @@ typedef struct ServerThreadInfo {
 	const char* world_save;
 	bool should_quit;
 } ServerThreadInfo;
-
-static void clear_buffer(OpusBuffer* buff)
-{
-	*buff = (OpusBuffer){ 0 };
-}
-
-// you push a packet, get the return value, and fill it with data. It's that easy!
-static OpusPacket* push_packet(OpusBuffer* buff)
-{
-	OpusPacket* to_return = NULL;
-	for (size_t i = 0; i < VOIP_PACKET_BUFFER_SIZE; i++)
-		if (!buff->packets[i].exists)
-		{
-			to_return = &buff->packets[i];
-			break;
-		}
-
-	// no free packet found in the buffer
-	if (to_return == NULL)
-	{
-		Log("Opus Buffer Full\n");
-		clear_buffer(buff);
-		to_return = &buff->packets[0];
-#if 0
-		to_return = buff->next;
-		buff->next = buff->next->next;
-#endif
-	}
-
-	*to_return = (OpusPacket){ 0 };
-	to_return->exists = true;
-
-	// add to the end of the linked list chain
-	if (buff->next != NULL)
-	{
-		OpusPacket* cur = buff->next;
-		while (cur->next != NULL) cur = cur->next;
-		cur->next = to_return;
-	}
-	else {
-		buff->next = to_return;
-	}
-
-	return to_return;
-}
-
-static int num_queued_packets(OpusBuffer* buff)
-{
-	int to_return = 0;
-	for (size_t i = 0; i < VOIP_PACKET_BUFFER_SIZE; i++)
-		if (buff->packets[i].exists) to_return++;
-	return to_return;
-}
-
-static OpusPacket* get_packet_at_index(OpusBuffer* buff, int i)
-{
-	OpusPacket* to_return = buff->next;
-	int index_at = 0;
-	while (index_at < i)
-	{
-		if (to_return->next == NULL)
-		{
-			Log("FAILED TO GET TO INDEX %d\n", i);
-			return to_return;
-		}
-		to_return = to_return->next;
-		index_at++;
-	}
-	return to_return;
-}
-
-// returns null if the packet was dropped, like if the buffer was too full
-static OpusPacket* pop_packet(OpusBuffer* buff)
-{
-#if 0
-	if (buff->skipped_packets > 0) {
-		buff->skipped_packets--;
-		return NULL;
-	}
-#endif
-
-	OpusPacket* to_return = buff->next;
-	if (buff->next != NULL) buff->next = buff->next->next;
-	if (to_return != NULL) to_return->exists = false; // feels janky to do this
-	return to_return;
-}
-
-#define DeferLoop(start, end) \
-    for (int _i_ = ((start), 0); _i_ == 0; _i_ += 1, (end))
-
 // all the math is static so that it can be defined in each compilation unit its included in
 
 typedef struct AABB

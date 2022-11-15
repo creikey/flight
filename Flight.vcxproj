@@ -237,6 +237,7 @@
   <ItemGroup>
     <ClInclude Include="hueshift.gen.h" />
     <ClInclude Include="ipsettings.h" />
+    <ClInclude Include="queue.h" />
     <ClInclude Include="thirdparty\minilzo\lzoconf.h" />
     <ClInclude Include="thirdparty\minilzo\lzodefs.h" />
     <ClInclude Include="thirdparty\minilzo\minilzo.h" />
