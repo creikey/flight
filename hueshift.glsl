@@ -29,6 +29,15 @@ vec3 rgb2hsv(vec3 c)
     return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
 }
 
+vec4 texture2DAA(sampler2D tex, vec2 uv) {
+    vec2 texsize = vec2(textureSize(tex,0));
+    vec2 uv_texspace = uv*texsize;
+    vec2 seam = floor(uv_texspace+.5);
+    uv_texspace = (uv_texspace-seam)/fwidth(uv_texspace)+seam;
+    uv_texspace = clamp(uv_texspace, seam-.5, seam+.5);
+    return texture(tex, uv_texspace/texsize);
+}
+
 vec3 hsv2rgb(vec3 c)
 {
     vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
@@ -37,7 +46,7 @@ vec3 hsv2rgb(vec3 c)
 }
 
 void main() {
-    vec4 outColor = texture(iChannel0, texUV);
+    vec4 outColor = texture2DAA(iChannel0, texUV);
     vec3 hsv = rgb2hsv(outColor.rgb);
     
     if(is_colorless > 0) 

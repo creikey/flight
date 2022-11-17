@@ -235,6 +235,7 @@
     <ClCompile Include="thirdparty\minilzo\minilzo.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="goodpixel.gen.h" />
     <ClInclude Include="hueshift.gen.h" />
     <ClInclude Include="ipsettings.h" />
     <ClInclude Include="queue.h" />

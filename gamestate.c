@@ -1519,6 +1519,7 @@ EntityID create_spacestation(GameState *gs)
   box_create(gs, explosion_box, grid, (V2){0});
   explosion_box->is_explosion_unlock = true;
   explosion_box->no_save_to_disk = true;
+  explosion_box->always_visible = true;
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 2, 0}), BoxHullpiece);
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 3, 0}), BoxHullpiece);

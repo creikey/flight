@@ -31,8 +31,10 @@
 #include "miniaudio.h"
 
 // shaders
+#include "goodpixel.gen.h"
 #include "hueshift.gen.h"
-static sg_pipeline pip;
+static sg_pipeline hueshift_pipeline;
+static sg_pipeline goodpixel_pipeline;
 
 static struct GameState gs = {0};
 static int my_player_index = -1;
@@ -240,8 +242,8 @@ static sg_image load_image(const char *path)
                 &(sg_image_desc){.width = x,
                                  .height = y,
                                  .pixel_format = SG_PIXELFORMAT_RGBA8,
-                                 .min_filter = SG_FILTER_NEAREST,
-                                 .mag_filter = SG_FILTER_NEAREST,
+                                 .min_filter = SG_FILTER_LINEAR,
+                                 .mag_filter = SG_FILTER_LINEAR,
                                  .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
                                  .data.subimage[0][0] = {
                                      .ptr = image_data,
@@ -441,111 +443,134 @@ static void init(void)
   // shaders
   {
     // initialize shader
-    sgp_pipeline_desc pip_desc = {
-        .shader = *hueshift_program_shader_desc(sg_query_backend()),
-        .blend_mode = SGP_BLENDMODE_BLEND,
-    };
-    pip = sgp_make_pipeline(&pip_desc);
-    if (sg_query_pipeline_state(pip) != SG_RESOURCESTATE_VALID)
     {
-      fprintf(stderr, "failed to make custom pipeline\n");
-      exit(-1);
-    }
-  }
+      {
+        sgp_pipeline_desc pip_desc = {
+            .shader = *hueshift_program_shader_desc(sg_query_backend()),
+            .blend_mode = SGP_BLENDMODE_BLEND,
+        };
+        hueshift_pipeline = sgp_make_pipeline(&pip_desc);
+        if (sg_query_pipeline_state(hueshift_pipeline) != SG_RESOURCESTATE_VALID)
+        {
+          fprintf(stderr, "failed to make hueshift pipeline\n");
+          exit(-1);
+        }
+      }
 
-  // images loading
-  {
-    for (int i = 0; i < ARRLEN(boxes); i++)
-    {
-      boxes[i].image = load_image(boxes[i].image_path);
-    }
-    image_thrusterburn = load_image("loaded/thrusterburn.png");
-    image_itemframe = load_image("loaded/itemframe.png");
-    image_itemframe_selected = load_image("loaded/itemframe_selected.png");
-    image_player = load_image("loaded/player.png");
-    image_cockpit_used = load_image("loaded/cockpit_used.png");
-    image_stars = load_image("loaded/stars.png");
-    image_stars2 = load_image("loaded/stars2.png");
-    image_sun = load_image("loaded/sun.png");
-    image_medbay_used = load_image("loaded/medbay_used.png");
-    image_mystery = load_image("loaded/mystery.png");
-    image_explosion = load_image("loaded/explosion.png");
-    image_low_health = load_image("loaded/low_health.png");
-    image_mic_muted = load_image("loaded/mic_muted.png");
-    image_mic_unmuted = load_image("loaded/mic_unmuted.png");
-    image_flag_available = load_image("loaded/flag_available.png");
-    image_flag_taken = load_image("loaded/flag_ripped.png");
-    image_squad_invite = load_image("loaded/squad_invite.png");
-    image_check = load_image("loaded/check.png");
-    image_no = load_image("loaded/no.png");
-    image_solarpanel_charging = load_image("loaded/solarpanel_charging.png");
-  }
+      {
+        sgp_pipeline_desc pip_desc = {
+            .shader = *goodpixel_program_shader_desc(sg_query_backend()),
+            .blend_mode = SGP_BLENDMODE_BLEND,
+        };
 
-  // socket initialization
-  {
-    if (enet_initialize() != 0)
-    {
-      fprintf(stderr, "An error occurred while initializing ENet.\n");
-      exit(-1);
-    }
-    client = enet_host_create(NULL /* create a client host */,
-                              1 /* only allow 1 outgoing connection */,
-                              2 /* allow up 2 channels to be used, 0 and 1 */,
-                              0 /* assume any amount of incoming bandwidth */,
-                              0 /* assume any amount of outgoing bandwidth */);
-    if (client == NULL)
-    {
-      fprintf(
-          stderr,
-          "An error occurred while trying to create an ENet client host.\n");
-      exit(-1);
-    }
-    ENetAddress address;
-    ENetEvent event;
+        goodpixel_pipeline = sgp_make_pipeline(&pip_desc);
+        if (sg_query_pipeline_state(goodpixel_pipeline) != SG_RESOURCESTATE_VALID)
+        {
+          fprintf(stderr, "failed to make goodpixel pipeline\n");
+          exit(-1);
+        }
+      }
 
-    enet_address_set_host(&address, SERVER_ADDRESS);
-    address.port = SERVER_PORT;
-    peer = enet_host_connect(client, &address, 2, 0);
-    if (peer == NULL)
-    {
-      fprintf(stderr,
-              "No available peers for initiating an ENet connection.\n");
-      exit(-1);
-    }
-    // the timeout is the third parameter here
-    if (enet_host_service(client, &event, 5000) > 0 &&
-        event.type == ENET_EVENT_TYPE_CONNECT)
-    {
-      Log("Connected\n");
-    }
-    else
-    {
-      /* Either the 5 seconds are up or a disconnect event was */
-      /* received. Reset the peer in the event the 5 seconds   */
-      /* had run out without any significant event.            */
-      enet_peer_reset(peer);
-      fprintf(stderr, "Connection to server failed.");
-      exit(-1);
+      // images loading
+      {
+        for (int i = 0; i < ARRLEN(boxes); i++)
+        {
+          boxes[i].image = load_image(boxes[i].image_path);
+        }
+        image_thrusterburn = load_image("loaded/thrusterburn.png");
+        image_itemframe = load_image("loaded/itemframe.png");
+        image_itemframe_selected = load_image("loaded/itemframe_selected.png");
+        image_player = load_image("loaded/player.png");
+        image_cockpit_used = load_image("loaded/cockpit_used.png");
+        image_stars = load_image("loaded/stars.png");
+        image_stars2 = load_image("loaded/stars2.png");
+        image_sun = load_image("loaded/sun.png");
+        image_medbay_used = load_image("loaded/medbay_used.png");
+        image_mystery = load_image("loaded/mystery.png");
+        image_explosion = load_image("loaded/explosion.png");
+        image_low_health = load_image("loaded/low_health.png");
+        image_mic_muted = load_image("loaded/mic_muted.png");
+        image_mic_unmuted = load_image("loaded/mic_unmuted.png");
+        image_flag_available = load_image("loaded/flag_available.png");
+        image_flag_taken = load_image("loaded/flag_ripped.png");
+        image_squad_invite = load_image("loaded/squad_invite.png");
+        image_check = load_image("loaded/check.png");
+        image_no = load_image("loaded/no.png");
+        image_solarpanel_charging = load_image("loaded/solarpanel_charging.png");
+      }
+
+      // socket initialization
+      {
+        if (enet_initialize() != 0)
+        {
+          fprintf(stderr, "An error occurred while initializing ENet.\n");
+          exit(-1);
+        }
+        client = enet_host_create(NULL /* create a client host */,
+                                  1 /* only allow 1 outgoing connection */,
+                                  2 /* allow up 2 channels to be used, 0 and 1 */,
+                                  0 /* assume any amount of incoming bandwidth */,
+                                  0 /* assume any amount of outgoing bandwidth */);
+        if (client == NULL)
+        {
+          fprintf(
+              stderr,
+              "An error occurred while trying to create an ENet client host.\n");
+          exit(-1);
+        }
+        ENetAddress address;
+        ENetEvent event;
+
+        enet_address_set_host(&address, SERVER_ADDRESS);
+        address.port = SERVER_PORT;
+        peer = enet_host_connect(client, &address, 2, 0);
+        if (peer == NULL)
+        {
+          fprintf(stderr,
+                  "No available peers for initiating an ENet connection.\n");
+          exit(-1);
+        }
+        // the timeout is the third parameter here
+        if (enet_host_service(client, &event, 5000) > 0 &&
+            event.type == ENET_EVENT_TYPE_CONNECT)
+        {
+          Log("Connected\n");
+        }
+        else
+        {
+          /* Either the 5 seconds are up or a disconnect event was */
+          /* received. Reset the peer in the event the 5 seconds   */
+          /* had run out without any significant event.            */
+          enet_peer_reset(peer);
+          fprintf(stderr, "Connection to server failed.");
+          exit(-1);
+        }
+      }
     }
   }
 }
 
 #define transform_scope DeferLoop(sgp_push_transform(), sgp_pop_transform())
 
+static void set_pipeline_and_pull_color(sg_pipeline pip)
+{
+  sgp_set_pipeline(pip);
+  sgp_set_uniform(&sgp_query_state()->color, sizeof(sgp_query_state()->color));
+}
+
+#define pipeline_scope(pipeline) DeferLoop(set_pipeline_and_pull_color(pipeline), sgp_reset_pipeline())
+
 static void draw_color_rect_centered(V2 center, float size)
 {
   float halfbox = size / 2.0f;
-
   sgp_draw_filled_rect(center.x - halfbox, center.y - halfbox, size, size);
 }
 
 static void draw_texture_rectangle_centered(V2 center, V2 width_height)
 {
   V2 halfsize = V2scale(width_height, 0.5f);
-  sgp_draw_textured_rect(center.x - halfsize.x, center.y - halfsize.y,
-                         width_height.x, width_height.y);
+  sgp_draw_textured_rect(center.x - halfsize.x, center.y - halfsize.y, width_height.x, width_height.y);
 }
-
 static void draw_texture_centered(V2 center, float size)
 {
   draw_texture_rectangle_centered(center, (V2){size, size});
@@ -659,19 +684,20 @@ static void ui(bool draw, float dt, float width, float height)
 
       transform_scope
       {
-        sgp_set_pipeline(pip);
-        struct SquadMeta meta = squad_meta(draw_as_squad);
-        hueshift_uniforms_t uniform = {0};
-        uniform.is_colorless = meta.is_colorless;
-        uniform.target_hue = meta.hue;
-        sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
-
-        sgp_scale_at(1.0f, -1.0f, x,
-                     invite_y); // images upside down by default :(
-        sgp_set_image(0, image_squad_invite);
-        draw_texture_centered((V2){x, invite_y}, size);
-        sgp_reset_image(0);
-        sgp_reset_pipeline();
+        pipeline_scope(hueshift_pipeline)
+        {
+          struct SquadMeta meta = squad_meta(draw_as_squad);
+          hueshift_uniforms_t uniform = {
+              .is_colorless = meta.is_colorless,
+              .target_hue = meta.hue,
+          };
+          sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+          sgp_scale_at(1.0f, -1.0f, x,
+                       invite_y); // images upside down by default :(
+          sgp_set_image(0, image_squad_invite);
+          draw_texture_centered((V2){x, invite_y}, size);
+          sgp_reset_image(0);
+        }
       }
 
       // yes
@@ -680,7 +706,10 @@ static void ui(bool draw, float dt, float width, float height)
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
         sgp_scale_at(1.0f, -1.0f, yes_x, buttons_y);
         sgp_set_image(0, image_check);
-        draw_texture_centered((V2){yes_x, buttons_y}, yes_size);
+        pipeline_scope(goodpixel_pipeline)
+        {
+          draw_texture_centered((V2){yes_x, buttons_y}, yes_size);
+        }
         sgp_reset_image(0);
       }
 
@@ -690,7 +719,10 @@ static void ui(bool draw, float dt, float width, float height)
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
         sgp_scale_at(1.0f, -1.0f, no_x, buttons_y);
         sgp_set_image(0, image_no);
-        draw_texture_centered((V2){no_x, buttons_y}, no_size);
+        pipeline_scope(goodpixel_pipeline)
+        {
+          draw_texture_centered((V2){no_x, buttons_y}, no_size);
+        }
         sgp_reset_image(0);
       }
     }
@@ -728,19 +760,20 @@ static void ui(bool draw, float dt, float width, float height)
                                  size);
             sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
           }
-          sgp_set_pipeline(pip);
-          struct SquadMeta meta = squad_meta(myplayer()->squad);
-          hueshift_uniforms_t uniform = {0};
-          uniform.is_colorless = meta.is_colorless;
-          uniform.target_hue = meta.hue;
-          sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+          pipeline_scope(hueshift_pipeline)
+          {
+            struct SquadMeta meta = squad_meta(myplayer()->squad);
+            hueshift_uniforms_t uniform = {0};
+            uniform.is_colorless = meta.is_colorless;
+            uniform.target_hue = meta.hue;
+            sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
 
-          sgp_scale_at(1.0f, -1.0f, pos.x,
-                       pos.y); // images upside down by default :(
-          sgp_set_image(0, image_squad_invite);
-          draw_texture_centered(pos, size);
-          sgp_reset_image(0);
-          sgp_reset_pipeline();
+            sgp_scale_at(1.0f, -1.0f, pos.x,
+                         pos.y); // images upside down by default :(
+            sgp_set_image(0, image_squad_invite);
+            draw_texture_centered(pos, size);
+            sgp_reset_image(0);
+          }
         }
     }
   }
@@ -855,20 +888,21 @@ static void ui(bool draw, float dt, float width, float height)
             sgp_set_image(0, image_flag_taken);
           }
 
-          sgp_set_pipeline(pip);
-          struct SquadMeta meta = squad_meta(this_squad);
-          hueshift_uniforms_t uniform = {0};
-          uniform.is_colorless = meta.is_colorless;
-          uniform.target_hue = meta.hue;
-          sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+          pipeline_scope(hueshift_pipeline)
+          {
+            struct SquadMeta meta = squad_meta(this_squad);
+            hueshift_uniforms_t uniform = {0};
+            uniform.is_colorless = meta.is_colorless;
+            uniform.target_hue = meta.hue;
+            sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
 
-          sgp_rotate_at(flag_rot[i], flag_pos[i].x, flag_pos[i].y);
-          sgp_scale_at(1.0f, -1.0f, flag_pos[i].x,
-                       flag_pos[i].y); // images upside down by default :(
-          draw_texture_centered(flag_pos[i], size);
+            sgp_rotate_at(flag_rot[i], flag_pos[i].x, flag_pos[i].y);
+            sgp_scale_at(1.0f, -1.0f, flag_pos[i].x,
+                         flag_pos[i].y); // images upside down by default :(
+            draw_texture_centered(flag_pos[i], size);
 
-          sgp_reset_image(0);
-          sgp_reset_pipeline();
+            sgp_reset_image(0);
+          }
         }
       }
     }
@@ -973,7 +1007,8 @@ static void ui(bool draw, float dt, float width, float height)
         {
           sgp_set_image(0, image_itemframe);
         }
-        sgp_draw_textured_rect(x, y, itemframe_width, itemframe_height);
+        pipeline_scope(goodpixel_pipeline)
+            sgp_draw_textured_rect(x, y, itemframe_width, itemframe_height);
         struct BoxInfo info = boxinfo((enum BoxType)i);
         if (can_build(i))
         {
@@ -990,7 +1025,8 @@ static void ui(bool draw, float dt, float width, float height)
           sgp_scale_at(1.0f, -1.0f, item_x + item_width / 2.0f,
                        item_y + item_height / 2.0f);
           // sgp_scale(1.0f, -1.0f);
-          sgp_draw_textured_rect(item_x, item_y, item_width, item_height);
+          pipeline_scope(goodpixel_pipeline)
+              sgp_draw_textured_rect(item_x, item_y, item_width, item_height);
         }
         sgp_reset_image(0);
       }
@@ -1409,8 +1445,8 @@ static void frame(void)
             (float)sg_query_image_info(image_stars).width;
         const float stars_width = 35.0f;
         float stars_height = stars_width * stars_height_over_width;
-        sgp_draw_textured_rect(-stars_width / 2.0f, -stars_height / 2.0f,
-                               stars_width, stars_height);
+        pipeline_scope(goodpixel_pipeline)
+            sgp_draw_textured_rect(-stars_width / 2.0f, -stars_height / 2.0f, stars_width, stars_height);
         // sgp_draw_textured_rect(0, 0, stars_width, stars_height);
         sgp_reset_image(0);
       }
@@ -1426,8 +1462,8 @@ static void frame(void)
             (float)sg_query_image_info(image_stars).width;
         const float stars_width = 35.0f;
         float stars_height = stars_width * stars_height_over_width;
-        sgp_draw_textured_rect(-stars_width / 2.0f, -stars_height / 2.0f,
-                               stars_width, stars_height);
+        pipeline_scope(goodpixel_pipeline)
+            sgp_draw_textured_rect(-stars_width / 2.0f, -stars_height / 2.0f, stars_width, stars_height);
         // sgp_draw_textured_rect(0, 0, stars_width, stars_height);
         sgp_reset_image(0);
       }
@@ -1493,7 +1529,8 @@ static void frame(void)
           sgp_rotate_at(build_preview.grid_rotation +
                             rotangle(cur_editing_rotation),
                         global_hand_pos.x, global_hand_pos.y);
-          draw_texture_centered(global_hand_pos, BOX_SIZE);
+          pipeline_scope(goodpixel_pipeline)
+              draw_texture_centered(global_hand_pos, BOX_SIZE);
           // drawbox(hand_pos, build_preview.grid_rotation, 0.0f,
           // cur_editing_boxtype, cur_editing_rotation);
           sgp_reset_image(0);
@@ -1538,7 +1575,10 @@ static void frame(void)
                   sgp_set_image(0, image_thrusterburn);
                   float scaling = 0.95f + lerp(0.0f, 0.3f, b->thrust);
                   sgp_scale_at(scaling, 1.0f, entity_pos(b).x, entity_pos(b).y);
-                  draw_texture_centered(entity_pos(b), BOX_SIZE);
+                  pipeline_scope(goodpixel_pipeline)
+                  {
+                    draw_texture_centered(entity_pos(b), BOX_SIZE);
+                  }
                   sgp_reset_image(0);
                 }
               }
@@ -1557,7 +1597,10 @@ static void frame(void)
               {
                 sgp_set_image(0, image_solarpanel_charging);
                 sgp_set_color(1.0f, 1.0f, 1.0f, b->sun_amount);
-                draw_texture_centered(entity_pos(b), BOX_SIZE);
+                pipeline_scope(goodpixel_pipeline)
+                {
+                  draw_texture_centered(entity_pos(b), BOX_SIZE);
+                }
                 sgp_reset_image(0);
                 sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f - b->sun_amount);
                 /* Color to_set = colhexcode(0xeb9834);
@@ -1572,7 +1615,10 @@ static void frame(void)
               {
                 sgp_set_color(0.2f, 0.2f, 0.2f, 1.0f);
               }
-              draw_texture_centered(entity_pos(b), BOX_SIZE);
+              pipeline_scope(goodpixel_pipeline)
+              {
+                draw_texture_centered(entity_pos(b), BOX_SIZE);
+              }
               sgp_reset_image(0);
 
               sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
@@ -1590,17 +1636,18 @@ static void frame(void)
             sgp_rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
             sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
 
-            sgp_set_pipeline(pip);
-            struct SquadMeta meta = squad_meta(e->presenting_squad);
-            hueshift_uniforms_t uniform = {0};
-            uniform.is_colorless = meta.is_colorless;
-            uniform.target_hue = meta.hue;
-            sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
-            sgp_set_image(0, image_player);
-            draw_texture_rectangle_centered(
-                entity_pos(e), V2scale(PLAYER_SIZE, player_scaling));
-            sgp_reset_image(0);
-            sgp_reset_pipeline();
+            pipeline_scope(hueshift_pipeline)
+            {
+              struct SquadMeta meta = squad_meta(e->presenting_squad);
+              hueshift_uniforms_t uniform = {0};
+              uniform.is_colorless = meta.is_colorless;
+              uniform.target_hue = meta.hue;
+              sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+              sgp_set_image(0, image_player);
+              draw_texture_rectangle_centered(
+                  entity_pos(e), V2scale(PLAYER_SIZE, player_scaling));
+              sgp_reset_image(0);
+            }
           }
         }
         if (e->is_explosion)
@@ -1659,7 +1706,7 @@ static void frame(void)
 
 void cleanup(void)
 {
-  sg_destroy_pipeline(pip);
+  sg_destroy_pipeline(hueshift_pipeline);
 
   ma_mutex_lock(&server_info.info_mutex);
   server_info.should_quit = true;
