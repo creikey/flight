@@ -662,7 +662,7 @@ const static SerMaybeFailure ser_ok = {0};
 #define SER_ASSERT(cond)                                                                            \
   if (!(cond))                                                                                      \
   {                                                                                                 \
-    __assert(false, __FILE__, __LINE__, #cond);                                                     \
+    __flight_assert(false, __FILE__, __LINE__, #cond);                                              \
     if (ser->save_or_load_from_disk)                                                                \
     {                                                                                               \
       Log("While saving/loading, serialization assertion failed %s on line %d\n", #cond, __LINE__); \
@@ -774,7 +774,8 @@ enum GameVersion
   VAddedSquadInvites,
   VRemovedTimeFromDiskSave,       // did this to avoid wayy too big a time causing precision problems
   VReallyRemovedTimeFromDiskSave, // apparently last one didn't work
-  VMax,                           // this minus one will be the version used
+  VRemovedInsideOfMe,
+  VMax, // this minus one will be the version used
 };
 
 // @Robust probably get rid of this as separate function, just use SER_VAR
@@ -961,7 +962,14 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_VAR(&e->wanted_thrust);
     SER_VAR(&e->energy_used);
     SER_VAR(&e->sun_amount);
-    SER_MAYBE_RETURN(ser_entityid(ser, &e->player_who_is_inside_of_me));
+
+    if (ser->version >= VRemovedInsideOfMe && ser->save_or_load_from_disk)
+    {
+    }
+    else
+    {
+      SER_MAYBE_RETURN(ser_entityid(ser, &e->player_who_is_inside_of_me));
+    }
   }
 
   return ser_ok;

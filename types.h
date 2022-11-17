@@ -76,7 +76,7 @@
 
 // defined in gamestate.c. Janky
 #ifndef assert
-#define assert(condition) __assert(condition, __FILE__, __LINE__, #condition)
+#define assert(condition) __flight_assert(condition, __FILE__, __LINE__, #condition)
 #endif
 
 // including headers from headers bad

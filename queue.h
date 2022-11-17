@@ -4,7 +4,7 @@
 
 #ifndef QUEUE_ASSERT
 void __flight_assert(bool cond, const char *file, int line, const char *cond_string);
-#define QUEUE_ASSERT(condition) __assert(condition, __FILE__, __LINE__, #condition)
+#define QUEUE_ASSERT(condition) __flight_assert(condition, __FILE__, __LINE__, #condition)
 #endif
 
 typedef struct QueueElementHeader
