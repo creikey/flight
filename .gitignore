@@ -1,4 +1,4 @@
-enc_temp_folder/ # visual studio
+enc_temp_folder/
 *.spall # profiling
 *.bin # world files
 debug_world.bin

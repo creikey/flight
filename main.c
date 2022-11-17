@@ -1283,10 +1283,6 @@ static void frame(void)
       // "commit" the input. each input must be on a successive tick.
       if (tick(&gs) > last_input_committed_tick)
       {
-        if (cur_input_frame.take_over_squad != -1)
-        {
-          Log("Sending take over squad at tick %zu\n", tick(&gs));
-        }
         cur_input_frame.tick = tick(&gs);
         last_input_committed_tick = tick(&gs);
 

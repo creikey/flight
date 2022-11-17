@@ -423,7 +423,7 @@ void server(void *info_raw)
         last_sent_audio_time = stm_now();
         int num_audio_packets = (int)floor(1.0f / (VOIP_TIME_PER_PACKET / audio_time_to_send));
 
-#define MAX_AUDIO_PACKETS_TO_SEND 6
+#define MAX_AUDIO_PACKETS_TO_SEND 12
         if (num_audio_packets > MAX_AUDIO_PACKETS_TO_SEND)
         {
            Log("Wants %d, this is too many packets. Greater than the maximum %d\n", num_audio_packets, MAX_AUDIO_PACKETS_TO_SEND);
