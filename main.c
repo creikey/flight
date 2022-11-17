@@ -102,6 +102,7 @@ static sg_image image_flag_taken;
 static sg_image image_squad_invite;
 static sg_image image_check;
 static sg_image image_no;
+static sg_image image_solarpanel_charging;
 
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
@@ -476,6 +477,7 @@ static void init(void)
     image_squad_invite = load_image("loaded/squad_invite.png");
     image_check = load_image("loaded/check.png");
     image_no = load_image("loaded/no.png");
+    image_solarpanel_charging = load_image("loaded/solarpanel_charging.png");
   }
 
   // socket initialization
@@ -1550,6 +1552,20 @@ static void frame(void)
                 if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
                   img = image_medbay_used;
               }
+              if (b->box_type == BoxSolarPanel)
+              {
+                sgp_set_image(0, image_solarpanel_charging);
+                sgp_set_color(1.0f, 1.0f, 1.0f, b->sun_amount);
+                draw_texture_centered(entity_pos(b), BOX_SIZE);
+                sgp_reset_image(0);
+                sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f - b->sun_amount);
+                /* Color to_set = colhexcode(0xeb9834);
+                to_set.a = b->sun_amount * 0.5f;
+                set_color(to_set);
+                draw_color_rect_centered(entity_pos(b), BOX_SIZE);
+                */
+              }
+
               sgp_set_image(0, img);
               if (b->indestructible)
               {
@@ -1557,14 +1573,6 @@ static void frame(void)
               }
               draw_texture_centered(entity_pos(b), BOX_SIZE);
               sgp_reset_image(0);
-
-              if (b->box_type == BoxSolarPanel)
-              {
-                Color to_set = colhexcode(0xeb9834);
-                to_set.a = b->sun_amount * 0.5f;
-                set_color(to_set);
-                draw_color_rect_centered(entity_pos(b), BOX_SIZE);
-              }
 
               sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
               draw_color_rect_centered(entity_pos(b), BOX_SIZE);
