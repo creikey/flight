@@ -307,7 +307,7 @@ static float rotangle(enum CompassRotation rot)
 typedef struct OpusPacket
 {
   opus_int32 length;
-  char data[VOIP_PACKET_MAX_SIZE];
+  unsigned char data[VOIP_PACKET_MAX_SIZE];
 } OpusPacket;
 
 typedef struct ServerToClient

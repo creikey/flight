@@ -1811,6 +1811,9 @@ void event(const sapp_event *e)
       Log("Funval %f\n", funval);
     }
     break;
+  default:
+  {
+  }
   }
 }
 

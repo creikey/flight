@@ -1,0 +1,7 @@
+-Ithirdparty
+-Ithirdparty/minilzo
+-Ithirdparty/enet/include
+-Ithirdparty/Chipmunk2D/include/chipmunk
+-Ithirdparty/Chipmunk2D/include
+-Ithirdparty/opus/include
+-Ithirdparty/opus/src
