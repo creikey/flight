@@ -73,6 +73,22 @@ Entity *get_entity(GameState *gs, EntityID id)
   return to_return;
 }
 
+static uint64_t box_unlock_number(enum BoxType box)
+{
+  assert((uint64_t)box < 64);
+  return (uint64_t)((uint64_t)1 << ((uint64_t)box));
+}
+
+void unlock_box(Player *player, enum BoxType box)
+{
+  player->box_unlocks |= box_unlock_number(box);
+}
+
+bool box_unlocked(Player *player, enum BoxType box)
+{
+  return (player->box_unlocks & box_unlock_number(box)) > 0;
+}
+
 EntityID get_id(GameState *gs, Entity *e)
 {
   if (e == NULL)
@@ -287,7 +303,19 @@ void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, V2 pos, V2
 
 #define PLAYER_SHAPE_FILTER cpShapeFilterNew(CP_NO_GROUP, PLAYERS, CP_ALL_CATEGORIES)
 
-void create_player(GameState *gs, Entity *e)
+void create_player(Player *player)
+{
+  // default box unlocks, required for survival and growth
+  unlock_box(player, BoxHullpiece);
+  unlock_box(player, BoxThruster);
+  unlock_box(player, BoxBattery);
+  unlock_box(player, BoxCockpit);
+  unlock_box(player, BoxMedbay);
+  unlock_box(player, BoxSolarPanel);
+  unlock_box(player, BoxScanner);
+}
+
+void create_player_entity(GameState *gs, Entity *e)
 {
   e->is_player = true;
   e->no_save_to_disk = true;
@@ -478,7 +506,7 @@ static void grid_remove_box(GameState *gs, struct Entity *grid, struct Entity *b
   grid_correct_for_holes(gs, grid);
 }
 
-static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
+static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
 {
   cpShape *a, *b;
   cpArbiterGetShapes(arb, &a, &b);
@@ -504,10 +532,7 @@ static cpBool on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
   // b must be the key passed into the post step removed, the key is cast into its shape
   // cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, b, NULL);
   // cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, a, NULL);
-
-  return true; // keep colliding
 }
-
 void initialize(GameState *gs, void *entity_arena, size_t entity_arena_size)
 {
   *gs = (GameState){0};
@@ -639,7 +664,7 @@ void update_from(cpBody *body, struct BodyData *data)
 
 typedef struct SerState
 {
-  char *bytes;
+  unsigned char *bytes;
   bool serializing;
   size_t cursor; // points to next available byte, is the size of current message after serializing something
   size_t max_size;
@@ -705,45 +730,36 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
   {
     if (ser->write_varnames)
     {
-      char read_name[512] = {0};
+      // deserialize and check the var name
 
-      size_t just_field_name = strlen(name);
-      int i = 0;
-      int nondigit_i = 0;
-      while (true)
+      // skip past the digits
+      size_t num_digits = 0;
+      while (ser->bytes[ser->cursor] >= '0' && ser->bytes[ser->cursor] <= '9')
       {
-        read_name[i] = ser->bytes[ser->cursor];
-        if (nondigit_i == 0 && read_name[i] >= '0' && read_name[i] <= '9')
-        {
-          // still a digit
-          if (i >= 10)
-          { // 10 is way too many digits for a line number...
-            return (SerMaybeFailure){
-                .expression = "Way too many digits as a line number before a field name",
-                .failed = true,
-                .line = __LINE__,
-            };
-          }
-        }
-        else
-        {
-          nondigit_i += 1;
-        }
-        i++;
         ser->cursor += 1;
         SER_ASSERT(ser->cursor <= ser->max_size);
-        if (nondigit_i >= just_field_name)
-          break;
+        num_digits += 1;
+        if (num_digits >= 10)
+        {
+          return (SerMaybeFailure){
+              .expression = "Way too many digits as a line number before a field name",
+              .failed = true,
+              .line = __LINE__,
+          };
+        }
       }
-      read_name[i + 1] = '\0';
-      // advance past digits
-      char *read = read_name;
-      char *var = var_name;
-      while (*read >= '0' && *read <= '9')
-        read++;
-      while (*var >= '0' && *var <= '9')
-        var++;
-      SER_ASSERT(strcmp(read, var) == 0);
+      // cursor is now on a non digit, the start of the name
+      char read_name[512] = {0};
+      size_t just_field_name_length = strlen(name);
+      for (size_t i = 0; i < just_field_name_length; i++)
+      {
+        read_name[i] = ser->bytes[ser->cursor];
+        ser->cursor += 1;
+        SER_ASSERT(ser->cursor <= ser->max_size);
+      }
+      
+      // now compare!
+      SER_ASSERT(strcmp(read_name, name) == 0);
     }
     for (int b = 0; b < data_len; b++)
     {
@@ -775,6 +791,7 @@ enum GameVersion
   VRemovedTimeFromDiskSave,       // did this to avoid wayy too big a time causing precision problems
   VReallyRemovedTimeFromDiskSave, // apparently last one didn't work
   VRemovedInsideOfMe,
+  VSwitchedToUnlocks,
   VMax, // this minus one will be the version used
 };
 
@@ -839,7 +856,15 @@ SerMaybeFailure ser_player(SerState *ser, Player *p)
   SER_VAR(&p->connected);
   if (p->connected)
   {
-    SER_VAR(&p->unlocked_bombs);
+    if (ser->version >= VSwitchedToUnlocks)
+    {
+      SER_VAR(&p->box_unlocks);
+    }
+    else
+    {
+      bool throwaway;
+      SER_VAR_NAME(&throwaway, "&p->unlocked_bombs");
+    }
     if (ser->version >= VAddedSquads)
       SER_VAR(&p->squad);
     SER_MAYBE_RETURN(ser_entityid(ser, &p->entity));
@@ -953,7 +978,12 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   {
     SER_VAR(&e->box_type);
     SER_VAR(&e->always_visible);
-    SER_VAR(&e->is_explosion_unlock);
+
+    if (ser->version <= VSwitchedToUnlocks)
+    {
+      bool throwaway;
+      SER_VAR_NAME(&throwaway, "&e->is_explosion_unlock");
+    }
     SER_MAYBE_RETURN(ser_entityid(ser, &e->next_box));
     SER_MAYBE_RETURN(ser_entityid(ser, &e->prev_box));
     SER_VAR(&e->compass_rotation);
@@ -990,7 +1020,7 @@ SerMaybeFailure ser_opus_packets(SerState *ser, Queue *mic_or_speaker_data)
       if (!isnull && cur != NULL) // cur != NULL is to suppress VS warning
       {
         SER_VAR(&cur->length);
-        SER_DATA(cur->data, cur->length);
+        SER_DATA((char *)cur->data, cur->length);
       }
     }
     no_more_packets = true;
@@ -1014,7 +1044,7 @@ SerMaybeFailure ser_opus_packets(SerState *ser, Queue *mic_or_speaker_data)
         SER_VAR(&cur->length);
         SER_ASSERT(cur->length < VOIP_PACKET_MAX_SIZE);
         SER_ASSERT(cur->length >= 0);
-        SER_DATA(cur->data, cur->length);
+        SER_DATA((char *)cur->data, cur->length);
       }
     }
   }
@@ -1171,7 +1201,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 }
 
 // for_this_player can be null then the entire world will be sent
-bool server_to_client_serialize(struct ServerToClient *msg, char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk)
+bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk)
 {
   assert(msg->cur_gs != NULL);
   assert(msg != NULL);
@@ -1209,7 +1239,7 @@ bool server_to_client_serialize(struct ServerToClient *msg, char *bytes, size_t 
   }
 }
 
-bool server_to_client_deserialize(struct ServerToClient *msg, char *bytes, size_t max_len, bool from_disk)
+bool server_to_client_deserialize(struct ServerToClient *msg, unsigned char *bytes, size_t max_len, bool from_disk)
 {
   assert(msg->cur_gs != NULL);
   assert(msg != NULL);
@@ -1288,7 +1318,7 @@ SerMaybeFailure ser_client_to_server(SerState *ser, ClientToServer *msg)
   return ser_ok;
 }
 
-bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, char *bytes, size_t *out_len, size_t max_len)
+bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, unsigned char *bytes, size_t *out_len, size_t max_len)
 {
   SerState ser = (SerState){
       .bytes = bytes,
@@ -1316,7 +1346,7 @@ bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, char 
   }
 }
 
-bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, char *bytes, size_t max_len)
+bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, unsigned char *bytes, size_t max_len)
 {
   SerState servar = (SerState){
       .bytes = bytes,
@@ -1525,7 +1555,6 @@ EntityID create_spacestation(GameState *gs)
   entity_ensure_in_orbit(grid);
   Entity *explosion_box = new_entity(gs);
   box_create(gs, explosion_box, grid, (V2){0});
-  explosion_box->is_explosion_unlock = true;
   explosion_box->no_save_to_disk = true;
   explosion_box->always_visible = true;
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0}), BoxExplosive);
@@ -1612,7 +1641,7 @@ void process(GameState *gs, float dt)
     if (p == NULL)
     {
       p = new_entity(gs);
-      create_player(gs, p);
+      create_player_entity(gs, p);
       player->entity = get_id(gs, p);
       Entity *medbay = get_entity(gs, player->last_used_medbay);
       entity_ensure_in_orbit(p);
@@ -1808,18 +1837,6 @@ void process(GameState *gs, float dt)
     Entity *e = &gs->entities[i];
     if (!e->exists)
       continue;
-
-    if (e->is_explosion_unlock)
-    {
-      PLAYERS_ITER(gs->players, player)
-      {
-        Entity *player_entity = get_entity(gs, player->entity);
-        if (player_entity != NULL && V2length(V2sub(entity_pos(player_entity), entity_pos(e))) < GOLD_UNLOCK_RADIUS)
-        {
-          player->unlocked_bombs = true;
-        }
-      }
-    }
 
     if (e->body != NULL)
     {

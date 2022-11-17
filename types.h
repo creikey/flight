@@ -44,7 +44,8 @@
 #define VOIP_PACKET_BUFFER_SIZE 15 // audio. Must be bigger than 2
 #define VOIP_EXPECTED_FRAME_COUNT 480
 #define VOIP_SAMPLE_RATE 48000
-#define VOIP_TIME_PER_PACKET (1.0f / ((float)(VOIP_SAMPLE_RATE / VOIP_EXPECTED_FRAME_COUNT))) // in seconds
+// in seconds
+#define VOIP_TIME_PER_PACKET (1.0f / ((float)((float)VOIP_SAMPLE_RATE / VOIP_EXPECTED_FRAME_COUNT))) 
 #define VOIP_PACKET_MAX_SIZE 4000
 #define VOIP_DISTANCE_WHEN_CANT_HEAR (VISION_RADIUS * 0.8f)
 
@@ -230,7 +231,6 @@ typedef struct Entity
   bool is_box;
   bool always_visible; // always serialized to the player
   enum BoxType box_type;
-  bool is_explosion_unlock;
   EntityID next_box;
   EntityID prev_box; // doubly linked so can remove in middle of chain
   enum CompassRotation compass_rotation;
@@ -245,7 +245,7 @@ typedef struct Entity
 typedef struct Player
 {
   bool connected;
-  bool unlocked_bombs;
+  uint64_t box_unlocks; // each bit is that box's unlock
   enum Squad squad;
   EntityID entity;
   EntityID last_used_medbay;
@@ -329,6 +329,8 @@ typedef struct ClientToServer
 
 // server
 void server(void *info); // data parameter required from thread api...
+void create_player(Player *player);
+bool box_unlocked(Player *player, enum BoxType box);
 
 // gamestate
 EntityID create_spacestation(GameState *gs);
@@ -340,10 +342,10 @@ Entity *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius)
 uint64_t tick(struct GameState *gs);
 
 // all of these return if successful or not
-bool server_to_client_serialize(struct ServerToClient *msg, char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk);
-bool server_to_client_deserialize(struct ServerToClient *msg, char *bytes, size_t max_len, bool from_disk);
-bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, char *bytes, size_t max_len);
-bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, char *bytes, size_t *out_len, size_t max_len);
+bool server_to_client_serialize(struct ServerToClient *msg, unsigned char*bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk);
+bool server_to_client_deserialize(struct ServerToClient *msg, unsigned char*bytes, size_t max_len, bool from_disk);
+bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, unsigned char*bytes, size_t max_len);
+bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, unsigned char*bytes, size_t *out_len, size_t max_len);
 
 // entities
 Entity *get_entity(struct GameState *gs, EntityID id);

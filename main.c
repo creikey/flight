@@ -177,7 +177,8 @@ static struct BoxInfo
        cur++)                                                             \
     if (cur->exists)
 #define ARRLEN(arr) (sizeof(arr) / sizeof(*arr))
-
+// suppress compiler warning about ^^ above used in floating point context
+#define ARRLENF(arr) ((float)sizeof(arr) / sizeof(*arr))
 static struct SquadMeta
 {
   enum Squad squad;
@@ -604,12 +605,11 @@ static void draw_circle(V2 point, float radius)
 bool can_build(int i)
 {
   bool allow_building = true;
-  if (boxinfo((enum BoxType)i).needs_tobe_unlocked)
-  {
-    allow_building = false;
-    if (myplayer() != NULL)
-      allow_building = myplayer()->unlocked_bombs;
-  }
+  enum BoxType box_type = (enum BoxType)i;
+
+  allow_building = false;
+  if (myplayer() != NULL)
+    allow_building = box_unlocked(myplayer(), box_type);
   return allow_building;
 }
 
@@ -978,7 +978,7 @@ static void ui(bool draw, float dt, float width, float height)
         (float)sg_query_image_info(image_itemframe).width * 2.0f;
     float itemframe_height =
         (float)sg_query_image_info(image_itemframe).height * 2.0f;
-    float total_width = itemframe_width * ARRLEN(boxes);
+    float total_width = itemframe_width * (float) ARRLENF(boxes);
     float item_width = itemframe_width * 0.75f;
     float item_height = itemframe_height * 0.75f;
     float item_offset_x = (itemframe_width - item_width) / 2.0f;
@@ -1122,6 +1122,11 @@ static void frame(void)
       {
         switch (event.type)
         {
+        case ENET_EVENT_TYPE_NONE:
+        {
+          Log("Wtf none event type?\n");
+          break;
+        }
         case ENET_EVENT_TYPE_CONNECT:
         {
           Log("New client from host %x\n", event.peer->address.host);
@@ -1130,7 +1135,7 @@ static void frame(void)
 
         case ENET_EVENT_TYPE_RECEIVE:
         {
-          char *decompressed = malloc(
+          unsigned char *decompressed = malloc(
               sizeof *decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
           size_t decompressed_max_len = MAX_SERVER_TO_CLIENT;
           assert(LZO1X_MEM_DECOMPRESS == 0);
@@ -1368,12 +1373,12 @@ static void frame(void)
             .mic_data = &packets_to_send,
             .input_data = &input_queue,
         };
-        char serialized[MAX_CLIENT_TO_SERVER] = {0};
+        unsigned char serialized[MAX_CLIENT_TO_SERVER] = {0};
         size_t out_len = 0;
         if (client_to_server_serialize(&gs, &to_send, serialized, &out_len,
                                        MAX_CLIENT_TO_SERVER))
         {
-          char compressed[MAX_CLIENT_TO_SERVER] = {0};
+          unsigned char compressed[MAX_CLIENT_TO_SERVER] = {0};
           char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = {0};
           size_t compressed_len = 0;
 
@@ -1554,11 +1559,6 @@ static void frame(void)
           Entity *g = e;
           BOXES_ITER(&gs, b, g)
           {
-            if (b->is_explosion_unlock)
-            {
-              set_color(colhexcode(0xfcba03));
-              draw_circle(entity_pos(b), GOLD_UNLOCK_RADIUS);
-            }
             sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
             if (b->box_type == BoxBattery)
             {
@@ -1623,15 +1623,15 @@ static void frame(void)
                 sgp_set_color(0.2f, 0.2f, 0.2f, 1.0f);
               }
               pipeline_scope(goodpixel_pipeline)
-                draw_texture_centered(entity_pos(b), BOX_SIZE);
+                  draw_texture_centered(entity_pos(b), BOX_SIZE);
               sgp_reset_image(0);
-              
-              if(b->box_type == BoxScanner)
+
+              if (b->box_type == BoxScanner)
               {
                 sgp_set_image(0, image_scanner_head);
-                sgp_rotate_at((float)gs.time*3.0f, entity_pos(b).x, entity_pos(b).y);
+                sgp_rotate_at((float)gs.time * 3.0f, entity_pos(b).x, entity_pos(b).y);
                 pipeline_scope(goodpixel_pipeline)
-                  draw_texture_centered(entity_pos(b), BOX_SIZE);
+                    draw_texture_centered(entity_pos(b), BOX_SIZE);
               }
 
               sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);

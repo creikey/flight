@@ -104,7 +104,7 @@ void server(void *info_raw)
   if (world_save_name != NULL)
   {
     size_t read_game_data_buffer_size = entities_size;
-    char *read_game_data = malloc(read_game_data_buffer_size);
+    unsigned char *read_game_data = malloc(read_game_data_buffer_size);
 
     FILE *file = NULL;
     fopen_s(&file, (const char *)world_save_name, "rb");
@@ -201,7 +201,7 @@ void server(void *info_raw)
   uint64_t last_sent_gamestate_time = stm_now();
   float audio_time_to_send = 0.0f;
   float total_time = 0.0f;
-  char *world_save_buffer = malloc(entities_size);
+  unsigned char *world_save_buffer = malloc(entities_size);
   while (true)
   {
     ma_mutex_lock(&info->info_mutex);
@@ -251,7 +251,8 @@ void server(void *info_raw)
             event.peer->data = (void *)player_slot;
             gs.players[player_slot] = (struct Player){0};
             gs.players[player_slot].connected = true;
-
+            create_player(&gs.players[player_slot]);
+                
             int error;
             player_encoders[player_slot] = opus_encoder_create(VOIP_SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP, &error);
             if (error != OPUS_OK)
@@ -292,7 +293,7 @@ void server(void *info_raw)
 
             queue_clear(&player_input_queues[player_slot]);
             struct ClientToServer received = {.mic_data = buffer_to_fill, .input_data = &player_input_queues[player_slot]};
-            char decompressed[MAX_CLIENT_TO_SERVER] = {0};
+            unsigned char decompressed[MAX_CLIENT_TO_SERVER] = {0};
             size_t decompressed_max_len = MAX_CLIENT_TO_SERVER;
             assert(LZO1X_MEM_DECOMPRESS == 0);
 
@@ -457,8 +458,8 @@ void server(void *info_raw)
           if (this_player_entity == NULL)
             continue;
           // @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
-          char *bytes_buffer = malloc(sizeof *bytes_buffer * MAX_SERVER_TO_CLIENT);
-          char *compressed_buffer = malloc(sizeof *compressed_buffer * MAX_SERVER_TO_CLIENT);
+          unsigned char *bytes_buffer = malloc(sizeof *bytes_buffer * MAX_SERVER_TO_CLIENT);
+          unsigned char *compressed_buffer = malloc(sizeof *compressed_buffer * MAX_SERVER_TO_CLIENT);
 
           // mix audio to be sent
           VOIP_QUEUE_DECL(buffer_to_play, buffer_to_play_data);
