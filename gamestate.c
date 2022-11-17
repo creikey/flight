@@ -1521,7 +1521,7 @@ EntityID create_spacestation(GameState *gs)
   Entity *grid = new_entity(gs);
   grid_create(gs, grid);
   grid->no_save_to_disk = true;
-  entity_set_pos(grid, (V2){-15.0f, 0.0f});
+  entity_set_pos(grid, (V2){-80.0f, 0.0f});
   entity_ensure_in_orbit(grid);
   Entity *explosion_box = new_entity(gs);
   box_create(gs, explosion_box, grid, (V2){0});
