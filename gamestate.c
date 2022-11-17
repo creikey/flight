@@ -1441,18 +1441,44 @@ V2 get_world_hand_pos(GameState *gs, InputFrame *input, Entity *player)
   return potentially_snap_hand_pos(gs, V2add(entity_pos(player), input->hand_pos));
 }
 
-// return true if used the energy
-bool possibly_use_energy(GameState *gs, Entity *grid, float wanted_energy)
+bool batteries_have_capacity_for(GameState *gs, Entity *grid, float *energy_left_over, float energy_to_use)
 {
+  float seen_energy = 0.0f;
   BOXES_ITER(gs, possible_battery, grid)
   {
-    if (possible_battery->box_type == BoxBattery && (BATTERY_CAPACITY - possible_battery->energy_used) > wanted_energy)
+    if (possible_battery->box_type == BoxBattery)
     {
-      possible_battery->energy_used += wanted_energy;
-      return true;
+      Entity *battery = possible_battery;
+      seen_energy += BATTERY_CAPACITY - battery->energy_used;
+      if (seen_energy >= energy_to_use + *energy_left_over)
+        return true;
     }
   }
   return false;
+}
+
+// returns any energy unable to burn
+float batteries_use_energy(GameState *gs, Entity *grid, float *energy_left_over, float energy_to_use)
+{
+  if (*energy_left_over > 0.0f)
+  {
+    float energy_to_use_from_leftover = fminf(*energy_left_over, energy_to_use);
+    *energy_left_over -= energy_to_use_from_leftover;
+    energy_to_use -= energy_to_use_from_leftover;
+  }
+  BOXES_ITER(gs, possible_battery, grid)
+  {
+    if (possible_battery->box_type == BoxBattery)
+    {
+      Entity *battery = possible_battery;
+      float energy_to_burn_from_this_battery = fminf(BATTERY_CAPACITY - battery->energy_used, energy_to_use);
+      battery->energy_used += energy_to_burn_from_this_battery;
+      energy_to_use -= energy_to_burn_from_this_battery;
+      if (energy_to_use <= 0.0f)
+        return 0.0f;
+    }
+  }
+  return energy_to_use;
 }
 
 void entity_ensure_in_orbit(Entity *e)
@@ -1523,7 +1549,7 @@ void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
 {
   V2 pilot_seat_exit_spot = V2add(entity_pos(seat_in), V2scale(box_facing_vector(seat_in), BOX_SIZE));
   cpBodySetPosition(p->body, v2_to_cp(pilot_seat_exit_spot));
-  //cpBodySetVelocity(p->body, v2_to_cp(player_vel(gs, p)));
+  // cpBodySetVelocity(p->body, v2_to_cp(player_vel(gs, p)));
   cpBodySetVelocity(p->body, cpBodyGetVelocity(box_grid(seat_in)->body));
 }
 
@@ -1573,17 +1599,19 @@ void process(GameState *gs, float dt)
       possibly_to_invite->squad_invited_to = player->squad;
     }
     Entity *p = get_entity(gs, player->entity);
+    // player respawning
     if (p == NULL)
     {
       p = new_entity(gs);
       create_player(gs, p);
       player->entity = get_id(gs, p);
       Entity *medbay = get_entity(gs, player->last_used_medbay);
+      entity_ensure_in_orbit(p);
       if (medbay != NULL)
       {
         exit_seat(gs, medbay, p);
+        p->damage = 0.95f;
       }
-      entity_ensure_in_orbit(p);
     }
     assert(p->is_player);
     p->presenting_squad = player->squad;
@@ -1634,7 +1662,8 @@ void process(GameState *gs, float dt)
             {
               p->currently_inside_of_box = get_id(gs, potential_seat);
               potential_seat->player_who_is_inside_of_me = get_id(gs, p);
-              player->last_used_medbay = p->currently_inside_of_box;
+              if (potential_seat->box_type == BoxMedbay)
+                player->last_used_medbay = p->currently_inside_of_box;
             }
           }
         }
@@ -1708,38 +1737,45 @@ void process(GameState *gs, float dt)
 
       // @Robust sanitize this input so player can't build on any grid in the world
       Entity *target_grid = grid_to_build_on(gs, world_hand_pos);
-      cpShape *nearest = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
-      if (nearest != NULL)
+      cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
+      if (maybe_box_to_destroy != NULL)
       {
-        Entity *cur_box = cp_shape_entity(nearest);
+        Entity *cur_box = cp_shape_entity(maybe_box_to_destroy);
         if (!cur_box->indestructible)
         {
-          Entity *cur_grid = cp_body_entity(cpShapeGetBody(nearest));
+          Entity *cur_grid = cp_body_entity(cpShapeGetBody(maybe_box_to_destroy));
           p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK * ((BATTERY_CAPACITY - cur_box->energy_used) / BATTERY_CAPACITY);
           grid_remove_box(gs, cur_grid, cur_box);
         }
       }
-      else if (target_grid == NULL)
-      {
-        Entity *new_grid = new_entity(gs);
-        grid_create(gs, new_grid);
-        p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
-        entity_set_pos(new_grid, world_build);
-
-        Entity *new_box = new_entity(gs);
-        box_create(gs, new_box, new_grid, (V2){0});
-        new_box->box_type = player->input.build_type;
-        new_box->compass_rotation = player->input.build_rotation;
-        cpBodySetVelocity(new_grid->body, v2_to_cp(player_vel(gs, p)));
-      }
       else
       {
-        Entity *new_box = new_entity(gs);
-        box_create(gs, new_box, target_grid, grid_world_to_local(target_grid, world_build));
-        grid_correct_for_holes(gs, target_grid); // no holey ship for you!
-        new_box->box_type = player->input.build_type;
-        new_box->compass_rotation = player->input.build_rotation;
+        // creating a box
         p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
+        V2 created_box_position;
+        if (p->damage < 1.0f) // player can't create a box that kills them by making it
+        {
+          if (target_grid == NULL)
+          {
+            Entity *new_grid = new_entity(gs);
+            grid_create(gs, new_grid);
+            entity_set_pos(new_grid, world_build);
+            cpBodySetVelocity(new_grid->body, v2_to_cp(player_vel(gs, p)));
+            target_grid = new_grid;
+            created_box_position = (V2){0};
+          }
+          else
+          {
+            created_box_position = grid_world_to_local(target_grid, world_build);
+          }
+          Entity *new_box = new_entity(gs);
+          box_create(gs, new_box, target_grid, created_box_position);
+          grid_correct_for_holes(gs, target_grid); // no holey ship for you!
+          new_box->box_type = player->input.build_type;
+          new_box->compass_rotation = player->input.build_rotation;
+          if (new_box->box_type == BoxBattery)
+            new_box->energy_used = BATTERY_CAPACITY;
+        }
       }
     }
 #endif
@@ -1847,17 +1883,22 @@ void process(GameState *gs, float dt)
         assert(energy_to_add >= 0.0f);
       }
 
+      // any energy_to_add existing now can also be used to power thrusters/medbay
+      float non_battery_energy_left_over = energy_to_add;
+
       // use the energy, stored in the batteries, in various boxes
       BOXES_ITER(gs, cur, e)
       {
         if (cur->box_type == BoxThruster)
         {
           float energy_to_consume = cur->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
-          cur->thrust = 0.0f;
-          if (possibly_use_energy(gs, e, energy_to_consume))
+          if (energy_to_consume > 0.0f)
           {
-            cur->thrust = cur->wanted_thrust;
-            cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(thruster_force(cur)), v2_to_cp(entity_pos(cur)));
+            cur->thrust = 0.0f;
+            float energy_unconsumed = batteries_use_energy(gs, e, &non_battery_energy_left_over, energy_to_consume);
+            cur->thrust = (1.0f - energy_unconsumed / energy_to_consume) * cur->wanted_thrust;
+            if (cur->thrust >= 0.0f)
+              cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(thruster_force(cur)), v2_to_cp(entity_pos(cur)));
           }
         }
         if (cur->box_type == BoxMedbay)
@@ -1865,10 +1906,11 @@ void process(GameState *gs, float dt)
           Entity *potential_meatbag_to_heal = get_entity(gs, cur->player_who_is_inside_of_me);
           if (potential_meatbag_to_heal != NULL)
           {
-            float energy_to_recharge = fminf(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
-            if (possibly_use_energy(gs, e, energy_to_recharge))
+            float wanted_energy_use = fminf(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
+            if (wanted_energy_use > 0.0f)
             {
-              potential_meatbag_to_heal->damage -= energy_to_recharge;
+              float energy_unconsumed = batteries_use_energy(gs, e, &non_battery_energy_left_over, wanted_energy_use);
+              potential_meatbag_to_heal->damage -= (1.0f - energy_unconsumed / wanted_energy_use) * wanted_energy_use;
             }
           }
         }

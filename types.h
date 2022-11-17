@@ -24,14 +24,14 @@
 #define INSTANT_DEATH_DISTANCE_FROM_SUN 2000.0f
 #define SUN_POS ((V2){50.0f, 0.0f})
 #ifdef NO_GRAVITY
-#define SUN_GRAVITY_STRENGTH 0.1f
+#define SUN_GRAVITY_STRENGTH 0.0f
 #else
 #define SUN_GRAVITY_STRENGTH (9.0e2f)
 #endif
-#define SOLAR_ENERGY_PER_SECOND 0.02f
+#define SOLAR_ENERGY_PER_SECOND 0.04f
 #define DAMAGE_TO_PLAYER_PER_BLOCK 0.1f
-#define BATTERY_CAPACITY DAMAGE_TO_PLAYER_PER_BLOCK * 0.7f
-#define PLAYER_ENERGY_RECHARGE_PER_SECOND 0.1f
+#define BATTERY_CAPACITY 1.5f
+#define PLAYER_ENERGY_RECHARGE_PER_SECOND 0.2f
 #define EXPLOSION_TIME 0.5f
 #define EXPLOSION_PUSH_STRENGTH 5.0f
 #define EXPLOSION_DAMAGE_PER_SEC 10.0f
@@ -48,6 +48,7 @@
 #define VOIP_PACKET_MAX_SIZE 4000
 #define VOIP_DISTANCE_WHEN_CANT_HEAR (VISION_RADIUS * 0.8f)
 
+// multiplayer
 #define MAX_REPREDICTION_TIME (TIMESTEP * 50.0f)
 #define TIME_BETWEEN_SEND_GAMESTATE (1.0f / 20.0f)
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -235,7 +236,7 @@ typedef struct Entity
   bool indestructible;
   float wanted_thrust; // the thrust command applied to the thruster
   float thrust;        // the actual thrust it can provide based on energy sources in the grid
-  float energy_used;   // battery
+  float energy_used;   // battery, between 0 battery capacity. You have to look through code to figure out what that is! haha sucker!
   float sun_amount;    // solar panel, between 0 and 1
   EntityID player_who_is_inside_of_me;
 } Entity;

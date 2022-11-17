@@ -242,6 +242,7 @@ static sg_image load_image(const char *path)
                                  .pixel_format = SG_PIXELFORMAT_RGBA8,
                                  .min_filter = SG_FILTER_NEAREST,
                                  .mag_filter = SG_FILTER_NEAREST,
+                                 .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
                                  .data.subimage[0][0] = {
                                      .ptr = image_data,
                                      .size = (size_t)(x * y * desired_channels),
