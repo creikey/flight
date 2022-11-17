@@ -1519,11 +1519,12 @@ EntityID create_spacestation(GameState *gs)
   return get_id(gs, grid);
 }
 
-void exit_seat(GameState *gs, Entity *seat_in, Entity *player)
+void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
 {
   V2 pilot_seat_exit_spot = V2add(entity_pos(seat_in), V2scale(box_facing_vector(seat_in), BOX_SIZE));
-  cpBodySetPosition(player->body, v2_to_cp(pilot_seat_exit_spot));
-  cpBodySetVelocity(player->body, v2_to_cp(player_vel(gs, player)));
+  cpBodySetPosition(p->body, v2_to_cp(pilot_seat_exit_spot));
+  //cpBodySetVelocity(p->body, v2_to_cp(player_vel(gs, p)));
+  cpBodySetVelocity(p->body, cpBodyGetVelocity(box_grid(seat_in)->body));
 }
 
 void process_fixed_timestep(GameState *gs)
