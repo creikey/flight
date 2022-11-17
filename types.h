@@ -134,6 +134,7 @@ enum BoxType
   BoxMedbay,
   BoxSolarPanel,
   BoxExplosive,
+  BoxScanner,
   BoxLast,
 };
 

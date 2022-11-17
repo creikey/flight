@@ -105,6 +105,7 @@ static sg_image image_squad_invite;
 static sg_image image_check;
 static sg_image image_no;
 static sg_image image_solarpanel_charging;
+static sg_image image_scanner_head;
 
 static int cur_editing_boxtype = -1;
 static int cur_editing_rotation = 0;
@@ -164,6 +165,11 @@ static struct BoxInfo
         .type = BoxExplosive,
         .image_path = "loaded/explosive.png",
         .needs_tobe_unlocked = true,
+    },
+    {
+        .type = BoxScanner,
+        .image_path = "loaded/scanner_base.png",
+        .needs_tobe_unlocked = false,
     },
 };
 #define ENTITIES_ITER(cur)                                                \
@@ -497,6 +503,7 @@ static void init(void)
         image_check = load_image("loaded/check.png");
         image_no = load_image("loaded/no.png");
         image_solarpanel_charging = load_image("loaded/solarpanel_charging.png");
+        image_scanner_head = load_image("loaded/scanner_head.png");
       }
 
       // socket initialization
@@ -1616,10 +1623,16 @@ static void frame(void)
                 sgp_set_color(0.2f, 0.2f, 0.2f, 1.0f);
               }
               pipeline_scope(goodpixel_pipeline)
-              {
                 draw_texture_centered(entity_pos(b), BOX_SIZE);
-              }
               sgp_reset_image(0);
+              
+              if(b->box_type == BoxScanner)
+              {
+                sgp_set_image(0, image_scanner_head);
+                sgp_rotate_at((float)gs.time*3.0f, entity_pos(b).x, entity_pos(b).y);
+                pipeline_scope(goodpixel_pipeline)
+                  draw_texture_centered(entity_pos(b), BOX_SIZE);
+              }
 
               sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
               draw_color_rect_centered(entity_pos(b), BOX_SIZE);
