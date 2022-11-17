@@ -22,7 +22,7 @@ enum
   BOXES = 1 << 1,
 };
 
-void __assert(bool cond, const char *file, int line, const char *cond_string)
+void __flight_assert(bool cond, const char *file, int line, const char *cond_string)
 {
   if (!cond)
   {

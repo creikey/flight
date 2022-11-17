@@ -3,7 +3,7 @@
 #include <stdbool.h>
 
 #ifndef QUEUE_ASSERT
-void __assert(bool cond, const char *file, int line, const char *cond_string);
+void __flight_assert(bool cond, const char *file, int line, const char *cond_string);
 #define QUEUE_ASSERT(condition) __assert(condition, __FILE__, __LINE__, #condition)
 #endif
 
@@ -53,7 +53,7 @@ void queue_clear(Queue *q)
   q->next = NULL;
 }
 
-#define QUEUE_ELEM_ITER(cur) for (QueueElementHeader *cur = (QueueElementHeader *)q->data; (char *)cur < q->data + q->data_length; (char *)cur += (sizeof(QueueElementHeader) + q->element_size))
+#define QUEUE_ELEM_ITER(cur) for (QueueElementHeader *cur = (QueueElementHeader *)q->data; (char *)cur < q->data + q->data_length; cur = (QueueElementHeader*)((char*)cur + (sizeof(QueueElementHeader) + q->element_size)))
 
 // you push an element, get the return value, cast it to your type, and fill it with data. It's that easy!
 // if it's null the queue is out of space
