@@ -30,11 +30,6 @@ typedef struct Command
 // thread local variables so debug drawing in server thread
 // doesn't fuck up main thread
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-#define THREADLOCAL __declspec(thread)
-#else
-#define THREADLOCAL __thread
-#endif
 
 static THREADLOCAL Command commands[MAX_COMMANDS] = {0};
 static THREADLOCAL int command_i = 0;
