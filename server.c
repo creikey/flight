@@ -76,8 +76,11 @@ void server(void *info_raw)
   size_t entities_size = (sizeof(Entity) * MAX_ENTITIES);
   Entity *entity_data = malloc(entities_size);
   initialize(&gs, entity_data, entities_size);
+  gs.server_side_computing = true;
   Log("Allocated %zu bytes for entities\n", entities_size);
 
+  create_initial_world(&gs);
+  
   // inputs
   Queue player_input_queues[MAX_PLAYERS] = {0};
   size_t input_queue_data_size = QUEUE_SIZE_FOR_ELEMENTS(sizeof(InputFrame), INPUT_QUEUE_MAX);

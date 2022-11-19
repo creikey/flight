@@ -2,6 +2,7 @@
 
 #include "ipsettings.h"
 
+#define MAX_BOX_TYPES 64
 #define MAX_PLAYERS 16
 #define MAX_ENTITIES 1024 * 25
 #define BOX_SIZE 0.25f
@@ -10,6 +11,7 @@
 #define PLAYER_JETPACK_FORCE 1.5f
 // #define PLAYER_JETPACK_FORCE 20.0f
 #define PLAYER_JETPACK_SPICE_PER_SECOND 0.1f
+#define SCANNER_ENERGY_USE 0.05f
 #define MAX_HAND_REACH 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
@@ -229,7 +231,10 @@ typedef struct Entity
 
   // boxes
   bool is_box;
+  bool is_platonic; // can't be destroyed, unaffected by physical forces
   bool always_visible; // always serialized to the player
+  
+  
   enum BoxType box_type;
   EntityID next_box;
   EntityID prev_box; // doubly linked so can remove in middle of chain
@@ -240,6 +245,12 @@ typedef struct Entity
   float energy_used;   // battery, between 0 battery capacity. You have to look through code to figure out what that is! haha sucker!
   float sun_amount;    // solar panel, between 0 and 1
   EntityID player_who_is_inside_of_me;
+  
+  // only updated when it's a scanner
+  float scanner_head_rotate_speed; // not serialized, cosmetic
+  float scanner_head_rotate;
+  V2 platonic_nearest_direction; // normalized
+  float platonic_detection_strength; // from zero to one
 } Entity;
 
 typedef struct Player
@@ -261,8 +272,10 @@ typedef struct GameState
   V2 goldpos;
 
   Player players[MAX_PLAYERS];
-
-  EntityID cur_spacestation;
+  
+  V2 platonic_positions[MAX_BOX_TYPES]; // don't want to search over every entity to get the nearest platonic box!
+  
+  bool server_side_computing; // some things only the server should know and calculate, like platonic locations
 
   // Entity arena
   // ent:ity pointers can't move around because of how the physics engine handles user data.
@@ -333,7 +346,7 @@ void create_player(Player *player);
 bool box_unlocked(Player *player, enum BoxType box);
 
 // gamestate
-EntityID create_spacestation(GameState *gs);
+EntityID create_initial_world(GameState *gs);
 void initialize(struct GameState *gs, void *entity_arena, size_t entity_arena_size);
 void destroy(struct GameState *gs);
 void process_fixed_timestep(GameState *gs);

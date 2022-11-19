@@ -8,12 +8,17 @@ SetWorkingDir, %A_ScriptDir%
 ^Esc::return 
 
 ^b::
-WinKill, "Flight Not Hosting"
+WinKill, Flight Hosting
 Sleep, 20
+WinActivate flight.rdbg
+Sleep 20
+Send, {Shift down}{F5}{Shift up}
+Send, {F5}
 WinActivate, flightbuild
 If WinActive("flightbuild")
 {
-    Send, cd C:\Users\Cameron\Documents\flight{Enter} build_debug.bat && flight_debug.exe{Enter}
+    Send, {Enter}
+    Send, msbuild{Enter}
 }
 return
 

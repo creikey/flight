@@ -978,7 +978,7 @@ static void ui(bool draw, float dt, float width, float height)
         (float)sg_query_image_info(image_itemframe).width * 2.0f;
     float itemframe_height =
         (float)sg_query_image_info(image_itemframe).height * 2.0f;
-    float total_width = itemframe_width * (float) ARRLENF(boxes);
+    float total_width = itemframe_width * (float)ARRLENF(boxes);
     float item_width = itemframe_width * 0.75f;
     float item_height = itemframe_height * 0.75f;
     float item_offset_x = (itemframe_width - item_width) / 2.0f;
@@ -1629,13 +1629,27 @@ static void frame(void)
               if (b->box_type == BoxScanner)
               {
                 sgp_set_image(0, image_scanner_head);
-                sgp_rotate_at((float)gs.time * 3.0f, entity_pos(b).x, entity_pos(b).y);
+                sgp_rotate_at(b->scanner_head_rotate, entity_pos(b).x, entity_pos(b).y);
                 pipeline_scope(goodpixel_pipeline)
                     draw_texture_centered(entity_pos(b), BOX_SIZE);
+                set_color(WHITE);
               }
 
               sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
               draw_color_rect_centered(entity_pos(b), BOX_SIZE);
+            }
+
+            // outside of the transform scope
+            if (b->box_type == BoxScanner)
+            {
+              if (b->platonic_detection_strength > 0.0f)
+              {
+                set_color(colhexcode(0xf2d75c));
+                V2 to = V2add(entity_pos(b), V2scale(b->platonic_nearest_direction, b->platonic_detection_strength));
+                dbg_rect(to);
+                dbg_rect(entity_pos(b));
+                sgp_draw_line(entity_pos(b).x, entity_pos(b).y, to.x, to.y);
+              }
             }
           }
         }

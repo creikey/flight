@@ -1,3 +1,5 @@
+compile_commands.json
+.cache/
 enc_temp_folder/
 *.spall # profiling
 *.bin # world files

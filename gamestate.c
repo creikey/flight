@@ -81,11 +81,13 @@ static uint64_t box_unlock_number(enum BoxType box)
 
 void unlock_box(Player *player, enum BoxType box)
 {
+  assert(box < MAX_BOX_TYPES);
   player->box_unlocks |= box_unlock_number(box);
 }
 
 bool box_unlocked(Player *player, enum BoxType box)
 {
+  assert(box < MAX_BOX_TYPES);
   return (player->box_unlocks & box_unlock_number(box)) > 0;
 }
 
@@ -533,8 +535,11 @@ static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
   // cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, b, NULL);
   // cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, a, NULL);
 }
+
+// must be called with zero initialized game state, because copies the server side computing!
 void initialize(GameState *gs, void *entity_arena, size_t entity_arena_size)
 {
+  bool is_server_side = gs->server_side_computing;
   *gs = (GameState){0};
   memset(entity_arena, 0, entity_arena_size); // SUPER critical. Random vals in the entity data causes big problem
   gs->entities = (Entity *)entity_arena;
@@ -543,6 +548,7 @@ void initialize(GameState *gs, void *entity_arena, size_t entity_arena_size)
   cpSpaceSetUserData(gs->space, (cpDataPointer)gs);                          // needed in the handler
   cpCollisionHandler *handler = cpSpaceAddCollisionHandler(gs->space, 0, 0); // @Robust limit collision type to just blocks that can be damaged
   handler->postSolveFunc = on_damage;
+  gs->server_side_computing = is_server_side;
 }
 void destroy(GameState *gs)
 {
@@ -757,7 +763,7 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
         ser->cursor += 1;
         SER_ASSERT(ser->cursor <= ser->max_size);
       }
-      
+
       // now compare!
       SER_ASSERT(strcmp(read_name, name) == 0);
     }
@@ -792,6 +798,7 @@ enum GameVersion
   VReallyRemovedTimeFromDiskSave, // apparently last one didn't work
   VRemovedInsideOfMe,
   VSwitchedToUnlocks,
+  VAddedPlatonic,
   VMax, // this minus one will be the version used
 };
 
@@ -979,6 +986,9 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_VAR(&e->box_type);
     SER_VAR(&e->always_visible);
 
+    if (ser->version >= VAddedPlatonic)
+      SER_VAR(&e->is_platonic);
+
     if (ser->version <= VSwitchedToUnlocks)
     {
       bool throwaway;
@@ -992,6 +1002,12 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_VAR(&e->wanted_thrust);
     SER_VAR(&e->energy_used);
     SER_VAR(&e->sun_amount);
+    if (ser->version >= VAddedPlatonic)
+    {
+      SER_VAR(&e->scanner_head_rotate);
+      SER_VAR(&e->platonic_nearest_direction);
+      SER_VAR(&e->platonic_detection_strength);
+    }
 
     if (ser->version >= VRemovedInsideOfMe && ser->save_or_load_from_disk)
     {
@@ -1077,9 +1093,6 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
   SER_VAR(&cur_next_entity);
   SER_ASSERT(cur_next_entity <= ser->max_entity_index);
 
-  if (!ser->save_or_load_from_disk)
-    SER_MAYBE_RETURN(ser_entityid(ser, &gs->cur_spacestation));
-
   SER_VAR(&s->your_player);
   if (ser->version >= VReallyRemovedTimeFromDiskSave && ser->save_or_load_from_disk)
   {
@@ -1122,7 +1135,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
           // are loaded in the parent body is loaded in and can be referenced.
           BOXES_ITER(gs, cur, e)
           {
-            bool this_box_in_range = (ser->for_player == NULL || (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur)) < VISION_RADIUS * VISION_RADIUS));
+            bool this_box_in_range = (ser->save_or_load_from_disk || ser->for_player == NULL || (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur)) < VISION_RADIUS * VISION_RADIUS));
             if (cur->always_visible)
               this_box_in_range = true;
             if (this_box_in_range)
@@ -1534,7 +1547,7 @@ V2 box_vel(Entity *box)
   return cp_to_v2(cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(entity_pos(box))));
 }
 
-EntityID create_spacestation(GameState *gs)
+EntityID create_initial_world(GameState *gs)
 {
 #define BOX_AT_TYPE(grid, pos, type)      \
   {                                       \
@@ -1542,21 +1555,18 @@ EntityID create_spacestation(GameState *gs)
     box_create(gs, box, grid, pos);       \
     box->box_type = type;                 \
     box->indestructible = indestructible; \
-    box->always_visible = true;           \
-    box->no_save_to_disk = true;          \
   }
 #define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
 
   bool indestructible = false;
   Entity *grid = new_entity(gs);
   grid_create(gs, grid);
-  grid->no_save_to_disk = true;
-  entity_set_pos(grid, (V2){-80.0f, 0.0f});
+  entity_set_pos(grid, (V2){-16.0f, 0.0f});
   entity_ensure_in_orbit(grid);
   Entity *explosion_box = new_entity(gs);
   box_create(gs, explosion_box, grid, (V2){0});
-  explosion_box->no_save_to_disk = true;
-  explosion_box->always_visible = true;
+  explosion_box->box_type = BoxExplosive;
+  explosion_box->is_platonic = true;
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 2, 0}), BoxHullpiece);
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 3, 0}), BoxHullpiece);
@@ -1826,11 +1836,6 @@ void process(GameState *gs, float dt)
     p->damage = clamp01(p->damage);
   }
 
-  if (get_entity(gs, gs->cur_spacestation) == NULL)
-  {
-    gs->cur_spacestation = create_spacestation(gs);
-  }
-
   // process entities
   for (size_t i = 0; i < gs->cur_next_entity; i++)
   {
@@ -1869,13 +1874,19 @@ void process(GameState *gs, float dt)
 
     if (e->is_box)
     {
+      if (e->is_platonic)
+      {
+        e->damage = 0.0f;
+        gs->platonic_positions[(int)e->box_type] = entity_pos(e);
+      }
       if (e->box_type == BoxExplosive && e->damage >= EXPLOSION_DAMAGE_THRESHOLD)
       {
         Entity *explosion = new_entity(gs);
         explosion->is_explosion = true;
         explosion->explosion_pos = entity_pos(e);
         explosion->explosion_vel = grid_vel(box_grid(e));
-        grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
+        if (!e->is_platonic)
+          grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
       }
       if (e->damage >= 1.0f)
       {
@@ -1884,9 +1895,10 @@ void process(GameState *gs, float dt)
     }
     if (e->is_grid)
     {
+      Entity *grid = e;
       // calculate how much energy solar panels provide
       float energy_to_add = 0.0f;
-      BOXES_ITER(gs, cur, e)
+      BOXES_ITER(gs, cur, grid)
       {
         if (cur->box_type == BoxSolarPanel)
         {
@@ -1896,7 +1908,7 @@ void process(GameState *gs, float dt)
       }
 
       // apply all of the energy to all connected batteries
-      BOXES_ITER(gs, cur, e)
+      BOXES_ITER(gs, cur, grid)
       {
         if (energy_to_add <= 0.0f)
           break;
@@ -1913,32 +1925,77 @@ void process(GameState *gs, float dt)
       float non_battery_energy_left_over = energy_to_add;
 
       // use the energy, stored in the batteries, in various boxes
-      BOXES_ITER(gs, cur, e)
+      BOXES_ITER(gs, cur_box, grid)
       {
-        if (cur->box_type == BoxThruster)
+        if (cur_box->box_type == BoxThruster)
         {
-          float energy_to_consume = cur->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
+          float energy_to_consume = cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
           if (energy_to_consume > 0.0f)
           {
-            cur->thrust = 0.0f;
-            float energy_unconsumed = batteries_use_energy(gs, e, &non_battery_energy_left_over, energy_to_consume);
-            cur->thrust = (1.0f - energy_unconsumed / energy_to_consume) * cur->wanted_thrust;
-            if (cur->thrust >= 0.0f)
-              cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(thruster_force(cur)), v2_to_cp(entity_pos(cur)));
+            cur_box->thrust = 0.0f;
+            float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
+            cur_box->thrust = (1.0f - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
+            if (cur_box->thrust >= 0.0f)
+              cpBodyApplyForceAtWorldPoint(grid->body, v2_to_cp(thruster_force(cur_box)), v2_to_cp(entity_pos(cur_box)));
           }
         }
-        if (cur->box_type == BoxMedbay)
+        if (cur_box->box_type == BoxMedbay)
         {
-          Entity *potential_meatbag_to_heal = get_entity(gs, cur->player_who_is_inside_of_me);
+          Entity *potential_meatbag_to_heal = get_entity(gs, cur_box->player_who_is_inside_of_me);
           if (potential_meatbag_to_heal != NULL)
           {
             float wanted_energy_use = fminf(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
             if (wanted_energy_use > 0.0f)
             {
-              float energy_unconsumed = batteries_use_energy(gs, e, &non_battery_energy_left_over, wanted_energy_use);
+              float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, wanted_energy_use);
               potential_meatbag_to_heal->damage -= (1.0f - energy_unconsumed / wanted_energy_use) * wanted_energy_use;
             }
           }
+        }
+        if (cur_box->box_type == BoxScanner)
+        {
+          // set the nearest platonic solid!
+          if (gs->server_side_computing)
+          {
+            float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, SCANNER_ENERGY_USE * dt);
+            if (energy_unconsumed >= SCANNER_ENERGY_USE * dt)
+            {
+              cur_box->platonic_detection_strength = 0.0f;
+              cur_box->platonic_nearest_direction = (V2){0};
+            }
+            else
+            {
+              V2 from_pos = entity_pos(cur_box);
+              V2 nearest = {0};
+              float nearest_dist = INFINITY;
+              for (int i = 0; i < MAX_BOX_TYPES; i++)
+              {
+                V2 cur_pos = gs->platonic_positions[i];
+                if (V2length(cur_pos) > 0.0f) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
+                {
+                  float length_to_cur = V2dist(from_pos, cur_pos);
+                  if (length_to_cur < nearest_dist)
+                  {
+                    nearest_dist = length_to_cur;
+                    nearest = cur_pos;
+                  }
+                }
+              }
+              if (nearest_dist < INFINITY)
+              {
+                cur_box->platonic_nearest_direction = V2normalize(V2sub(nearest, from_pos));
+                cur_box->platonic_detection_strength = fmaxf(0.1f, 1.0f - fminf(1.0f, nearest_dist / 100.0f));
+              }
+              else
+              {
+                cur_box->platonic_nearest_direction = (V2){0};
+                cur_box->platonic_detection_strength = 0.0f;
+              }
+            }
+          }
+          cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, cur_box->platonic_detection_strength > 0.0f ? 3.0f : 0.0f, dt * 3.0f);
+          cur_box->scanner_head_rotate += cur_box->scanner_head_rotate_speed * dt;
+          cur_box->scanner_head_rotate = fmodf(cur_box->scanner_head_rotate, 2.0f * PI);
         }
       }
     }
