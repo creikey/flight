@@ -7,6 +7,8 @@
 #include <enet/enet.h>
 #include <process.h> // starting server thread
 
+#define TOOLBAR_SLOTS 9
+
 #pragma warning(disable : 33010) // this warning is so broken, doesn't
                                  // understand assert()
 #include "sokol_app.h"
@@ -106,9 +108,11 @@ static sg_image image_check;
 static sg_image image_no;
 static sg_image image_solarpanel_charging;
 static sg_image image_scanner_head;
+static sg_image image_itemswitch;
 
-static int cur_editing_boxtype = -1;
-static int cur_editing_rotation = 0;
+static enum BoxType toolbar[TOOLBAR_SLOTS] = {BoxInvalid};
+static int cur_toolbar_slot = 0;
+static int cur_editing_rotation = Right;
 
 // audio
 static bool muted = false;
@@ -216,6 +220,13 @@ struct SquadMeta squad_meta(enum Squad squad)
   }
   Log("Could not find squad %d!\n", squad);
   return (struct SquadMeta){0};
+}
+
+static enum BoxType currently_building()
+{
+  assert(cur_toolbar_slot >= 0);
+  assert(cur_toolbar_slot < TOOLBAR_SLOTS);
+  return toolbar[cur_toolbar_slot];
 }
 
 struct BoxInfo boxinfo(enum BoxType type)
@@ -505,6 +516,7 @@ static void init(void)
         image_no = load_image("loaded/no.png");
         image_solarpanel_charging = load_image("loaded/solarpanel_charging.png");
         image_scanner_head = load_image("loaded/scanner_head.png");
+        image_itemswitch = load_image("loaded/itemswitch.png");
       }
 
       // socket initialization
@@ -613,12 +625,6 @@ bool can_build(int i)
   return allow_building;
 }
 
-void attempt_to_build(int i)
-{
-  if (can_build(i))
-    cur_editing_boxtype = i;
-}
-
 static V2 screen_to_world(float width, float height, V2 screen)
 {
   V2 world = screen;
@@ -650,6 +656,105 @@ static void ui(bool draw, float dt, float width, float height)
 
   if (draw)
     sgp_push_transform();
+
+  // draw pick new box type menu
+  static bool picking_new_boxtype = false;
+  static float pick_opacity = 0.0f;
+  {
+    AABB pick_modal = (AABB){
+        .x = width * 0.25f,
+        .y = height * 0.25f,
+        .width = width * 0.5f,
+        .height = height * 0.5f,
+    };
+    pick_opacity = lerp(pick_opacity, picking_new_boxtype ? 1.0f : 0.0f, dt * 7.0f);
+    if (picking_new_boxtype)
+    {
+      if (build_pressed)
+      {
+        if (has_point(pick_modal, mouse_pos))
+        {
+        }
+        else
+        {
+          build_pressed = false;
+          picking_new_boxtype = false;
+        }
+      }
+    }
+    static float item_scaling[ARRLEN(boxes)] = {1.0f};
+    {
+      float alpha = pick_opacity * 0.8f;
+      if (draw)
+      {
+        sgp_set_color(0.4f, 0.4f, 0.4f, alpha);
+        sgp_draw_filled_rect(pick_modal.x, pick_modal.y, pick_modal.width, pick_modal.height);
+
+        sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f * pick_opacity);
+      }
+      int boxes_per_row = (int)floorf(pick_modal.width / 128.0f);
+      float cell_width = pick_modal.width / (float)boxes_per_row;
+      float cell_height = cell_width;
+      float padding = 0.2f * cell_width;
+      int cur_row = 0;
+      int cur_column = 0;
+      for (int i = 0; i < ARRLEN(boxes); i++)
+      {
+        if (cur_column >= boxes_per_row)
+        {
+          cur_column = 0;
+          cur_row++;
+        }
+        float item_width = cell_width - padding * 2.0f;
+        float item_height = cell_height - padding * 2.0f;
+
+        item_width *= item_scaling[i];
+        item_height *= item_scaling[i];
+
+        float cell_y = pick_modal.y + (float)cur_row * cell_height;
+        float cell_x = pick_modal.x + (float)cur_column * cell_width;
+        float item_x = cell_x + (cell_width - item_width) / 2.0f;
+        float item_y = cell_y + (cell_height - item_height) / 2.0f;
+
+        bool item_being_hovered = has_point((AABB){
+                                                .x = item_x,
+                                                .y = item_y,
+                                                .width = item_width,
+                                                .height = item_height,
+                                            },
+                                            mouse_pos);
+        
+        item_scaling[i] = lerp(item_scaling[i], item_being_hovered ? 1.3f : 1.0f, dt*4.0f);
+
+        struct BoxInfo info = boxes[i];
+        if(item_being_hovered && build_pressed)
+        {
+          toolbar[cur_toolbar_slot] = info.type;
+          build_pressed = false;
+        }
+        if (draw)
+        {
+          if (can_build(info.type))
+          {
+            sgp_set_image(0, info.image);
+          }
+          else
+          {
+            sgp_set_image(0, image_mystery);
+          }
+          transform_scope
+          {
+            sgp_scale_at(1.0f, -1.0f, item_x + item_width / 2.0f, item_y + item_height / 2.0f);
+            pipeline_scope(goodpixel_pipeline)
+                sgp_draw_textured_rect(item_x, item_y, item_width, item_height);
+            sgp_reset_image(0);
+          }
+        }
+
+        cur_column++;
+      }
+    }
+  }
 
   // draw squad invite
   static float invite_y = -200.0f;
@@ -978,7 +1083,7 @@ static void ui(bool draw, float dt, float width, float height)
         (float)sg_query_image_info(image_itemframe).width * 2.0f;
     float itemframe_height =
         (float)sg_query_image_info(image_itemframe).height * 2.0f;
-    float total_width = itemframe_width * (float)ARRLENF(boxes);
+    float total_width = itemframe_width * (float)TOOLBAR_SLOTS;
     float item_width = itemframe_width * 0.75f;
     float item_height = itemframe_height * 0.75f;
     float item_offset_x = (itemframe_width - item_width) / 2.0f;
@@ -986,8 +1091,9 @@ static void ui(bool draw, float dt, float width, float height)
 
     float x = width / 2.0f - total_width / 2.0f;
     float y = height - itemframe_height * 1.5f;
-    for (int i = 0; i < ARRLEN(boxes); i++)
+    for (int i = 0; i < TOOLBAR_SLOTS; i++)
     {
+      // mouse over the item frame box
       if (has_point(
               (AABB){
                   .x = x,
@@ -999,14 +1105,38 @@ static void ui(bool draw, float dt, float width, float height)
           build_pressed)
       {
         // "handle" mouse pressed
-        attempt_to_build(i);
+        cur_toolbar_slot = i;
+        build_pressed = false;
+      }
+
+      // mouse over the item switch button
+      bool switch_hovered = false;
+      if (has_point(
+              (AABB){
+                  .x = x,
+                  .y = y - 20.0f,
+                  .width = itemframe_width,
+                  .height = itemframe_height * 0.2f,
+              },
+              mouse_pos))
+      {
+        switch_hovered = true;
+      }
+
+      if (switch_hovered && build_pressed)
+      {
+        picking_new_boxtype = true;
         build_pressed = false;
       }
 
       if (draw)
       {
         sgp_set_color(1.0f, 1.0f, 1.0f, cur_opacity);
-        if (cur_editing_boxtype == i)
+
+        bool is_current = cur_toolbar_slot == i;
+        static float switch_scaling = 1.0f;
+        switch_scaling = lerp(switch_scaling, switch_hovered ? 1.8f : 1.2f, dt * 3.0f);
+        if (is_current)
         {
           sgp_set_image(0, image_itemframe_selected);
         }
@@ -1016,26 +1146,36 @@ static void ui(bool draw, float dt, float width, float height)
         }
         pipeline_scope(goodpixel_pipeline)
             sgp_draw_textured_rect(x, y, itemframe_width, itemframe_height);
-        struct BoxInfo info = boxinfo((enum BoxType)i);
-        if (can_build(i))
-        {
-          sgp_set_image(0, info.image);
-        }
-        else
-        {
-          sgp_set_image(0, image_mystery);
-        }
+        sgp_reset_image(0);
         transform_scope
         {
           float item_x = x + item_offset_x;
           float item_y = y + item_offset_y;
           sgp_scale_at(1.0f, -1.0f, item_x + item_width / 2.0f,
                        item_y + item_height / 2.0f);
-          // sgp_scale(1.0f, -1.0f);
+
           pipeline_scope(goodpixel_pipeline)
+          {
+            if (toolbar[i] != BoxInvalid)
+            {
+              struct BoxInfo info = boxinfo(toolbar[i]);
+              sgp_set_image(0, info.image);
               sgp_draw_textured_rect(item_x, item_y, item_width, item_height);
+
+              sgp_reset_image(0);
+            }
+            if (is_current)
+            {
+              sgp_set_image(0, image_itemswitch);
+              float switch_item_width = item_width * switch_scaling;
+              float switch_item_height = item_height * switch_scaling;
+              item_x -= (switch_item_width - item_width) / 2.0f;
+              item_y -= (switch_item_height - item_height) / 2.0f;
+              sgp_draw_textured_rect(item_x, item_y + 20.0f, switch_item_width, switch_item_height);
+              sgp_reset_image(0);
+            }
+          }
         }
-        sgp_reset_image(0);
       }
       x += itemframe_width;
     }
@@ -1324,10 +1464,10 @@ static void frame(void)
         reject_invite = false;
       }
 
-      if (build_pressed && cur_editing_boxtype != -1)
+      if (build_pressed && currently_building() != BoxInvalid)
       {
         cur_input_frame.dobuild = build_pressed;
-        cur_input_frame.build_type = cur_editing_boxtype;
+        cur_input_frame.build_type = currently_building();
         cur_input_frame.build_rotation = cur_editing_rotation;
       }
 
@@ -1405,8 +1545,8 @@ static void frame(void)
     global_hand_pos =
         get_global_hand_pos(world_mouse_pos, &hand_at_arms_length);
 
-    Entity *placing_grid = closest_to_point_in_radius(
-        &gs, global_hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP);
+    Entity *placing_grid = box_grid(closest_box_to_point_in_radius(
+        &gs, global_hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP, NULL));
     if (placing_grid == NULL)
     {
       build_preview = (struct BuildPreviewInfo){
@@ -1530,14 +1670,14 @@ static void frame(void)
       }
 
       // building preview
-      if (cur_editing_boxtype != -1)
+      if (currently_building() != BoxInvalid)
       {
         sgp_set_color(0.5f, 0.5f, 0.5f,
                       (sinf((float)time * 9.0f) + 1.0f) / 3.0f + 0.2f);
 
         transform_scope
         {
-          sgp_set_image(0, boxinfo(cur_editing_boxtype).image);
+          sgp_set_image(0, boxinfo(currently_building()).image);
           sgp_rotate_at(build_preview.grid_rotation +
                             rotangle(cur_editing_rotation),
                         global_hand_pos.x, global_hand_pos.y);
@@ -1785,10 +1925,10 @@ void event(const sapp_event *e)
       fullscreened = false;
     }
     int key_num = e->key_code - SAPP_KEYCODE_0;
-    int target_box = key_num - 1;
-    if (target_box < BoxLast && target_box >= 0)
+    int target_slot = key_num - 1;
+    if (target_slot <= TOOLBAR_SLOTS && target_slot >= 0)
     {
-      attempt_to_build(target_box);
+      cur_toolbar_slot = target_slot;
     }
 
     if (!mouse_frozen)

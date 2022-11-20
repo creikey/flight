@@ -13,6 +13,8 @@
 #define PLAYER_JETPACK_SPICE_PER_SECOND 0.1f
 #define SCANNER_ENERGY_USE 0.05f
 #define MAX_HAND_REACH 1.0f
+#define SCANNER_SCAN_RATE 1.0f
+#define SCANNER_RADIUS 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
 #define BOX_MASS 1.0f
@@ -59,6 +61,9 @@
 #define SERVER_PORT 2551
 #define LOCAL_INPUT_QUEUE_MAX 90 // please god let you not have more than 90 frames of game latency
 #define INPUT_QUEUE_MAX 15
+
+// fucks up serialization if you change this, fix it if you do that!
+#define BOX_UNLOCKS_TYPE uint64_t
 
 // cross platform threadlocal variables
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
@@ -130,6 +135,7 @@ typedef sgp_point P2;
 
 enum BoxType
 {
+  BoxInvalid,  // zero initialized box is invalid!
   BoxHullpiece,
   BoxThruster,
   BoxBattery,
@@ -231,32 +237,42 @@ typedef struct Entity
 
   // boxes
   bool is_box;
-  bool is_platonic; // can't be destroyed, unaffected by physical forces
-  bool always_visible; // always serialized to the player
-  
-  
   enum BoxType box_type;
-  EntityID next_box;
+  bool is_platonic; // can't be destroyed, unaffected by physical forces
+  bool always_visible; // always serialized to the player. @Robust check if not used
+  EntityID next_box; // for the grid!
   EntityID prev_box; // doubly linked so can remove in middle of chain
   enum CompassRotation compass_rotation;
   bool indestructible;
+  
+  // used by medbay and cockpit
+  EntityID player_who_is_inside_of_me; 
+  
+  // only serialized when box_type is thruster
   float wanted_thrust; // the thrust command applied to the thruster
   float thrust;        // the actual thrust it can provide based on energy sources in the grid
-  float energy_used;   // battery, between 0 battery capacity. You have to look through code to figure out what that is! haha sucker!
-  float sun_amount;    // solar panel, between 0 and 1
-  EntityID player_who_is_inside_of_me;
   
-  // only updated when it's a scanner
+  // only serialized when box_type is battery
+  float energy_used;   // battery, between 0 battery capacity. You have to look through code to figure out what that is! haha sucker!
+  
+  // only serialized when box_type is solar panel
+  float sun_amount;    // solar panel, between 0 and 1
+  
+  // scanner only stuff!
+  EntityID currently_scanning;
+  float currently_scanning_progress; // when 1.0, scans it!
+  BOX_UNLOCKS_TYPE blueprints_learned; // @Robust make this same type as blueprints
   float scanner_head_rotate_speed; // not serialized, cosmetic
   float scanner_head_rotate;
   V2 platonic_nearest_direction; // normalized
   float platonic_detection_strength; // from zero to one
 } Entity;
 
+
 typedef struct Player
 {
   bool connected;
-  uint64_t box_unlocks; // each bit is that box's unlock
+  BOX_UNLOCKS_TYPE box_unlocks; // each bit is that box's unlock
   enum Squad squad;
   EntityID entity;
   EntityID last_used_medbay;
@@ -267,7 +283,7 @@ typedef struct GameState
 {
   cpSpace *space;
 
-  double time; // @Robust separate tick integer not prone to precision issues
+  double time; // @Robust separate tick integer not prone to precision issues. Could be very large as is saved to disk!
 
   V2 goldpos;
 
@@ -351,7 +367,7 @@ void initialize(struct GameState *gs, void *entity_arena, size_t entity_arena_si
 void destroy(struct GameState *gs);
 void process_fixed_timestep(GameState *gs);
 void process(struct GameState *gs, float dt); // does in place
-Entity *closest_to_point_in_radius(struct GameState *gs, V2 point, float radius);
+Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, float radius, bool(*filter_func)(Entity*));
 uint64_t tick(struct GameState *gs);
 
 // all of these return if successful or not
@@ -376,6 +392,7 @@ void entity_destroy(GameState *gs, Entity *e);
 // grid
 void grid_create(struct GameState *gs, Entity *e);
 void box_create(struct GameState *gs, Entity *new_box, Entity *grid, V2 pos);
+Entity *box_grid(Entity *box);
 V2 grid_com(Entity *grid);
 V2 grid_vel(Entity *grid);
 V2 box_vel(Entity *box);

@@ -73,22 +73,29 @@ Entity *get_entity(GameState *gs, EntityID id)
   return to_return;
 }
 
-static uint64_t box_unlock_number(enum BoxType box)
+static BOX_UNLOCKS_TYPE box_unlock_number(enum BoxType box)
 {
-  assert((uint64_t)box < 64);
-  return (uint64_t)((uint64_t)1 << ((uint64_t)box));
+  assert((BOX_UNLOCKS_TYPE)box < 64);
+  return (BOX_UNLOCKS_TYPE)((BOX_UNLOCKS_TYPE)1 << ((BOX_UNLOCKS_TYPE)box));
+}
+
+static bool learned_boxes_has_box(BOX_UNLOCKS_TYPE learned, enum BoxType box)
+{
+  return (learned & box_unlock_number(box)) > 0;
 }
 
 void unlock_box(Player *player, enum BoxType box)
 {
   assert(box < MAX_BOX_TYPES);
+  assert(box != BoxInvalid);
   player->box_unlocks |= box_unlock_number(box);
 }
 
 bool box_unlocked(Player *player, enum BoxType box)
 {
   assert(box < MAX_BOX_TYPES);
-  return (player->box_unlocks & box_unlock_number(box)) > 0;
+  if(box == BoxInvalid) return false;
+  return learned_boxes_has_box(player->box_unlocks, box);
 }
 
 EntityID get_id(GameState *gs, Entity *e)
@@ -611,6 +618,8 @@ float entity_angular_velocity(Entity *grid)
 }
 Entity *box_grid(Entity *box)
 {
+  if(box == NULL) return NULL;
+  assert(box->is_box);
   return (Entity *)cpBodyGetUserData(cpShapeGetBody(box->shape));
 }
 // in local space
@@ -787,18 +796,6 @@ SerMaybeFailure ser_var(SerState *ser, char *var_pointer, size_t var_size, const
 enum GameVersion
 {
   VInitial,
-  VAddedTest,
-  VAddedSerToDisk,
-  VRemovedTest,
-  VChangedVectorSerializing,
-  VAddedLastUsedMedbay,
-  VAddedSquads,
-  VAddedSquadInvites,
-  VRemovedTimeFromDiskSave,       // did this to avoid wayy too big a time causing precision problems
-  VReallyRemovedTimeFromDiskSave, // apparently last one didn't work
-  VRemovedInsideOfMe,
-  VSwitchedToUnlocks,
-  VAddedPlatonic,
   VMax, // this minus one will be the version used
 };
 
@@ -839,12 +836,9 @@ SerMaybeFailure ser_inputframe(SerState *ser, InputFrame *i)
   SER_VAR(&i->take_over_squad);
   SER_ASSERT(i->take_over_squad >= 0 || i->take_over_squad == -1);
   SER_ASSERT(i->take_over_squad < SquadLast);
-  if (ser->version >= VAddedSquadInvites)
-  {
-    SER_VAR(&i->accept_cur_squad_invite);
-    SER_VAR(&i->reject_cur_squad_invite);
-    SER_MAYBE_RETURN(ser_entityid(ser, &i->invite_this_player));
-  }
+  SER_VAR(&i->accept_cur_squad_invite);
+  SER_VAR(&i->reject_cur_squad_invite);
+  SER_MAYBE_RETURN(ser_entityid(ser, &i->invite_this_player));
 
   SER_VAR(&i->seat_action);
   SER_MAYBE_RETURN(ser_V2(ser, &i->hand_pos));
@@ -863,20 +857,11 @@ SerMaybeFailure ser_player(SerState *ser, Player *p)
   SER_VAR(&p->connected);
   if (p->connected)
   {
-    if (ser->version >= VSwitchedToUnlocks)
-    {
-      SER_VAR(&p->box_unlocks);
-    }
-    else
-    {
-      bool throwaway;
-      SER_VAR_NAME(&throwaway, "&p->unlocked_bombs");
-    }
-    if (ser->version >= VAddedSquads)
-      SER_VAR(&p->squad);
+    SER_VAR(&p->box_unlocks);
+
+    SER_VAR(&p->squad);
     SER_MAYBE_RETURN(ser_entityid(ser, &p->entity));
-    if (ser->version >= VAddedLastUsedMedbay)
-      SER_MAYBE_RETURN(ser_entityid(ser, &p->last_used_medbay));
+    SER_MAYBE_RETURN(ser_entityid(ser, &p->last_used_medbay));
     SER_MAYBE_RETURN(ser_inputframe(ser, &p->input));
   }
 
@@ -888,10 +873,6 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   SER_VAR(&e->no_save_to_disk); // @Robust this is always false when saving to disk?
   SER_VAR(&e->generation);
   SER_VAR(&e->damage);
-
-  int test;
-  if (ser->version < VRemovedTest && ser->version >= VAddedTest)
-    SER_VAR(&test);
 
   bool has_body = ser->serializing && e->body != NULL;
   SER_VAR(&has_body);
@@ -922,14 +903,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     V2 shape_pos;
     if (ser->serializing)
       shape_pos = entity_shape_pos(e);
-    if (ser->version < VChangedVectorSerializing)
-    {
-      SER_VAR(&shape_pos);
-    }
-    else
-    {
-      SER_MAYBE_RETURN(ser_V2(ser, &shape_pos));
-    }
+    SER_MAYBE_RETURN(ser_V2(ser, &shape_pos));
 
     float shape_mass;
     if (ser->serializing)
@@ -958,10 +932,8 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_ASSERT(e->no_save_to_disk);
 
     SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
-    if (ser->version >= VAddedSquads)
-      SER_VAR(&e->presenting_squad);
-    if (ser->version >= VAddedSquadInvites)
-      SER_VAR(&e->squad_invited_to);
+    SER_VAR(&e->presenting_squad);
+    SER_VAR(&e->squad_invited_to);
     SER_VAR(&e->goldness);
   }
 
@@ -984,37 +956,39 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   if (e->is_box)
   {
     SER_VAR(&e->box_type);
+    SER_VAR(&e->is_platonic);
     SER_VAR(&e->always_visible);
-
-    if (ser->version >= VAddedPlatonic)
-      SER_VAR(&e->is_platonic);
-
-    if (ser->version <= VSwitchedToUnlocks)
-    {
-      bool throwaway;
-      SER_VAR_NAME(&throwaway, "&e->is_explosion_unlock");
-    }
     SER_MAYBE_RETURN(ser_entityid(ser, &e->next_box));
     SER_MAYBE_RETURN(ser_entityid(ser, &e->prev_box));
     SER_VAR(&e->compass_rotation);
     SER_VAR(&e->indestructible);
-    SER_VAR(&e->thrust);
-    SER_VAR(&e->wanted_thrust);
-    SER_VAR(&e->energy_used);
-    SER_VAR(&e->sun_amount);
-    if (ser->version >= VAddedPlatonic)
+    switch (e->box_type)
     {
+    case BoxMedbay:
+    case BoxCockpit:
+      if (!ser->save_or_load_from_disk)
+        SER_MAYBE_RETURN(ser_entityid(ser, &e->player_who_is_inside_of_me));
+      break;
+    case BoxThruster:
+      SER_VAR(&e->thrust);
+      SER_VAR(&e->wanted_thrust);
+      break;
+    case BoxBattery:
+      SER_VAR(&e->energy_used);
+      break;
+    case BoxSolarPanel:
+      SER_VAR(&e->sun_amount);
+      break;
+    case BoxScanner:
+      SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_scanning));
+      SER_VAR(&e->currently_scanning_progress);
+      SER_VAR(&e->blueprints_learned);
       SER_VAR(&e->scanner_head_rotate);
       SER_VAR(&e->platonic_nearest_direction);
       SER_VAR(&e->platonic_detection_strength);
-    }
-
-    if (ser->version >= VRemovedInsideOfMe && ser->save_or_load_from_disk)
-    {
-    }
-    else
-    {
-      SER_MAYBE_RETURN(ser_entityid(ser, &e->player_who_is_inside_of_me));
+      break;
+    default:
+      break;
     }
   }
 
@@ -1094,13 +1068,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
   SER_ASSERT(cur_next_entity <= ser->max_entity_index);
 
   SER_VAR(&s->your_player);
-  if (ser->version >= VReallyRemovedTimeFromDiskSave && ser->save_or_load_from_disk)
-  {
-  }
-  else
-  {
-    SER_VAR(&gs->time);
-  }
+  SER_VAR(&gs->time);
 
   SER_MAYBE_RETURN(ser_V2(ser, &gs->goldpos));
 
@@ -1389,10 +1357,15 @@ bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, uns
 // has to be global var because can only get this information
 static THREADLOCAL cpShape *closest_to_point_in_radius_result = NULL;
 static THREADLOCAL float closest_to_point_in_radius_result_largest_dist = 0.0f;
+static THREADLOCAL bool (*closest_to_point_in_radius_filter_func)(Entity *);
 static void closest_point_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
 {
   assert(points->count == 1);
-  if (!cp_shape_entity(shape)->is_box)
+  Entity *e = cp_shape_entity(shape);
+  if (!e->is_box)
+    return;
+
+  if (closest_to_point_in_radius_filter_func != NULL && !closest_to_point_in_radius_filter_func(e))
     return;
   float dist = V2length(cp_to_v2(cpvsub(points->points[0].pointA, points->points[0].pointB)));
   // float dist = -points->points[0].distance;
@@ -1403,11 +1376,13 @@ static void closest_point_callback_func(cpShape *shape, cpContactPointSet *point
   }
 }
 
-Entity *closest_to_point_in_radius(GameState *gs, V2 point, float radius)
+// filter func null means everything is ok, if it's not null and returns false, that means
+// exclude it from the selection. This returns the closest box entity!
+Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, float radius, bool (*filter_func)(Entity *))
 {
   closest_to_point_in_radius_result = NULL;
   closest_to_point_in_radius_result_largest_dist = 0.0f;
-
+  closest_to_point_in_radius_filter_func = filter_func;
   cpBody *tmpbody = cpBodyNew(0.0f, 0.0f);
   cpShape *circle = cpCircleShapeNew(tmpbody, radius, v2_to_cp(point));
   cpSpaceShapeQuery(gs->space, circle, closest_point_callback_func, NULL);
@@ -1418,10 +1393,20 @@ Entity *closest_to_point_in_radius(GameState *gs, V2 point, float radius)
   if (closest_to_point_in_radius_result != NULL)
   {
     // @Robust query here for only boxes that are part of ships, could get nasty...
-    return cp_body_entity(cpShapeGetBody(closest_to_point_in_radius_result));
+    return cp_shape_entity(closest_to_point_in_radius_result);
   }
 
   return NULL;
+}
+
+static THREADLOCAL BOX_UNLOCKS_TYPE scanner_has_learned = 0;
+static bool scanner_filter(Entity *e)
+{
+  if (!e->is_box)
+    return false;
+  if (learned_boxes_has_box(scanner_has_learned, e->box_type))
+    return false;
+  return true;
 }
 
 static float cur_explosion_damage = 0.0f;
@@ -1474,7 +1459,7 @@ uint64_t tick(GameState *gs)
 
 Entity *grid_to_build_on(GameState *gs, V2 world_hand_pos)
 {
-  return closest_to_point_in_radius(gs, world_hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP);
+  return box_grid(closest_box_to_point_in_radius(gs, world_hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP, NULL));
 }
 
 V2 potentially_snap_hand_pos(GameState *gs, V2 world_hand_pos)
@@ -1561,7 +1546,7 @@ EntityID create_initial_world(GameState *gs)
   bool indestructible = false;
   Entity *grid = new_entity(gs);
   grid_create(gs, grid);
-  entity_set_pos(grid, (V2){-16.0f, 0.0f});
+  entity_set_pos(grid, (V2){-5.0f, 0.0f});
   entity_ensure_in_orbit(grid);
   Entity *explosion_box = new_entity(gs);
   box_create(gs, explosion_box, grid, (V2){0});
@@ -1796,7 +1781,7 @@ void process(GameState *gs, float dt)
           grid_remove_box(gs, cur_grid, cur_box);
         }
       }
-      else
+      else if(box_unlocked(player, player->input.build_type))
       {
         // creating a box
         p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
@@ -1821,6 +1806,7 @@ void process(GameState *gs, float dt)
           grid_correct_for_holes(gs, target_grid); // no holey ship for you!
           new_box->box_type = player->input.build_type;
           new_box->compass_rotation = player->input.build_rotation;
+          if(new_box->box_type == BoxScanner) new_box->blueprints_learned = player->box_unlocks;
           if (new_box->box_type == BoxBattery)
             new_box->energy_used = BATTERY_CAPACITY;
         }
@@ -1954,7 +1940,7 @@ void process(GameState *gs, float dt)
         }
         if (cur_box->box_type == BoxScanner)
         {
-          // set the nearest platonic solid!
+          // set the nearest platonic solid! only on server as only the server sees everything
           if (gs->server_side_computing)
           {
             float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, SCANNER_ENERGY_USE * dt);
@@ -1993,6 +1979,30 @@ void process(GameState *gs, float dt)
               }
             }
           }
+
+          // unlock the nearest platonic solid!
+          scanner_has_learned = cur_box->blueprints_learned;
+          Entity *to_learn = closest_box_to_point_in_radius(gs, entity_pos(cur_box), SCANNER_RADIUS, scanner_filter);
+          if(to_learn != NULL)
+            assert(to_learn->is_box);
+          EntityID new_id = get_id(gs, to_learn);
+          
+          if(!entityids_same(cur_box->currently_scanning, new_id))
+          {
+            cur_box->currently_scanning_progress = 0.0f;
+            cur_box->currently_scanning = new_id;
+          }
+          
+          if(to_learn != NULL)
+            cur_box->currently_scanning_progress += dt*SCANNER_SCAN_RATE;
+          else
+            cur_box->currently_scanning_progress = 0.0f;
+          
+          if(cur_box->currently_scanning_progress >= 1.0f)
+          {
+            cur_box->blueprints_learned |= box_unlock_number(to_learn->box_type);
+          }
+          
           cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, cur_box->platonic_detection_strength > 0.0f ? 3.0f : 0.0f, dt * 3.0f);
           cur_box->scanner_head_rotate += cur_box->scanner_head_rotate_speed * dt;
           cur_box->scanner_head_rotate = fmodf(cur_box->scanner_head_rotate, 2.0f * PI);
