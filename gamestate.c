@@ -1690,6 +1690,11 @@ void process(GameState *gs, float dt)
         {
           Entity *potential_seat = cp_shape_entity(result);
           assert(potential_seat->is_box);
+          
+          if(potential_seat->box_type == BoxScanner) // learn everything from the scanner
+          {
+            player->box_unlocks |= potential_seat->blueprints_learned;
+          }
           if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
           {
             // don't let players get inside of cockpits that somebody else is already inside of
@@ -2010,6 +2015,8 @@ void process(GameState *gs, float dt)
           Entity *to_learn = closest_box_to_point_in_radius(gs, entity_pos(cur_box), SCANNER_RADIUS, scanner_filter);
           if (to_learn != NULL)
             assert(to_learn->is_box);
+          
+          
           EntityID new_id = get_id(gs, to_learn);
 
           if (!entityids_same(cur_box->currently_scanning, new_id))
@@ -2018,9 +2025,12 @@ void process(GameState *gs, float dt)
             cur_box->currently_scanning = new_id;
           }
 
+          float target_head_rotate_speed =  cur_box->platonic_detection_strength > 0.0f ? 3.0f : 0.0f;
           if (to_learn != NULL)
+          {
             cur_box->currently_scanning_progress += dt * SCANNER_SCAN_RATE;
-          else
+            target_head_rotate_speed *= 30.0f*cur_box->currently_scanning_progress;
+          } else
             cur_box->currently_scanning_progress = 0.0f;
 
           if (cur_box->currently_scanning_progress >= 1.0f)
@@ -2028,7 +2038,7 @@ void process(GameState *gs, float dt)
             cur_box->blueprints_learned |= box_unlock_number(to_learn->box_type);
           }
 
-          cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, cur_box->platonic_detection_strength > 0.0f ? 3.0f : 0.0f, dt * 3.0f);
+          cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed,target_head_rotate_speed, dt * 3.0f);
           cur_box->scanner_head_rotate += cur_box->scanner_head_rotate_speed * dt;
           cur_box->scanner_head_rotate = fmodf(cur_box->scanner_head_rotate, 2.0f * PI);
         }
