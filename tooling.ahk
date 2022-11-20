@@ -9,16 +9,11 @@ SetWorkingDir, %A_ScriptDir%
 
 ^b::
 WinKill, Flight Hosting
-Sleep, 20
-WinActivate flight.rdbg
-Sleep 20
-Send, {Shift down}{F5}{Shift up}
-Send, {F5}
 WinActivate, flightbuild
 If WinActive("flightbuild")
 {
     Send, {Enter}
-    Send, msbuild{Enter}
+    Send, remedybg continue-execution && sleep 0.1 && remedybg.exe stop-debugging && msbuild && remedybg.exe start-debugging {Enter}
 }
 return
 

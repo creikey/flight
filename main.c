@@ -671,7 +671,7 @@ static void ui(bool draw, float dt, float width, float height)
   static bool picking_new_boxtype = false;
   static float pick_opacity = 0.0f;
   {
-    if(keypressed[SAPP_KEYCODE_ESCAPE].pressed)
+    if (keypressed[SAPP_KEYCODE_ESCAPE].pressed)
       picking_new_boxtype = false;
     AABB pick_modal = (AABB){
         .x = width * 0.25f,
@@ -795,9 +795,15 @@ static void ui(bool draw, float dt, float width, float height)
     no_size = lerp(no_size, no_hovered ? 75.0f : 50.0f, dt * 9.0f);
 
     if (invited && build_pressed && yes_hovered)
+    {
       accept_invite = true;
+      build_pressed = false;
+    }
     if (invited && build_pressed && no_hovered)
+    {
       reject_invite = true;
+      build_pressed = false;
+    }
 
     if (draw)
     {
@@ -1761,7 +1767,7 @@ static void frame(void)
                 sgp_set_image(0, image_solarpanel_charging);
                 sgp_set_color(1.0f, 1.0f, 1.0f, b->sun_amount);
                 pipeline_scope(goodpixel_pipeline)
-                  draw_texture_centered(entity_pos(b), BOX_SIZE);
+                    draw_texture_centered(entity_pos(b), BOX_SIZE);
                 sgp_reset_image(0);
                 sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f - b->sun_amount);
                 /* Color to_set = colhexcode(0xeb9834);
@@ -1797,7 +1803,7 @@ static void frame(void)
                 set_color(WHITE);
               }
 
-              if(b->box_type == BoxScanner)
+              if (b->box_type == BoxScanner)
               {
                 set_color(BLUE);
                 draw_circle(entity_pos(b), SCANNER_RADIUS);

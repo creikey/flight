@@ -323,7 +323,6 @@ void create_player(Player *player)
   unlock_box(player, BoxMedbay);
   unlock_box(player, BoxSolarPanel);
   unlock_box(player, BoxScanner);
-
 }
 
 void create_player_entity(GameState *gs, Entity *e)
@@ -1524,7 +1523,7 @@ float batteries_use_energy(GameState *gs, Entity *grid, float *energy_left_over,
 
 float sun_gravity_at_point(V2 p)
 {
-  if(V2length(V2sub(p, SUN_POS)) > SUN_NO_MORE_ELECTRICITY_OR_GRAVITY)
+  if (V2length(V2sub(p, SUN_POS)) > SUN_NO_MORE_ELECTRICITY_OR_GRAVITY)
     return 0.0f;
   return SUN_GRAVITY_STRENGTH;
 }
@@ -1532,7 +1531,7 @@ float sun_gravity_at_point(V2 p)
 void entity_ensure_in_orbit(Entity *e)
 {
   assert(e->body != NULL);
-  
+
   cpVect pos = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
   cpFloat r = cpvlength(pos);
   cpFloat v = cpfsqrt(sun_gravity_at_point(cp_to_v2(pos)) / r) / r;
@@ -1548,7 +1547,7 @@ V2 box_vel(Entity *box)
 
 void create_station(GameState *gs, V2 pos, enum BoxType platonic_type)
 {
-  
+
 #define BOX_AT_TYPE(grid, pos, type)      \
   {                                       \
     Entity *box = new_entity(gs);         \
@@ -1598,10 +1597,9 @@ void create_initial_world(GameState *gs)
   create_station(gs, (V2){-5.0f,0.0f}, BoxExplosive);
   create_station(gs, (V2){0.0f, 5.0f}, BoxGyroscope);
 #else
-  create_station(gs, (V2){-50.0f,0.0f}, BoxExplosive);
+  create_station(gs, (V2){-50.0f, 0.0f}, BoxExplosive);
   create_station(gs, (V2){0.0f, 100.0f}, BoxGyroscope);
 #endif
-  
 }
 
 void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
@@ -1765,10 +1763,10 @@ void process(GameState *gs, float dt)
         player->input.rotation = 0.0f;
       }
       Entity *seat_inside_of = get_entity(gs, p->currently_inside_of_box);
-      
+
       // strange rare bug I saw happen, related to explosives, but no idea how to
       // reproduce. @Robust put a breakpoint here, reproduce, and fix it!
-      if(seat_inside_of != NULL && !seat_inside_of->is_box)
+      if (seat_inside_of != NULL && !seat_inside_of->is_box)
       {
         Log("Strange thing happened where player was in non box seat!\n");
         seat_inside_of = NULL;
@@ -1804,12 +1802,12 @@ void process(GameState *gs, float dt)
           {
             if (cur->box_type == BoxThruster)
             {
-              
+
               float wanted_thrust = -V2dot(target_direction, box_facing_vector(cur));
               wanted_thrust = clamp01(wanted_thrust);
               cur->wanted_thrust = wanted_thrust;
             }
-            if(cur->box_type == BoxGyroscope)
+            if (cur->box_type == BoxGyroscope)
             {
               cur->wanted_thrust = rotation_this_tick;
             }
@@ -1888,11 +1886,12 @@ void process(GameState *gs, float dt)
     if (!e->exists)
       continue;
 
-    if (e->body != NULL)
+    // sun processing
     {
-      cpVect p = cpvsub(cpBodyGetPosition(e->body), v2_to_cp(SUN_POS));
-      cpFloat sqdist = cpvlengthsq(p);
-      if (sqdist > (INSTANT_DEATH_DISTANCE_FROM_SUN * INSTANT_DEATH_DISTANCE_FROM_SUN))
+
+      cpVect pos_rel_sun = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
+      cpFloat sqdist = cpvlengthsq(pos_rel_sun);
+      if (e->body != NULL && sqdist > (INSTANT_DEATH_DISTANCE_FROM_SUN * INSTANT_DEATH_DISTANCE_FROM_SUN))
       {
         bool platonic_found = false;
         if (e->is_grid)
@@ -1909,7 +1908,7 @@ void process(GameState *gs, float dt)
         if (platonic_found)
         {
           cpBody *body = e->body;
-          cpBodySetVelocity(body, cpvmult(cpBodyGetVelocity(body), -1.0));
+          cpBodySetVelocity(body, cpvmult(cpBodyGetVelocity(body), -0.5));
           cpVect rel_to_sun = cpvsub(cpBodyGetPosition(body), v2_to_cp(SUN_POS));
           cpBodySetPosition(body, cpvadd(v2_to_cp(SUN_POS), cpvmult(cpvnormalize(rel_to_sun), INSTANT_DEATH_DISTANCE_FROM_SUN)));
         }
@@ -1919,14 +1918,20 @@ void process(GameState *gs, float dt)
         }
         continue;
       }
-      if (sqdist < (SUN_RADIUS * SUN_RADIUS))
+      if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
       {
-        e->damage += 10.0f * dt;
+        sqdist = cpvlengthsq(cpvsub(v2_to_cp(entity_pos(e)), v2_to_cp(SUN_POS)));
+        if (sqdist < (SUN_RADIUS * SUN_RADIUS))
+        {
+          e->damage += 10.0f * dt;
+        }
       }
-      
-      cpVect g = cpvmult(p, -sun_gravity_at_point(entity_pos(e)) / (sqdist * cpfsqrt(sqdist)));
 
-      cpBodyUpdateVelocity(e->body, g, 1.0f, dt);
+      if (e->body != NULL)
+      {
+        cpVect g = cpvmult(pos_rel_sun, -sun_gravity_at_point(entity_pos(e)) / (sqdist * cpfsqrt(sqdist)));
+        cpBodyUpdateVelocity(e->body, g, 1.0f, dt);
+      }
     }
 
     if (e->is_explosion)
@@ -1971,9 +1976,9 @@ void process(GameState *gs, float dt)
         if (cur_box->box_type == BoxSolarPanel)
         {
           cur_box->sun_amount = clamp01(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(SUN_POS, entity_pos(cur_box)))));
-          
+
           // less sun the farther away you are!
-          cur_box->sun_amount *= lerp(1.0f, 0.0f, clamp01(V2length(V2sub(entity_pos(cur_box), SUN_POS))/SUN_NO_MORE_ELECTRICITY_OR_GRAVITY));
+          cur_box->sun_amount *= lerp(1.0f, 0.0f, clamp01(V2length(V2sub(entity_pos(cur_box), SUN_POS)) / SUN_NO_MORE_ELECTRICITY_OR_GRAVITY));
           energy_to_add += cur_box->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
         }
       }
@@ -2000,7 +2005,7 @@ void process(GameState *gs, float dt)
       {
         if (cur_box->box_type == BoxThruster)
         {
-          
+
           float energy_to_consume = cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
           if (energy_to_consume > 0.0f)
           {
@@ -2011,16 +2016,16 @@ void process(GameState *gs, float dt)
               cpBodyApplyForceAtWorldPoint(grid->body, v2_to_cp(thruster_force(cur_box)), v2_to_cp(entity_pos(cur_box)));
           }
         }
-        if(cur_box->box_type == BoxGyroscope)
+        if (cur_box->box_type == BoxGyroscope)
         {
-          float energy_to_consume = fabsf(cur_box->wanted_thrust * GYROSCOPE_ENERGY_USED_PER_SECOND* dt);
+          float energy_to_consume = fabsf(cur_box->wanted_thrust * GYROSCOPE_ENERGY_USED_PER_SECOND * dt);
           if (energy_to_consume > 0.0f)
           {
             cur_box->thrust = 0.0f;
             float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
             cur_box->thrust = (1.0f - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
             if (fabsf(cur_box->thrust) >= 0.0f)
-              cpBodySetTorque(grid->body, cpBodyGetTorque(grid->body) + cur_box->thrust*GYROSCOPE_TORQUE);
+              cpBodySetTorque(grid->body, cpBodyGetTorque(grid->body) + cur_box->thrust * GYROSCOPE_TORQUE);
           }
         }
         if (cur_box->box_type == BoxMedbay)
