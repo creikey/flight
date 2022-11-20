@@ -111,13 +111,13 @@ static sg_image image_scanner_head;
 static sg_image image_itemswitch;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
-  BoxHullpiece,
-  BoxThruster,
-  BoxBattery,
-  BoxCockpit,
-  BoxMedbay,
-  BoxSolarPanel,
-  BoxScanner,
+    BoxHullpiece,
+    BoxThruster,
+    BoxBattery,
+    BoxCockpit,
+    BoxMedbay,
+    BoxSolarPanel,
+    BoxScanner,
 };
 static int cur_toolbar_slot = 0;
 static int cur_editing_rotation = Right;
@@ -146,7 +146,6 @@ static struct BoxInfo
   enum BoxType type;
   const char *image_path;
   sg_image image;
-  bool needs_tobe_unlocked;
 } boxes[] = {
     // if added to here will show up in toolbar, is placeable
     {
@@ -176,12 +175,15 @@ static struct BoxInfo
     {
         .type = BoxExplosive,
         .image_path = "loaded/explosive.png",
-        .needs_tobe_unlocked = true,
     },
     {
         .type = BoxScanner,
         .image_path = "loaded/scanner_base.png",
-        .needs_tobe_unlocked = false,
+    },
+    {
+        .type = BoxGyroscope,
+        .image_path = "loaded/gyroscope.png",
+
     },
 };
 #define ENTITIES_ITER(cur)                                                \
@@ -731,11 +733,11 @@ static void ui(bool draw, float dt, float width, float height)
                                                 .height = item_height,
                                             },
                                             mouse_pos);
-        
-        item_scaling[i] = lerp(item_scaling[i], item_being_hovered ? 1.3f : 1.0f, dt*4.0f);
+
+        item_scaling[i] = lerp(item_scaling[i], item_being_hovered ? 1.3f : 1.0f, dt * 4.0f);
 
         struct BoxInfo info = boxes[i];
-        if(item_being_hovered && build_pressed && picking_new_boxtype) 
+        if (item_being_hovered && build_pressed && picking_new_boxtype)
         {
           toolbar[cur_toolbar_slot] = info.type;
           build_pressed = false;
@@ -1167,7 +1169,7 @@ static void ui(bool draw, float dt, float width, float height)
             if (toolbar[i] != BoxInvalid)
             {
               struct BoxInfo info = boxinfo(toolbar[i]);
-              if(can_build(info.type))
+              if (can_build(info.type))
                 sgp_set_image(0, info.image);
               else
                 sgp_set_image(0, image_mystery);
@@ -1448,6 +1450,7 @@ static void frame(void)
       if (V2length(input) > 0.0)
         input = V2normalize(input);
       cur_input_frame.movement = input;
+      cur_input_frame.rotation = (float)keydown[SAPP_KEYCODE_E] - (float)keydown[SAPP_KEYCODE_Q];
 
       if (interact_pressed)
         cur_input_frame.seat_action = interact_pressed;
@@ -1772,7 +1775,8 @@ static void frame(void)
               if (b->indestructible)
               {
                 sgp_set_color(0.2f, 0.2f, 0.2f, 1.0f);
-              } else if(b->is_platonic)
+              }
+              else if (b->is_platonic)
               {
                 set_color(GOLD);
               }
@@ -1853,10 +1857,15 @@ static void frame(void)
         sgp_set_image(0, image_sun);
         draw_texture_centered((V2){0}, SUN_RADIUS * 2.0f);
         sgp_reset_image(0);
+        
+        // can draw at 0,0 because everything relative to sun now!
 
         // sun DEATH RADIUS
         set_color(RED);
         draw_circle((V2){0}, INSTANT_DEATH_DISTANCE_FROM_SUN);
+        
+        set_color(BLUE);
+        draw_circle((V2){0}, SUN_NO_MORE_ELECTRICITY_OR_GRAVITY);
       }
 
       sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);

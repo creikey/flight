@@ -9,8 +9,12 @@
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
 #define PLAYER_JETPACK_FORCE 1.5f
+#define PLAYER_JETPACK_TORQUE 0.05f
 // #define PLAYER_JETPACK_FORCE 20.0f
-#define PLAYER_JETPACK_SPICE_PER_SECOND 0.1f
+// distance at which things become geostationary and no more solar power!
+#define SUN_NO_MORE_ELECTRICITY_OR_GRAVITY 100.0f
+#define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
+#define PLAYER_JETPACK_SPICE_PER_SECOND 0.2f
 #define SCANNER_ENERGY_USE 0.05f
 #define MAX_HAND_REACH 1.0f
 #define SCANNER_SCAN_RATE 0.5f
@@ -21,6 +25,8 @@
 #define COLLISION_DAMAGE_SCALING 0.15f
 #define THRUSTER_FORCE 12.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.005f
+#define GYROSCOPE_ENERGY_USED_PER_SECOND 0.005f
+#define GYROSCOPE_TORQUE 0.5f
 #define VISION_RADIUS 12.0f
 #define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
@@ -32,7 +38,7 @@
 #else
 #define SUN_GRAVITY_STRENGTH (9.0e2f)
 #endif
-#define SOLAR_ENERGY_PER_SECOND 0.04f
+#define SOLAR_ENERGY_PER_SECOND 0.09f
 #define DAMAGE_TO_PLAYER_PER_BLOCK 0.1f
 #define BATTERY_CAPACITY 1.5f
 #define PLAYER_ENERGY_RECHARGE_PER_SECOND 0.2f
@@ -144,6 +150,7 @@ enum BoxType
   BoxSolarPanel,
   BoxExplosive,
   BoxScanner,
+  BoxGyroscope,
   BoxLast,
 };
 
@@ -184,6 +191,7 @@ typedef struct InputFrame
 {
   uint64_t tick;
   V2 movement;
+  float rotation;
 
   int take_over_squad; // -1 means not taking over any squad
   bool accept_cur_squad_invite;
@@ -248,7 +256,8 @@ typedef struct Entity
   // used by medbay and cockpit
   EntityID player_who_is_inside_of_me; 
   
-  // only serialized when box_type is thruster
+  // only serialized when box_type is thruster or gyroscope, used for both. Thrust
+  // can mean rotation thrust!
   float wanted_thrust; // the thrust command applied to the thruster
   float thrust;        // the actual thrust it can provide based on energy sources in the grid
   
@@ -362,7 +371,7 @@ void create_player(Player *player);
 bool box_unlocked(Player *player, enum BoxType box);
 
 // gamestate
-EntityID create_initial_world(GameState *gs);
+void create_initial_world(GameState *gs);
 void initialize(struct GameState *gs, void *entity_arena, size_t entity_arena_size);
 void destroy(struct GameState *gs);
 void process_fixed_timestep(GameState *gs);
@@ -660,4 +669,6 @@ static void set_color(Color c)
   (Color) { .r = 1.0f, .g = 1.0f, .b = 1.0f, .a = 1.0f }
 #define RED \
   (Color) { .r = 1.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f }
+#define BLUE \
+  (Color) { .r = 0.0f, .g = 0.0f, .b = 1.0f, .a = 1.0f }
 #define GOLD colhex(255, 215, 0)

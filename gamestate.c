@@ -323,6 +323,7 @@ void create_player(Player *player)
   unlock_box(player, BoxMedbay);
   unlock_box(player, BoxSolarPanel);
   unlock_box(player, BoxScanner);
+
 }
 
 void create_player_entity(GameState *gs, Entity *e)
@@ -835,6 +836,7 @@ SerMaybeFailure ser_inputframe(SerState *ser, InputFrame *i)
 {
   SER_VAR(&i->tick);
   SER_MAYBE_RETURN(ser_V2(ser, &i->movement));
+  SER_VAR(&i->rotation);
   SER_VAR(&i->take_over_squad);
   SER_ASSERT(i->take_over_squad >= 0 || i->take_over_squad == -1);
   SER_ASSERT(i->take_over_squad < SquadLast);
@@ -972,6 +974,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
         SER_MAYBE_RETURN(ser_entityid(ser, &e->player_who_is_inside_of_me));
       break;
     case BoxThruster:
+    case BoxGyroscope:
       SER_VAR(&e->thrust);
       SER_VAR(&e->wanted_thrust);
       break;
@@ -1519,11 +1522,20 @@ float batteries_use_energy(GameState *gs, Entity *grid, float *energy_left_over,
   return energy_to_use;
 }
 
+float sun_gravity_at_point(V2 p)
+{
+  if(V2length(V2sub(p, SUN_POS)) > SUN_NO_MORE_ELECTRICITY_OR_GRAVITY)
+    return 0.0f;
+  return SUN_GRAVITY_STRENGTH;
+}
+
 void entity_ensure_in_orbit(Entity *e)
 {
+  assert(e->body != NULL);
+  
   cpVect pos = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
   cpFloat r = cpvlength(pos);
-  cpFloat v = cpfsqrt(SUN_GRAVITY_STRENGTH / r) / r;
+  cpFloat v = cpfsqrt(sun_gravity_at_point(cp_to_v2(pos)) / r) / r;
   cpBodySetVelocity(e->body, cpvmult(cpvperp(pos), v));
 }
 
@@ -1534,8 +1546,9 @@ V2 box_vel(Entity *box)
   return cp_to_v2(cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(entity_pos(box))));
 }
 
-EntityID create_initial_world(GameState *gs)
+void create_station(GameState *gs, V2 pos, enum BoxType platonic_type)
 {
+  
 #define BOX_AT_TYPE(grid, pos, type)      \
   {                                       \
     Entity *box = new_entity(gs);         \
@@ -1548,11 +1561,11 @@ EntityID create_initial_world(GameState *gs)
   bool indestructible = false;
   Entity *grid = new_entity(gs);
   grid_create(gs, grid);
-  entity_set_pos(grid, (V2){-5.0f, 0.0f});
+  entity_set_pos(grid, pos);
   entity_ensure_in_orbit(grid);
   Entity *explosion_box = new_entity(gs);
   box_create(gs, explosion_box, grid, (V2){0});
-  explosion_box->box_type = BoxExplosive;
+  explosion_box->box_type = platonic_type;
   explosion_box->is_platonic = true;
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 2, 0}), BoxHullpiece);
@@ -1576,8 +1589,12 @@ EntityID create_initial_world(GameState *gs)
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 2.0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 3.0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 5.0}), BoxExplosive);
+}
 
-  return get_id(gs, grid);
+void create_initial_world(GameState *gs)
+{
+  create_station(gs, (V2){-50.0f,0.0f}, BoxExplosive);
+  create_station(gs, (V2){0.0f, 100.0f}, BoxGyroscope);
 }
 
 void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
@@ -1690,8 +1707,8 @@ void process(GameState *gs, float dt)
         {
           Entity *potential_seat = cp_shape_entity(result);
           assert(potential_seat->is_box);
-          
-          if(potential_seat->box_type == BoxScanner) // learn everything from the scanner
+
+          if (potential_seat->box_type == BoxScanner) // learn everything from the scanner
           {
             player->box_unlocks |= potential_seat->blueprints_learned;
           }
@@ -1725,18 +1742,39 @@ void process(GameState *gs, float dt)
     {
       // no cheating by making movement bigger than length 1
       V2 movement_this_tick = (V2){0};
+      float rotation_this_tick = 0.0f;
       if (V2length(player->input.movement) > 0.0f)
       {
         movement_this_tick = V2scale(V2normalize(player->input.movement), clamp(V2length(player->input.movement), 0.0f, 1.0f));
         player->input.movement = (V2){0};
       }
+      if (fabsf(player->input.rotation) > 0.0f)
+      {
+        rotation_this_tick = player->input.rotation;
+        if (rotation_this_tick > 1.0f)
+          rotation_this_tick = 1.0f;
+        if (rotation_this_tick < -1.0f)
+          rotation_this_tick = -1.0f;
+        player->input.rotation = 0.0f;
+      }
       Entity *seat_inside_of = get_entity(gs, p->currently_inside_of_box);
+      
+      // strange rare bug I saw happen, related to explosives, but no idea how to
+      // reproduce. @Robust put a breakpoint here, reproduce, and fix it!
+      if(seat_inside_of != NULL && !seat_inside_of->is_box)
+      {
+        Log("Strange thing happened where player was in non box seat!\n");
+        seat_inside_of = NULL;
+        p->currently_inside_of_box = (EntityID){0};
+      }
 
       if (seat_inside_of == NULL)
       {
         cpShapeSetFilter(p->shape, PLAYER_SHAPE_FILTER);
         cpBodyApplyForceAtWorldPoint(p->body, v2_to_cp(V2scale(movement_this_tick, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
+        cpBodySetTorque(p->body, rotation_this_tick * PLAYER_JETPACK_TORQUE);
         p->damage += V2length(movement_this_tick) * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
+        p->damage += fabsf(rotation_this_tick) * dt * PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND;
       }
       else
       {
@@ -1757,11 +1795,17 @@ void process(GameState *gs, float dt)
           }
           BOXES_ITER(gs, cur, g)
           {
-            if (cur->box_type != BoxThruster)
-              continue;
-            float wanted_thrust = -V2dot(target_direction, box_facing_vector(cur));
-            wanted_thrust = clamp01(wanted_thrust);
-            cur->wanted_thrust = wanted_thrust;
+            if (cur->box_type == BoxThruster)
+            {
+              
+              float wanted_thrust = -V2dot(target_direction, box_facing_vector(cur));
+              wanted_thrust = clamp01(wanted_thrust);
+              cur->wanted_thrust = wanted_thrust;
+            }
+            if(cur->box_type == BoxGyroscope)
+            {
+              cur->wanted_thrust = rotation_this_tick;
+            }
           }
         }
       }
@@ -1844,11 +1888,11 @@ void process(GameState *gs, float dt)
       if (sqdist > (INSTANT_DEATH_DISTANCE_FROM_SUN * INSTANT_DEATH_DISTANCE_FROM_SUN))
       {
         bool platonic_found = false;
-        if(e->is_grid)
+        if (e->is_grid)
         {
           BOXES_ITER(gs, cur_box, e)
           {
-            if(cur_box->is_platonic)
+            if (cur_box->is_platonic)
             {
               platonic_found = true;
               break;
@@ -1859,7 +1903,7 @@ void process(GameState *gs, float dt)
         {
           cpBody *body = e->body;
           cpBodySetVelocity(body, cpvmult(cpBodyGetVelocity(body), -1.0));
-          cpVect rel_to_sun =  cpvsub(cpBodyGetPosition(body), v2_to_cp(SUN_POS));
+          cpVect rel_to_sun = cpvsub(cpBodyGetPosition(body), v2_to_cp(SUN_POS));
           cpBodySetPosition(body, cpvadd(v2_to_cp(SUN_POS), cpvmult(cpvnormalize(rel_to_sun), INSTANT_DEATH_DISTANCE_FROM_SUN)));
         }
         else
@@ -1872,7 +1916,8 @@ void process(GameState *gs, float dt)
       {
         e->damage += 10.0f * dt;
       }
-      cpVect g = cpvmult(p, -SUN_GRAVITY_STRENGTH / (sqdist * cpfsqrt(sqdist)));
+      
+      cpVect g = cpvmult(p, -sun_gravity_at_point(entity_pos(e)) / (sqdist * cpfsqrt(sqdist)));
 
       cpBodyUpdateVelocity(e->body, g, 1.0f, dt);
     }
@@ -1914,12 +1959,15 @@ void process(GameState *gs, float dt)
       Entity *grid = e;
       // calculate how much energy solar panels provide
       float energy_to_add = 0.0f;
-      BOXES_ITER(gs, cur, grid)
+      BOXES_ITER(gs, cur_box, grid)
       {
-        if (cur->box_type == BoxSolarPanel)
+        if (cur_box->box_type == BoxSolarPanel)
         {
-          cur->sun_amount = clamp01(V2dot(box_facing_vector(cur), V2normalize(V2sub(SUN_POS, entity_pos(cur)))));
-          energy_to_add += cur->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
+          cur_box->sun_amount = clamp01(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(SUN_POS, entity_pos(cur_box)))));
+          
+          // less sun the farther away you are!
+          cur_box->sun_amount *= lerp(1.0f, 0.0f, clamp01(V2length(V2sub(entity_pos(cur_box), SUN_POS))/SUN_NO_MORE_ELECTRICITY_OR_GRAVITY));
+          energy_to_add += cur_box->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
         }
       }
 
@@ -1945,6 +1993,7 @@ void process(GameState *gs, float dt)
       {
         if (cur_box->box_type == BoxThruster)
         {
+          
           float energy_to_consume = cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
           if (energy_to_consume > 0.0f)
           {
@@ -1953,6 +2002,18 @@ void process(GameState *gs, float dt)
             cur_box->thrust = (1.0f - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
             if (cur_box->thrust >= 0.0f)
               cpBodyApplyForceAtWorldPoint(grid->body, v2_to_cp(thruster_force(cur_box)), v2_to_cp(entity_pos(cur_box)));
+          }
+        }
+        if(cur_box->box_type == BoxGyroscope)
+        {
+          float energy_to_consume = fabsf(cur_box->wanted_thrust * GYROSCOPE_ENERGY_USED_PER_SECOND* dt);
+          if (energy_to_consume > 0.0f)
+          {
+            cur_box->thrust = 0.0f;
+            float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
+            cur_box->thrust = (1.0f - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
+            if (fabsf(cur_box->thrust) >= 0.0f)
+              cpBodySetTorque(grid->body, cpBodyGetTorque(grid->body) + cur_box->thrust*GYROSCOPE_TORQUE);
           }
         }
         if (cur_box->box_type == BoxMedbay)
@@ -2015,8 +2076,7 @@ void process(GameState *gs, float dt)
           Entity *to_learn = closest_box_to_point_in_radius(gs, entity_pos(cur_box), SCANNER_RADIUS, scanner_filter);
           if (to_learn != NULL)
             assert(to_learn->is_box);
-          
-          
+
           EntityID new_id = get_id(gs, to_learn);
 
           if (!entityids_same(cur_box->currently_scanning, new_id))
@@ -2025,12 +2085,13 @@ void process(GameState *gs, float dt)
             cur_box->currently_scanning = new_id;
           }
 
-          float target_head_rotate_speed =  cur_box->platonic_detection_strength > 0.0f ? 3.0f : 0.0f;
+          float target_head_rotate_speed = cur_box->platonic_detection_strength > 0.0f ? 3.0f : 0.0f;
           if (to_learn != NULL)
           {
             cur_box->currently_scanning_progress += dt * SCANNER_SCAN_RATE;
-            target_head_rotate_speed *= 30.0f*cur_box->currently_scanning_progress;
-          } else
+            target_head_rotate_speed *= 30.0f * cur_box->currently_scanning_progress;
+          }
+          else
             cur_box->currently_scanning_progress = 0.0f;
 
           if (cur_box->currently_scanning_progress >= 1.0f)
@@ -2038,7 +2099,7 @@ void process(GameState *gs, float dt)
             cur_box->blueprints_learned |= box_unlock_number(to_learn->box_type);
           }
 
-          cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed,target_head_rotate_speed, dt * 3.0f);
+          cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, target_head_rotate_speed, dt * 3.0f);
           cur_box->scanner_head_rotate += cur_box->scanner_head_rotate_speed * dt;
           cur_box->scanner_head_rotate = fmodf(cur_box->scanner_head_rotate, 2.0f * PI);
         }
