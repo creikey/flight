@@ -1772,6 +1772,9 @@ static void frame(void)
               if (b->indestructible)
               {
                 sgp_set_color(0.2f, 0.2f, 0.2f, 1.0f);
+              } else if(b->is_platonic)
+              {
+                set_color(GOLD);
               }
               pipeline_scope(goodpixel_pipeline)
                   draw_texture_centered(entity_pos(b), BOX_SIZE);

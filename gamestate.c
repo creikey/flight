@@ -94,7 +94,8 @@ void unlock_box(Player *player, enum BoxType box)
 bool box_unlocked(Player *player, enum BoxType box)
 {
   assert(box < MAX_BOX_TYPES);
-  if(box == BoxInvalid) return false;
+  if (box == BoxInvalid)
+    return false;
   return learned_boxes_has_box(player->box_unlocks, box);
 }
 
@@ -618,7 +619,8 @@ float entity_angular_velocity(Entity *grid)
 }
 Entity *box_grid(Entity *box)
 {
-  if(box == NULL) return NULL;
+  if (box == NULL)
+    return NULL;
   assert(box->is_box);
   return (Entity *)cpBodyGetUserData(cpShapeGetBody(box->shape));
 }
@@ -1774,14 +1776,14 @@ void process(GameState *gs, float dt)
       if (maybe_box_to_destroy != NULL)
       {
         Entity *cur_box = cp_shape_entity(maybe_box_to_destroy);
-        if (!cur_box->indestructible)
+        if (!cur_box->indestructible && !cur_box->is_platonic)
         {
           Entity *cur_grid = cp_body_entity(cpShapeGetBody(maybe_box_to_destroy));
           p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK * ((BATTERY_CAPACITY - cur_box->energy_used) / BATTERY_CAPACITY);
           grid_remove_box(gs, cur_grid, cur_box);
         }
       }
-      else if(box_unlocked(player, player->input.build_type))
+      else if (box_unlocked(player, player->input.build_type))
       {
         // creating a box
         p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
@@ -1806,7 +1808,8 @@ void process(GameState *gs, float dt)
           grid_correct_for_holes(gs, target_grid); // no holey ship for you!
           new_box->box_type = player->input.build_type;
           new_box->compass_rotation = player->input.build_rotation;
-          if(new_box->box_type == BoxScanner) new_box->blueprints_learned = player->box_unlocks;
+          if (new_box->box_type == BoxScanner)
+            new_box->blueprints_learned = player->box_unlocks;
           if (new_box->box_type == BoxBattery)
             new_box->energy_used = BATTERY_CAPACITY;
         }
@@ -1835,7 +1838,29 @@ void process(GameState *gs, float dt)
       cpFloat sqdist = cpvlengthsq(p);
       if (sqdist > (INSTANT_DEATH_DISTANCE_FROM_SUN * INSTANT_DEATH_DISTANCE_FROM_SUN))
       {
-        entity_destroy(gs, e);
+        bool platonic_found = false;
+        if(e->is_grid)
+        {
+          BOXES_ITER(gs, cur_box, e)
+          {
+            if(cur_box->is_platonic)
+            {
+              platonic_found = true;
+              break;
+            }
+          }
+        }
+        if (platonic_found)
+        {
+          cpBody *body = e->body;
+          cpBodySetVelocity(body, cpvmult(cpBodyGetVelocity(body), -1.0));
+          cpVect rel_to_sun =  cpvsub(cpBodyGetPosition(body), v2_to_cp(SUN_POS));
+          cpBodySetPosition(body, cpvadd(v2_to_cp(SUN_POS), cpvmult(cpvnormalize(rel_to_sun), INSTANT_DEATH_DISTANCE_FROM_SUN)));
+        }
+        else
+        {
+          entity_destroy(gs, e);
+        }
         continue;
       }
       if (sqdist < (SUN_RADIUS * SUN_RADIUS))
@@ -1983,26 +2008,26 @@ void process(GameState *gs, float dt)
           // unlock the nearest platonic solid!
           scanner_has_learned = cur_box->blueprints_learned;
           Entity *to_learn = closest_box_to_point_in_radius(gs, entity_pos(cur_box), SCANNER_RADIUS, scanner_filter);
-          if(to_learn != NULL)
+          if (to_learn != NULL)
             assert(to_learn->is_box);
           EntityID new_id = get_id(gs, to_learn);
-          
-          if(!entityids_same(cur_box->currently_scanning, new_id))
+
+          if (!entityids_same(cur_box->currently_scanning, new_id))
           {
             cur_box->currently_scanning_progress = 0.0f;
             cur_box->currently_scanning = new_id;
           }
-          
-          if(to_learn != NULL)
-            cur_box->currently_scanning_progress += dt*SCANNER_SCAN_RATE;
+
+          if (to_learn != NULL)
+            cur_box->currently_scanning_progress += dt * SCANNER_SCAN_RATE;
           else
             cur_box->currently_scanning_progress = 0.0f;
-          
-          if(cur_box->currently_scanning_progress >= 1.0f)
+
+          if (cur_box->currently_scanning_progress >= 1.0f)
           {
             cur_box->blueprints_learned |= box_unlock_number(to_learn->box_type);
           }
-          
+
           cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, cur_box->platonic_detection_strength > 0.0f ? 3.0f : 0.0f, dt * 3.0f);
           cur_box->scanner_head_rotate += cur_box->scanner_head_rotate_speed * dt;
           cur_box->scanner_head_rotate = fmodf(cur_box->scanner_head_rotate, 2.0f * PI);
