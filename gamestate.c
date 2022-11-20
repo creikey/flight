@@ -1593,8 +1593,15 @@ void create_station(GameState *gs, V2 pos, enum BoxType platonic_type)
 
 void create_initial_world(GameState *gs)
 {
+#if 0
+  Log("Creating debug world\n");
+  create_station(gs, (V2){-5.0f,0.0f}, BoxExplosive);
+  create_station(gs, (V2){0.0f, 5.0f}, BoxGyroscope);
+#else
   create_station(gs, (V2){-50.0f,0.0f}, BoxExplosive);
   create_station(gs, (V2){0.0f, 100.0f}, BoxGyroscope);
+#endif
+  
 }
 
 void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
