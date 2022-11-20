@@ -110,7 +110,15 @@ static sg_image image_solarpanel_charging;
 static sg_image image_scanner_head;
 static sg_image image_itemswitch;
 
-static enum BoxType toolbar[TOOLBAR_SLOTS] = {BoxInvalid};
+static enum BoxType toolbar[TOOLBAR_SLOTS] = {
+  BoxHullpiece,
+  BoxThruster,
+  BoxBattery,
+  BoxCockpit,
+  BoxMedbay,
+  BoxSolarPanel,
+  BoxScanner,
+};
 static int cur_toolbar_slot = 0;
 static int cur_editing_rotation = Right;
 
@@ -727,7 +735,7 @@ static void ui(bool draw, float dt, float width, float height)
         item_scaling[i] = lerp(item_scaling[i], item_being_hovered ? 1.3f : 1.0f, dt*4.0f);
 
         struct BoxInfo info = boxes[i];
-        if(item_being_hovered && build_pressed)
+        if(item_being_hovered && build_pressed && picking_new_boxtype) 
         {
           toolbar[cur_toolbar_slot] = info.type;
           build_pressed = false;
@@ -1159,7 +1167,10 @@ static void ui(bool draw, float dt, float width, float height)
             if (toolbar[i] != BoxInvalid)
             {
               struct BoxInfo info = boxinfo(toolbar[i]);
-              sgp_set_image(0, info.image);
+              if(can_build(info.type))
+                sgp_set_image(0, info.image);
+              else
+                sgp_set_image(0, image_mystery);
               sgp_draw_textured_rect(item_x, item_y, item_width, item_height);
 
               sgp_reset_image(0);
@@ -1670,7 +1681,7 @@ static void frame(void)
       }
 
       // building preview
-      if (currently_building() != BoxInvalid)
+      if (currently_building() != BoxInvalid && can_build(currently_building()))
       {
         sgp_set_color(0.5f, 0.5f, 0.5f,
                       (sinf((float)time * 9.0f) + 1.0f) / 3.0f + 0.2f);
