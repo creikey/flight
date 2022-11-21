@@ -26,6 +26,8 @@
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.005f
 #define GYROSCOPE_ENERGY_USED_PER_SECOND 0.005f
 #define GYROSCOPE_TORQUE 0.5f
+#define CLOAKING_ENERGY_USE 0.1f
+#define CLOAKING_PANEL_SIZE BOX_SIZE*3.0f
 #define VISION_RADIUS 12.0f
 #define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
@@ -151,6 +153,7 @@ enum BoxType
   BoxExplosive,
   BoxScanner,
   BoxGyroscope,
+  BoxCloaking,
   BoxLast,
 };
 
@@ -218,7 +221,13 @@ typedef struct Entity
   float damage;   // used by box and player
   cpBody *body;   // used by grid, player, and box
   cpShape *shape; // must be a box so shape_size can be set appropriately, and serialized
-
+  
+  
+  // players and boxes can be cloaked
+  // If this is within 2 timesteps of the current game time, the entity is invisible. 
+  double time_was_last_cloaked;
+  enum Squad last_cloaked_by_squad;
+  
   // for serializing the shape
   // @Robust remove shape_parent_entity from this struct, use the shape's body to figure out
   // what the shape's parent entity is
@@ -227,7 +236,7 @@ typedef struct Entity
 
   // player
   bool is_player;
-  enum Squad presenting_squad;
+  enum Squad presenting_squad; // also controls what the player can see, because of cloaking!
   EntityID currently_inside_of_box;
   enum Squad squad_invited_to; // if squad none, then no squad invite
   float goldness;              // how much the player is a winner
@@ -245,6 +254,7 @@ typedef struct Entity
 
   // boxes
   bool is_box;
+  enum Squad owning_squad; // which squad owns this box
   enum BoxType box_type;
   bool is_platonic; // can't be destroyed, unaffected by physical forces
   bool always_visible; // always serialized to the player. @Robust check if not used
@@ -266,6 +276,9 @@ typedef struct Entity
   
   // only serialized when box_type is solar panel
   float sun_amount;    // solar panel, between 0 and 1
+  
+  // cloaking only
+  float cloaking_power; // 0.0 if unable to be used because no power, 1.0 if fully cloaking!
   
   // scanner only stuff!
   EntityID currently_scanning;
@@ -292,6 +305,8 @@ typedef struct GameState
 {
   cpSpace *space;
 
+  // @Robust for the integer tick, also store a float for how much time has been processed.
+  // Like a whole timestep then a float for subtimestep
   double time; // @Robust separate tick integer not prone to precision issues. Could be very large as is saved to disk!
 
   V2 goldpos;

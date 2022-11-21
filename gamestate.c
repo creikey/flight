@@ -73,6 +73,28 @@ Entity *get_entity(GameState *gs, EntityID id)
   return to_return;
 }
 
+bool cloaking_active(GameState *gs, Entity *e)
+{
+  // cloaking doesn't work for first 1/2 second of game because when initializing
+  // everything needs to be uncloaked
+  return gs->time >= 0.5 && (gs->time - e->time_was_last_cloaked) <= TIMESTEP * 2.0f;
+}
+
+bool is_cloaked(GameState *gs, Entity *e, Entity *this_players_perspective)
+{
+  assert(this_players_perspective != NULL);
+  assert(this_players_perspective->is_player);
+  bool cloaked = cloaking_active(gs, e);
+  if (e->is_player)
+  {
+    return cloaked && e->presenting_squad != this_players_perspective->presenting_squad;
+  }
+  else
+  {
+    return cloaked && this_players_perspective->presenting_squad != e->last_cloaked_by_squad;
+  }
+}
+
 static BOX_UNLOCKS_TYPE box_unlock_number(enum BoxType box)
 {
   assert((BOX_UNLOCKS_TYPE)box < 64);
@@ -127,6 +149,20 @@ static Entity *cp_body_entity(cpBody *body)
 static GameState *cp_space_gs(cpSpace *space)
 {
   return (GameState *)cpSpaceGetUserData(space);
+}
+
+static GameState *entitys_gamestate(Entity *e)
+{
+  assert(e->body != NULL || e->shape != NULL);
+  if (e->shape != NULL)
+  {
+    return cp_space_gs(cpShapeGetSpace(e->shape));
+  }
+  if (e->body != NULL)
+  {
+    return cp_space_gs(cpBodyGetSpace(e->body));
+  }
+  return NULL;
 }
 
 int grid_num_boxes(GameState *gs, Entity *e)
@@ -316,6 +352,10 @@ void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, V2 pos, V2
 void create_player(Player *player)
 {
   // default box unlocks, required for survival and growth
+#ifdef UNLOCK_ALL
+  for (enum BoxType t = BoxInvalid + 1; t < BoxLast; t++)
+    unlock_box(player, t);
+#else
   unlock_box(player, BoxHullpiece);
   unlock_box(player, BoxThruster);
   unlock_box(player, BoxBattery);
@@ -323,6 +363,7 @@ void create_player(Player *player)
   unlock_box(player, BoxMedbay);
   unlock_box(player, BoxSolarPanel);
   unlock_box(player, BoxScanner);
+#endif
 }
 
 void create_player_entity(GameState *gs, Entity *e)
@@ -609,10 +650,17 @@ V2 grid_snapped_box_pos(Entity *grid, V2 world)
 
   return cp_to_v2(cpBodyLocalToWorld(grid->body, v2_to_cp(local)));
 }
-float entity_rotation(Entity *grid)
+
+// for boxes does not include box's compass rotation
+float entity_rotation(Entity *e)
 {
-  return (float)cpBodyGetAngle(grid->body);
+  assert(e->body != NULL || e->shape != NULL);
+  if (e->body != NULL)
+    return (float)cpBodyGetAngle(e->body);
+  else
+    return (float)cpBodyGetAngle(cpShapeGetBody(e->shape));
 }
+
 float entity_angular_velocity(Entity *grid)
 {
   return (float)cpBodyGetAngularVelocity(grid->body);
@@ -798,6 +846,7 @@ SerMaybeFailure ser_var(SerState *ser, char *var_pointer, size_t var_size, const
 enum GameVersion
 {
   VInitial,
+  VMoreBoxes,
   VMax, // this minus one will be the version used
 };
 
@@ -851,6 +900,14 @@ SerMaybeFailure ser_inputframe(SerState *ser, InputFrame *i)
   SER_ASSERT(i->build_type >= 0);
   SER_ASSERT(i->build_type < BoxLast);
   SER_VAR(&i->build_rotation);
+
+  return ser_ok;
+}
+
+SerMaybeFailure ser_no_player(SerState *ser)
+{
+  bool connected = false;
+  SER_VAR_NAME(&connected, "&p->connected");
 
   return ser_ok;
 }
@@ -929,6 +986,9 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     }
   }
 
+  if (ser->version >= VMoreBoxes && !ser->save_or_load_from_disk)
+    SER_VAR(&e->time_was_last_cloaked);
+
   SER_VAR(&e->is_player);
   if (e->is_player)
   {
@@ -960,6 +1020,10 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   {
     SER_VAR(&e->box_type);
     SER_VAR(&e->is_platonic);
+
+    if (ser->version >= VMoreBoxes)
+      SER_VAR(&e->owning_squad);
+
     SER_VAR(&e->always_visible);
     SER_MAYBE_RETURN(ser_entityid(ser, &e->next_box));
     SER_MAYBE_RETURN(ser_entityid(ser, &e->prev_box));
@@ -990,6 +1054,9 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
       SER_VAR(&e->scanner_head_rotate);
       SER_VAR(&e->platonic_nearest_direction);
       SER_VAR(&e->platonic_detection_strength);
+      break;
+    case BoxCloaking:
+      SER_VAR(&e->cloaking_power);
       break;
     default:
       break;
@@ -1076,12 +1143,19 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 
   SER_MAYBE_RETURN(ser_V2(ser, &gs->goldpos));
 
-  if (!ser->save_or_load_from_disk)
+  if (!ser->save_or_load_from_disk) // don't save player info to disk, this is filled on connection/disconnection
   {
     // @Robust save player data with their ID or something somehow. Like local backup of their account
     for (size_t i = 0; i < MAX_PLAYERS; i++)
     {
-      SER_MAYBE_RETURN(ser_player(ser, &gs->players[i]));
+      if (get_entity(gs, gs->players[i].entity) != NULL && is_cloaked(gs, get_entity(gs, gs->players[i].entity), ser->for_player))
+      {
+        SER_MAYBE_RETURN(ser_no_player(ser));
+      }
+      else
+      {
+        SER_MAYBE_RETURN(ser_player(ser, &gs->players[i]));
+      }
     }
   }
   if (ser->serializing)
@@ -1090,11 +1164,12 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
     for (size_t i = 0; i < gs->cur_next_entity; i++)
     {
       Entity *e = &gs->entities[i];
+#define DONT_SEND_BECAUSE_CLOAKED(entity) (!ser->save_or_load_from_disk && ser->for_player != NULL && is_cloaked(gs, entity, ser->for_player))
 #define SER_ENTITY()       \
   SER_VAR(&entities_done); \
   SER_VAR(&i);             \
   SER_MAYBE_RETURN(ser_entity(ser, gs, e))
-      if (e->exists && !(ser->save_or_load_from_disk && e->no_save_to_disk))
+      if (e->exists && !(ser->save_or_load_from_disk && e->no_save_to_disk) && !DONT_SEND_BECAUSE_CLOAKED(e))
       {
         if (!e->is_box && !e->is_grid)
         {
@@ -1105,10 +1180,14 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
           bool serialized_grid_yet = false;
           // serialize boxes always after bodies, so that by the time the boxes
           // are loaded in the parent body is loaded in and can be referenced.
-          BOXES_ITER(gs, cur, e)
+          BOXES_ITER(gs, cur_box, e)
           {
-            bool this_box_in_range = (ser->save_or_load_from_disk || ser->for_player == NULL || (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur)) < VISION_RADIUS * VISION_RADIUS));
-            if (cur->always_visible)
+            bool this_box_in_range = ser->save_or_load_from_disk;
+            this_box_in_range |= ser->for_player == NULL;
+            this_box_in_range |= (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur_box)) < VISION_RADIUS * VISION_RADIUS); // only in vision radius
+            if (DONT_SEND_BECAUSE_CLOAKED(cur_box))
+              this_box_in_range = false;
+            if (cur_box->always_visible)
               this_box_in_range = true;
             if (this_box_in_range)
             {
@@ -1119,12 +1198,12 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
               }
 
               // serialize this box
-              EntityID cur_id = get_id(gs, cur);
+              EntityID cur_id = get_id(gs, cur_box);
               SER_ASSERT(cur_id.index < gs->max_entities);
               SER_VAR(&entities_done);
               size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. @Robust add debug info in serialization for what size the expected type is, maybe string nameof the type
               SER_VAR_NAME(&the_index, "&i");
-              SER_MAYBE_RETURN(ser_entity(ser, gs, cur));
+              SER_MAYBE_RETURN(ser_entity(ser, gs, cur_box));
             }
           }
         }
@@ -1358,6 +1437,16 @@ bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, uns
   }
 }
 
+static void cloaking_shield_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
+{
+  Entity *from_cloaking_box = (Entity *)data;
+  GameState *gs = entitys_gamestate(from_cloaking_box);
+  Entity *to_cloak = cp_shape_entity(shape);
+
+  to_cloak->time_was_last_cloaked = gs->time;
+  to_cloak->last_cloaked_by_squad = from_cloaking_box->owning_squad;
+}
+
 // has to be global var because can only get this information
 static THREADLOCAL cpShape *closest_to_point_in_radius_result = NULL;
 static THREADLOCAL float closest_to_point_in_radius_result_largest_dist = 0.0f;
@@ -1545,7 +1634,7 @@ V2 box_vel(Entity *box)
   return cp_to_v2(cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(entity_pos(box))));
 }
 
-void create_station(GameState *gs, V2 pos, enum BoxType platonic_type)
+void create_bomb_station(GameState *gs, V2 pos, enum BoxType platonic_type)
 {
 
 #define BOX_AT_TYPE(grid, pos, type)      \
@@ -1562,10 +1651,10 @@ void create_station(GameState *gs, V2 pos, enum BoxType platonic_type)
   grid_create(gs, grid);
   entity_set_pos(grid, pos);
   entity_ensure_in_orbit(grid);
-  Entity *explosion_box = new_entity(gs);
-  box_create(gs, explosion_box, grid, (V2){0});
-  explosion_box->box_type = platonic_type;
-  explosion_box->is_platonic = true;
+  Entity *platonic_box = new_entity(gs);
+  box_create(gs, platonic_box, grid, (V2){0});
+  platonic_box->box_type = platonic_type;
+  platonic_box->is_platonic = true;
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 2, 0}), BoxHullpiece);
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 3, 0}), BoxHullpiece);
@@ -1590,15 +1679,54 @@ void create_station(GameState *gs, V2 pos, enum BoxType platonic_type)
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 5.0}), BoxExplosive);
 }
 
+void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type)
+{
+
+#define BOX_AT_TYPE(grid, pos, type)      \
+  {                                       \
+    Entity *box = new_entity(gs);         \
+    box_create(gs, box, grid, pos);       \
+    box->box_type = type;                 \
+    box->indestructible = indestructible; \
+  }
+#define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
+
+  bool indestructible = false;
+  Entity *grid = new_entity(gs);
+  grid_create(gs, grid);
+  entity_set_pos(grid, pos);
+  entity_ensure_in_orbit(grid);
+  Entity *platonic_box = new_entity(gs);
+  box_create(gs, platonic_box, grid, (V2){0});
+  platonic_box->box_type = platonic_type;
+  platonic_box->is_platonic = true;
+  BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 2, 0}), BoxHullpiece);
+  BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 3, 0}), BoxHullpiece);
+  BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 4, 0}), BoxHullpiece);
+
+  indestructible = true;
+  for (float y = -BOX_SIZE * 5.0; y <= BOX_SIZE * 5.0; y += BOX_SIZE)
+  {
+    BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 5.0, y}), BoxHullpiece);
+  }
+  for (float x = -BOX_SIZE * 5.0; x <= BOX_SIZE * 5.0; x += BOX_SIZE)
+  {
+    BOX_AT_TYPE(grid, ((V2){x, BOX_SIZE * 5.0}), BoxHullpiece);
+    BOX_AT_TYPE(grid, ((V2){x, -BOX_SIZE * 5.0}), BoxHullpiece);
+  }
+  indestructible = false;
+}
 void create_initial_world(GameState *gs)
 {
-#if 0
+#ifdef DEBUG_WORLD
   Log("Creating debug world\n");
-  create_station(gs, (V2){-5.0f,0.0f}, BoxExplosive);
-  create_station(gs, (V2){0.0f, 5.0f}, BoxGyroscope);
+  create_bomb_station(gs, (V2){-5.0f, 0.0f}, BoxExplosive);
+  create_bomb_station(gs, (V2){0.0f, 5.0f}, BoxGyroscope);
+  create_hard_shell_station(gs, (V2){-5.0f, 5.0f}, BoxCloaking);
 #else
-  create_station(gs, (V2){-50.0f, 0.0f}, BoxExplosive);
-  create_station(gs, (V2){0.0f, 100.0f}, BoxGyroscope);
+  create_bomb_station(gs, (V2){-50.0f, 0.0f}, BoxExplosive);
+  create_hard_shell_station(gs, (V2){0.0f, 100.0f}, BoxGyroscope);
+  create_bomb_station(gs, (V2){0.0f, -100.0f}, BoxCloaking);
 #endif
 }
 
@@ -1788,6 +1916,10 @@ void process(GameState *gs, float dt)
         cpBodySetPosition(p->body, v2_to_cp(entity_pos(seat_inside_of)));
         cpBodySetVelocity(p->body, v2_to_cp(box_vel(seat_inside_of)));
 
+        // share cloaking with box
+        p->time_was_last_cloaked = seat_inside_of->time_was_last_cloaked;
+        p->last_cloaked_by_squad = seat_inside_of->last_cloaked_by_squad;
+
         // set thruster thrust from movement
         if (seat_inside_of->box_type == BoxCockpit)
         {
@@ -1859,6 +1991,7 @@ void process(GameState *gs, float dt)
           }
           Entity *new_box = new_entity(gs);
           box_create(gs, new_box, target_grid, created_box_position);
+          new_box->owning_squad = player->squad;
           grid_correct_for_holes(gs, target_grid); // no holey ship for you!
           new_box->box_type = player->input.build_type;
           new_box->compass_rotation = player->input.build_rotation;
@@ -1888,7 +2021,6 @@ void process(GameState *gs, float dt)
 
     // sun processing
     {
-
       cpVect pos_rel_sun = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
       cpFloat sqdist = cpvlengthsq(pos_rel_sun);
       if (e->body != NULL && sqdist > (INSTANT_DEATH_DISTANCE_FROM_SUN * INSTANT_DEATH_DISTANCE_FROM_SUN))
@@ -2039,6 +2171,27 @@ void process(GameState *gs, float dt)
               float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, wanted_energy_use);
               potential_meatbag_to_heal->damage -= (1.0f - energy_unconsumed / wanted_energy_use) * wanted_energy_use;
             }
+          }
+        }
+        if (cur_box->box_type == BoxCloaking)
+        {
+          float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, CLOAKING_ENERGY_USE * dt);
+          if (energy_unconsumed >= CLOAKING_ENERGY_USE * dt)
+          {
+            cur_box->cloaking_power = lerp(cur_box->cloaking_power, 0.0, dt * 3.0f);
+          }
+          else
+          {
+            cur_box->cloaking_power = lerp(cur_box->cloaking_power, 1.0, dt * 3.0f);
+            cpBody *tmp = cpBodyNew(0.0, 0.0);
+            cpBodySetPosition(tmp, v2_to_cp(entity_pos(cur_box)));
+            cpBodySetAngle(tmp, entity_rotation(cur_box));
+            // subtract a little from the panel size so that boxes just at the boundary of the panel
+            // aren't (sometimes cloaked)/(sometimes not) from floating point imprecision
+            cpShape *box_shape = cpBoxShapeNew(tmp, CLOAKING_PANEL_SIZE - 0.03f, CLOAKING_PANEL_SIZE - 0.03f, 0.0);
+            cpSpaceShapeQuery(gs->space, box_shape, cloaking_shield_callback_func, (void *)cur_box);
+            cpShapeFree(box_shape);
+            cpBodyFree(tmp);
           }
         }
         if (cur_box->box_type == BoxScanner)

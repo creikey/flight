@@ -95,15 +95,9 @@ void server(void *info_raw)
   OpusEncoder *player_encoders[MAX_PLAYERS] = {0};
   OpusDecoder *player_decoders[MAX_PLAYERS] = {0};
 
-  // for (int i = 0; i < MAX_PLAYERS; i++)
-  //{
-  //	int error = 0;
-  //	player_encoders[i] = opus_encoder_create(VOIP_SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP, &error);
-  //	if (error != OPUS_OK) Log("Failed to create encoder\n");
-  //	player_decoders[i] = opus_decoder_create(VOIP_SAMPLE_RATE, 1, &error);
-  //	if (error != OPUS_OK) Log("Failed to create decoder\n");
-  // }
-
+  #ifdef DEBUG_WORLD
+  world_save_name = NULL;
+  #endif
   if (world_save_name != NULL)
   {
     size_t read_game_data_buffer_size = entities_size;
@@ -263,11 +257,6 @@ void server(void *info_raw)
             player_decoders[player_slot] = opus_decoder_create(VOIP_SAMPLE_RATE, 1, &error);
             if (error != OPUS_OK)
               Log("Failed to create decoder: %d\n", error);
-
-#ifdef UNLOCK_ALL
-            gs.players[player_slot].unlocked_bombs = true;
-#endif
-            gs.players[player_slot].squad = SquadPurple;
           }
         }
         break;

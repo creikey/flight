@@ -51,6 +51,7 @@ typedef struct KeyPressed
 static KeyPressed keypressed[MAX_KEYDOWN] = {0};
 static V2 mouse_pos = {0};
 static bool fullscreened = false;
+static bool picking_new_boxtype = false;
 
 static bool build_pressed = false;
 static bool interact_pressed = false;
@@ -109,6 +110,7 @@ static sg_image image_no;
 static sg_image image_solarpanel_charging;
 static sg_image image_scanner_head;
 static sg_image image_itemswitch;
+static sg_image image_cloaking_panel;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
     BoxHullpiece,
@@ -184,6 +186,10 @@ static struct BoxInfo
         .type = BoxGyroscope,
         .image_path = "loaded/gyroscope.png",
 
+    },
+    {
+        .type = BoxCloaking,
+        .image_path = "loaded/cloaking_device.png",
     },
 };
 #define ENTITIES_ITER(cur)                                                \
@@ -527,6 +533,7 @@ static void init(void)
         image_solarpanel_charging = load_image("loaded/solarpanel_charging.png");
         image_scanner_head = load_image("loaded/scanner_head.png");
         image_itemswitch = load_image("loaded/itemswitch.png");
+        image_cloaking_panel = load_image("loaded/cloaking_panel.png");
       }
 
       // socket initialization
@@ -634,6 +641,15 @@ bool can_build(int i)
     allow_building = box_unlocked(myplayer(), box_type);
   return allow_building;
 }
+static void setup_hueshift(enum Squad squad)
+{
+  struct SquadMeta meta = squad_meta(squad);
+  hueshift_uniforms_t uniform = {
+      .is_colorless = meta.is_colorless,
+      .target_hue = meta.hue,
+  };
+  sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+}
 
 static V2 screen_to_world(float width, float height, V2 screen)
 {
@@ -668,7 +684,6 @@ static void ui(bool draw, float dt, float width, float height)
     sgp_push_transform();
 
   // draw pick new box type menu
-  static bool picking_new_boxtype = false;
   static float pick_opacity = 0.0f;
   {
     if (keypressed[SAPP_KEYCODE_ESCAPE].pressed)
@@ -705,6 +720,7 @@ static void ui(bool draw, float dt, float width, float height)
         sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f * pick_opacity);
       }
       int boxes_per_row = (int)floorf(pick_modal.width / 128.0f);
+      boxes_per_row = boxes_per_row < 4 ? 4 : boxes_per_row;
       float cell_width = pick_modal.width / (float)boxes_per_row;
       float cell_height = cell_width;
       float padding = 0.2f * cell_width;
@@ -742,6 +758,7 @@ static void ui(bool draw, float dt, float width, float height)
         if (item_being_hovered && build_pressed && picking_new_boxtype)
         {
           toolbar[cur_toolbar_slot] = info.type;
+          picking_new_boxtype = false;
           build_pressed = false;
         }
         if (draw)
@@ -816,12 +833,7 @@ static void ui(bool draw, float dt, float width, float height)
       {
         pipeline_scope(hueshift_pipeline)
         {
-          struct SquadMeta meta = squad_meta(draw_as_squad);
-          hueshift_uniforms_t uniform = {
-              .is_colorless = meta.is_colorless,
-              .target_hue = meta.hue,
-          };
-          sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+          setup_hueshift(draw_as_squad);
           sgp_scale_at(1.0f, -1.0f, x,
                        invite_y); // images upside down by default :(
           sgp_set_image(0, image_squad_invite);
@@ -892,11 +904,7 @@ static void ui(bool draw, float dt, float width, float height)
           }
           pipeline_scope(hueshift_pipeline)
           {
-            struct SquadMeta meta = squad_meta(myplayer()->squad);
-            hueshift_uniforms_t uniform = {0};
-            uniform.is_colorless = meta.is_colorless;
-            uniform.target_hue = meta.hue;
-            sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+            setup_hueshift(myplayer()->squad);
 
             sgp_scale_at(1.0f, -1.0f, pos.x,
                          pos.y); // images upside down by default :(
@@ -1020,11 +1028,7 @@ static void ui(bool draw, float dt, float width, float height)
 
           pipeline_scope(hueshift_pipeline)
           {
-            struct SquadMeta meta = squad_meta(this_squad);
-            hueshift_uniforms_t uniform = {0};
-            uniform.is_colorless = meta.is_colorless;
-            uniform.target_hue = meta.hue;
-            sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+            setup_hueshift(this_squad);
 
             sgp_rotate_at(flag_rot[i], flag_pos[i].x, flag_pos[i].y);
             sgp_scale_at(1.0f, -1.0f, flag_pos[i].x,
@@ -1786,8 +1790,22 @@ static void frame(void)
               {
                 set_color(GOLD);
               }
-              pipeline_scope(goodpixel_pipeline)
+
+              // all of these box types show team colors so are drawn with the hue shifting shader
+              // used with the player
+              if (b->box_type == BoxCloaking)
+              {
+                pipeline_scope(hueshift_pipeline)
+                {
+                  setup_hueshift(b->owning_squad);
                   draw_texture_centered(entity_pos(b), BOX_SIZE);
+                }
+              }
+              else
+              {
+                pipeline_scope(goodpixel_pipeline)
+                    draw_texture_centered(entity_pos(b), BOX_SIZE);
+              }
               sgp_reset_image(0);
 
               if (b->box_type == BoxScanner)
@@ -1795,9 +1813,11 @@ static void frame(void)
                 sgp_set_image(0, image_scanner_head);
                 transform_scope
                 {
-                  sgp_rotate_at(b->scanner_head_rotate, entity_pos(b).x, entity_pos(b).y);
                   pipeline_scope(goodpixel_pipeline)
-                      draw_texture_centered(entity_pos(b), BOX_SIZE);
+                  {
+                    sgp_rotate_at(b->scanner_head_rotate, entity_pos(b).x, entity_pos(b).y);
+                    draw_texture_centered(entity_pos(b), BOX_SIZE);
+                  }
                 }
                 sgp_reset_image(0);
                 set_color(WHITE);
@@ -1811,12 +1831,21 @@ static void frame(void)
               }
               sgp_set_color(0.5f, 0.1f, 0.1f, b->damage);
               draw_color_rect_centered(entity_pos(b), BOX_SIZE);
+
+              if (b->box_type == BoxCloaking)
+              {
+                sgp_set_color(1.0f, 1.0f, 1.0f, b->cloaking_power);
+                sgp_set_image(0, image_cloaking_panel);
+                pipeline_scope(goodpixel_pipeline)
+                    draw_texture_centered(entity_pos(b), CLOAKING_PANEL_SIZE);
+                sgp_reset_image(0);
+              }
             }
 
             // outside of the transform scope
             if (b->box_type == BoxScanner)
             {
-              if (b->platonic_detection_strength > 0.0f)
+              if (b->platonic_detection_strength > 0.0)
               {
                 set_color(colhexcode(0xf2d75c));
                 V2 to = V2add(entity_pos(b), V2scale(b->platonic_nearest_direction, b->platonic_detection_strength));
@@ -1839,11 +1868,7 @@ static void frame(void)
 
             pipeline_scope(hueshift_pipeline)
             {
-              struct SquadMeta meta = squad_meta(e->presenting_squad);
-              hueshift_uniforms_t uniform = {0};
-              uniform.is_colorless = meta.is_colorless;
-              uniform.target_hue = meta.hue;
-              sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
+              setup_hueshift(e->presenting_squad);
               sgp_set_image(0, image_player);
               draw_texture_rectangle_centered(
                   entity_pos(e), V2scale(PLAYER_SIZE, player_scaling));
@@ -1967,6 +1992,14 @@ void event(const sapp_event *e)
     int target_slot = key_num - 1;
     if (target_slot <= TOOLBAR_SLOTS && target_slot >= 0)
     {
+      if (target_slot == cur_toolbar_slot)
+      {
+        picking_new_boxtype = !picking_new_boxtype;
+      }
+      else
+      {
+        picking_new_boxtype = false;
+      }
       cur_toolbar_slot = target_slot;
     }
 
