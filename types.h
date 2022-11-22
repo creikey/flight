@@ -10,6 +10,16 @@
 #define PLAYER_MASS 0.5f
 #define PLAYER_JETPACK_FORCE 1.5f
 #define PLAYER_JETPACK_TORQUE 0.05f
+#define MISSILE_RANGE 4.0f
+#define MISSILE_BURN_TIME 1.5f
+#define MISSILE_BURN_FORCE 2.0f
+#define MISSILE_MASS 1.0f
+// how many missiles grown per second
+#define MISSILE_DAMAGE_THRESHOLD 0.2f
+#define MISSILE_CHARGE_RATE 0.5f 
+// centered on the sprite
+#define MISSILE_SPRITE_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
+#define MISSILE_COLLIDER_SIZE ((V2){.x = BOX_SIZE*0.5f, .y = BOX_SIZE*0.5f})
 // #define PLAYER_JETPACK_FORCE 20.0f
 // distance at which things become geostationary and no more solar power!
 #define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
@@ -79,6 +89,8 @@
 #else
 #define THREADLOCAL __thread
 #endif
+
+#define ARRLEN(x) (sizeof(x) / sizeof((x)[0]))
 
 // must make this header and set the target address, just #define SERVER_ADDRESS "127.0.0.1"
 #include "ipsettings.h" // don't leak IP!
@@ -154,6 +166,7 @@ enum BoxType
   BoxScanner,
   BoxGyroscope,
   BoxCloaking,
+  BoxMissileLauncher,
   BoxLast,
 };
 
@@ -236,7 +249,7 @@ typedef struct Entity
 
   // player
   bool is_player;
-  enum Squad presenting_squad; // also controls what the player can see, because of cloaking!
+  enum Squad owning_squad; // also controls what the player can see, because of cloaking!
   EntityID currently_inside_of_box;
   enum Squad squad_invited_to; // if squad none, then no squad invite
   float goldness;              // how much the player is a winner
@@ -247,6 +260,10 @@ typedef struct Entity
   V2 explosion_vel;
   float explosion_progresss; // in seconds
 
+  // missile
+  bool is_missile;
+  float time_burned_for; // until MISSILE_BURN_TIME
+  
   // grids
   bool is_grid;
   float total_energy_capacity;
@@ -254,7 +271,6 @@ typedef struct Entity
 
   // boxes
   bool is_box;
-  enum Squad owning_squad; // which squad owns this box
   enum BoxType box_type;
   bool is_platonic; // can't be destroyed, unaffected by physical forces
   bool always_visible; // always serialized to the player. @Robust check if not used
@@ -262,6 +278,9 @@ typedef struct Entity
   EntityID prev_box; // doubly linked so can remove in middle of chain
   enum CompassRotation compass_rotation;
   bool indestructible;
+  
+  // missile launcher
+  float missile_construction_charge;
   
   // used by medbay and cockpit
   EntityID player_who_is_inside_of_me; 
@@ -401,6 +420,7 @@ bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, uns
 bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, unsigned char*bytes, size_t *out_len, size_t max_len);
 
 // entities
+bool is_burning(Entity *missile);
 Entity *get_entity(struct GameState *gs, EntityID id);
 Entity *new_entity(struct GameState *gs);
 EntityID get_id(struct GameState *gs, Entity *e);
@@ -412,6 +432,12 @@ void entity_ensure_in_orbit(Entity *e);
 void entity_destroy(GameState *gs, Entity *e);
 #define BOX_CHAIN_ITER(gs, cur, starting_box) for (Entity *cur = get_entity(gs, starting_box); cur != NULL; cur = get_entity(gs, cur->next_box))
 #define BOXES_ITER(gs, cur, grid_entity_ptr) BOX_CHAIN_ITER(gs, cur, (grid_entity_ptr)->boxes)
+typedef struct LauncherTarget
+{
+  bool target_found;
+  float facing_angle; // in global coords
+} LauncherTarget;
+LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher);
 
 // grid
 void grid_create(struct GameState *gs, Entity *e);

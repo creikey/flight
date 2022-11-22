@@ -111,6 +111,8 @@ static sg_image image_solarpanel_charging;
 static sg_image image_scanner_head;
 static sg_image image_itemswitch;
 static sg_image image_cloaking_panel;
+static sg_image image_missile;
+static sg_image image_missile_burning;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
     BoxHullpiece,
@@ -191,12 +193,15 @@ static struct BoxInfo
         .type = BoxCloaking,
         .image_path = "loaded/cloaking_device.png",
     },
+    {
+        .type = BoxMissileLauncher,
+        .image_path = "loaded/missile_launcher.png",
+    },
 };
 #define ENTITIES_ITER(cur)                                                \
   for (Entity *cur = gs.entities; cur < gs.entities + gs.cur_next_entity; \
        cur++)                                                             \
     if (cur->exists)
-#define ARRLEN(arr) (sizeof(arr) / sizeof(*arr))
 // suppress compiler warning about ^^ above used in floating point context
 #define ARRLENF(arr) ((float)sizeof(arr) / sizeof(*arr))
 static struct SquadMeta
@@ -534,6 +539,8 @@ static void init(void)
         image_scanner_head = load_image("loaded/scanner_head.png");
         image_itemswitch = load_image("loaded/itemswitch.png");
         image_cloaking_panel = load_image("loaded/cloaking_panel.png");
+        image_missile_burning = load_image("loaded/missile_burning.png");
+        image_missile = load_image("loaded/missile.png");
       }
 
       // socket initialization
@@ -1793,7 +1800,7 @@ static void frame(void)
 
               // all of these box types show team colors so are drawn with the hue shifting shader
               // used with the player
-              if (b->box_type == BoxCloaking)
+              if (b->box_type == BoxCloaking || b->box_type == BoxMissileLauncher)
               {
                 pipeline_scope(hueshift_pipeline)
                 {
@@ -1807,6 +1814,23 @@ static void frame(void)
                     draw_texture_centered(entity_pos(b), BOX_SIZE);
               }
               sgp_reset_image(0);
+
+              if (b->box_type == BoxMissileLauncher)
+              {
+                set_color(RED);
+                draw_circle(entity_pos(b), MISSILE_RANGE);
+
+                // draw the charging missile
+                transform_scope
+                {
+                  sgp_rotate_at(missile_launcher_target(&gs, b).facing_angle, entity_pos(b).x, entity_pos(b).y);
+                  sgp_set_color(1.0f, 1.0f, 1.0f, b->missile_construction_charge);
+                  sgp_set_image(0, image_missile);
+                  pipeline_scope(goodpixel_pipeline)
+                      draw_texture_centered(entity_pos(b), BOX_SIZE);
+                  sgp_reset_image(0);
+                }
+              }
 
               if (b->box_type == BoxScanner)
               {
@@ -1823,6 +1847,7 @@ static void frame(void)
                 set_color(WHITE);
               }
 
+              // scanner range, visualizes what scanner can scan
               if (b->box_type == BoxScanner)
               {
                 set_color(BLUE);
@@ -1857,6 +1882,28 @@ static void frame(void)
           }
         }
 
+        // draw missile
+        if (e->is_missile)
+        {
+          transform_scope
+          {
+            sgp_rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
+            sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
+
+            if (is_burning(e))
+            {
+              sgp_set_image(0, image_missile_burning);
+            }
+            else
+            {
+              sgp_set_image(0, image_missile);
+            }
+
+            pipeline_scope(goodpixel_pipeline)
+                draw_texture_rectangle_centered(entity_pos(e), MISSILE_SPRITE_SIZE);
+          }
+        }
+
         // draw player
         if (e->is_player &&
             get_entity(&gs, e->currently_inside_of_box) == NULL)
@@ -1868,7 +1915,7 @@ static void frame(void)
 
             pipeline_scope(hueshift_pipeline)
             {
-              setup_hueshift(e->presenting_squad);
+              setup_hueshift(e->owning_squad);
               sgp_set_image(0, image_player);
               draw_texture_rectangle_centered(
                   entity_pos(e), V2scale(PLAYER_SIZE, player_scaling));

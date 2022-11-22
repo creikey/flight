@@ -40,6 +40,12 @@ static cpVect v2_to_cp(V2 v)
   return cpv(v.x, v.y);
 }
 
+bool is_burning(Entity *missile)
+{
+  assert(missile->is_missile);
+  return missile->time_burned_for < MISSILE_BURN_TIME;
+}
+
 bool was_entity_deleted(GameState *gs, EntityID id)
 {
   if (id.generation == 0)
@@ -87,11 +93,11 @@ bool is_cloaked(GameState *gs, Entity *e, Entity *this_players_perspective)
   bool cloaked = cloaking_active(gs, e);
   if (e->is_player)
   {
-    return cloaked && e->presenting_squad != this_players_perspective->presenting_squad;
+    return cloaked && e->owning_squad != this_players_perspective->owning_squad;
   }
   else
   {
-    return cloaked && this_players_perspective->presenting_squad != e->last_cloaked_by_squad;
+    return cloaked && this_players_perspective->owning_squad != e->last_cloaked_by_squad;
   }
 }
 
@@ -195,6 +201,75 @@ void box_remove_from_boxes(GameState *gs, Entity *box)
   }
   box->next_box = (EntityID){0};
   box->prev_box = (EntityID){0};
+}
+
+V2 player_vel(GameState *gs, Entity *e);
+V2 entity_vel(GameState *gs, Entity *e)
+{
+  assert(e->is_box || e->is_player || e->is_grid || e->is_explosion);
+  if (e->is_box)
+    return box_vel(e);
+  if (e->is_player)
+    return player_vel(gs, e);
+  if (e->is_grid)
+    return grid_vel(e);
+  if (e->is_explosion)
+    return e->explosion_vel;
+  assert(false);
+  return (V2){0};
+}
+
+static THREADLOCAL float to_face = 0.0f;
+static THREADLOCAL float nearest_dist = INFINITY;
+static THREADLOCAL bool target_found = false;
+static void on_missile_shape(cpShape *shape, cpContactPointSet *points, void *data)
+{
+  Entity *launcher = (Entity *)data;
+  Entity *other = cp_shape_entity(shape);
+  GameState *gs = entitys_gamestate(launcher);
+  assert(other->is_box || other->is_player || other->is_missile);
+
+  V2 to = V2sub(entity_pos(other), entity_pos(launcher));
+  bool should_attack = true;
+  if (other->is_box && box_grid(other) == box_grid(launcher))
+    should_attack = false;
+  if (other->owning_squad == launcher->owning_squad)
+    should_attack = false;
+
+  if (should_attack && V2length(to) < nearest_dist)
+  {
+    target_found = true;
+    nearest_dist = V2length(to);
+
+    // lookahead by their velocity
+    V2 rel_velocity = V2sub(entity_vel(gs, other), entity_vel(gs, launcher));
+    float dist = V2dist(entity_pos(other), entity_pos(launcher));
+    
+    float time_of_travel = sqrtf( (2.0f * dist) / (MISSILE_BURN_FORCE/MISSILE_MASS) );
+    
+    V2 other_future_pos = V2add(entity_pos(other), V2scale(rel_velocity, time_of_travel));
+    
+    V2 adjusted_to = V2sub(other_future_pos, entity_pos(launcher));
+
+    to_face = V2angle(adjusted_to);
+  }
+}
+
+LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
+{
+  to_face = 0.0f;
+  cpBody *tmp = cpBodyNew(0.0f, 0.0f);
+  cpBodySetPosition(tmp, v2_to_cp(entity_pos(launcher)));
+  cpShape *circle = cpCircleShapeNew(tmp, MISSILE_RANGE, cpv(0, 0));
+
+  nearest_dist = INFINITY;
+  to_face = 0.0f;
+  target_found = false;
+  cpSpaceShapeQuery(gs->space, circle, on_missile_shape, (void *)launcher);
+
+  cpBodyFree(tmp);
+  cpShapeFree(circle);
+  return (LauncherTarget){.target_found = target_found, .facing_angle = to_face};
 }
 
 void on_entity_child_shape(cpBody *body, cpShape *shape, void *data);
@@ -364,6 +439,13 @@ void create_player(Player *player)
   unlock_box(player, BoxSolarPanel);
   unlock_box(player, BoxScanner);
 #endif
+}
+
+void create_missile(GameState *gs, Entity *e)
+{
+  create_body(gs, e);
+  create_rectangle_shape(gs, e, e, (V2){0}, V2scale(MISSILE_COLLIDER_SIZE, 0.5f), PLAYER_MASS);
+  e->is_missile = true;
 }
 
 void create_player_entity(GameState *gs, Entity *e)
@@ -565,6 +647,34 @@ static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
   Entity *entity_a, *entity_b;
   entity_a = cp_shape_entity(a);
   entity_b = cp_shape_entity(b);
+
+  Entity *potential_missiles[] = {entity_a, entity_b};
+  for (Entity **missile_ptr = potential_missiles; missile_ptr - potential_missiles < ARRLEN(potential_missiles); missile_ptr++)
+  {
+    Entity *missile = entity_a;
+    cpVect (*getPointFunc)(const cpArbiter *arb, int i) = NULL;
+    if (missile == entity_a)
+      getPointFunc = cpArbiterGetPointA;
+    if (missile == entity_b)
+      getPointFunc = cpArbiterGetPointB;
+
+    if (missile->is_missile)
+    {
+      int count = cpArbiterGetCount(arb);
+      for (int i = 0; i < count; i++)
+      {
+        cpVect collision_point = getPointFunc(arb, i);
+        V2 local_collision_point = cp_to_v2(cpBodyWorldToLocal(missile->body, collision_point));
+        if (local_collision_point.x > MISSILE_COLLIDER_SIZE.x * 0.2f)
+        {
+          missile->damage += MISSILE_DAMAGE_THRESHOLD * 2.0f;
+        }
+      }
+    }
+  }
+
+  // if(entity_a->is_missile) {getPointFunc = cpArbiterGetPointA;
+  // if(entity_b->is_missile) getPointFunc = cpArbiterGetPointB;
 
   float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * COLLISION_DAMAGE_SCALING;
 
@@ -847,6 +957,7 @@ enum GameVersion
 {
   VInitial,
   VMoreBoxes,
+  VMissileMerge,
   VMax, // this minus one will be the version used
 };
 
@@ -989,13 +1100,19 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   if (ser->version >= VMoreBoxes && !ser->save_or_load_from_disk)
     SER_VAR(&e->time_was_last_cloaked);
 
+  if (ser->version >= VMissileMerge)
+    SER_VAR(&e->owning_squad);
+
   SER_VAR(&e->is_player);
   if (e->is_player)
   {
     SER_ASSERT(e->no_save_to_disk);
 
     SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
-    SER_VAR(&e->presenting_squad);
+    if (ser->version < VMissileMerge)
+    {
+      SER_VAR_NAME(&e->owning_squad, "&e->presenting_squad");
+    }
     SER_VAR(&e->squad_invited_to);
     SER_VAR(&e->goldness);
   }
@@ -1013,6 +1130,15 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   {
     SER_VAR(&e->total_energy_capacity);
     SER_MAYBE_RETURN(ser_entityid(ser, &e->boxes));
+  }
+
+  if (ser->version >= VMissileMerge)
+  {
+    SER_VAR(&e->is_missile)
+    if (e->is_missile)
+    {
+      SER_VAR(&e->time_burned_for);
+    }
   }
 
   SER_VAR(&e->is_box);
@@ -1057,6 +1183,9 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
       break;
     case BoxCloaking:
       SER_VAR(&e->cloaking_power);
+      break;
+    case BoxMissileLauncher:
+      SER_VAR(&e->missile_construction_charge);
       break;
     default:
       break;
@@ -1799,7 +1928,7 @@ void process(GameState *gs, float dt)
       }
     }
     assert(p->is_player);
-    p->presenting_squad = player->squad;
+    p->owning_squad = player->squad;
 
     if (p->squad_invited_to != SquadNone)
     {
@@ -2077,6 +2206,24 @@ void process(GameState *gs, float dt)
       }
     }
 
+    if (e->is_missile)
+    {
+      if (is_burning(e))
+      {
+        e->time_burned_for += dt;
+        cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(V2rotate((V2){.x = MISSILE_BURN_FORCE, .y = 0.0f}, entity_rotation(e))), v2_to_cp(entity_pos(e)));
+      }
+      if (e->damage >= MISSILE_DAMAGE_THRESHOLD)
+      {
+
+        Entity *explosion = new_entity(gs);
+        explosion->is_explosion = true;
+        explosion->explosion_pos = entity_pos(e);
+        explosion->explosion_vel = cp_to_v2(cpBodyGetVelocity(e->body));
+        entity_destroy(gs, e);
+      }
+    }
+
     if (e->is_box)
     {
       if (e->is_platonic)
@@ -2192,6 +2339,29 @@ void process(GameState *gs, float dt)
             cpSpaceShapeQuery(gs->space, box_shape, cloaking_shield_callback_func, (void *)cur_box);
             cpShapeFree(box_shape);
             cpBodyFree(tmp);
+          }
+        }
+        if (cur_box->box_type == BoxMissileLauncher)
+        {
+          LauncherTarget target = missile_launcher_target(gs, cur_box);
+
+          if (cur_box->missile_construction_charge < 1.0f)
+          {
+            float want_use_energy = dt * MISSILE_CHARGE_RATE;
+            float energy_charged = want_use_energy - batteries_use_energy(gs, grid, &non_battery_energy_left_over, want_use_energy);
+            cur_box->missile_construction_charge += energy_charged;
+          }
+
+          if (target.target_found && cur_box->missile_construction_charge >= 1.0f)
+          {
+            cur_box->missile_construction_charge = 0.0f;
+            Entity *new_missile = new_entity(gs);
+            create_missile(gs, new_missile);
+            new_missile->owning_squad = cur_box->owning_squad; // missiles have teams and attack eachother!
+            float missile_spawn_dist = sqrtf((BOX_SIZE / 2.0f) * (BOX_SIZE / 2.0f) * 2.0f) + MISSILE_COLLIDER_SIZE.x / 2.0f + 0.1f;
+            cpBodySetPosition(new_missile->body, v2_to_cp(V2add(entity_pos(cur_box), V2rotate((V2){.x = missile_spawn_dist, 0.0f}, target.facing_angle))));
+            cpBodySetAngle(new_missile->body, target.facing_angle);
+            cpBodySetVelocity(new_missile->body, v2_to_cp(box_vel(cur_box)));
           }
         }
         if (cur_box->box_type == BoxScanner)
