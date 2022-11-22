@@ -1856,6 +1856,7 @@ void create_initial_world(GameState *gs)
   create_bomb_station(gs, (V2){-50.0f, 0.0f}, BoxExplosive);
   create_hard_shell_station(gs, (V2){0.0f, 100.0f}, BoxGyroscope);
   create_bomb_station(gs, (V2){0.0f, -100.0f}, BoxCloaking);
+  create_bomb_station(gs, (V2){100.0f, 100.0f}, BoxMissileLauncher);
 #endif
 }
 
