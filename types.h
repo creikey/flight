@@ -6,6 +6,7 @@
 #define MAX_PLAYERS 16
 #define MAX_ENTITIES 1024 * 25
 #define BOX_SIZE 0.25f
+#define MERGE_MAX_DIST 0.35f
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
 #define PLAYER_JETPACK_FORCE 1.5f
@@ -167,6 +168,7 @@ enum BoxType
   BoxGyroscope,
   BoxCloaking,
   BoxMissileLauncher,
+  BoxMerge,
   BoxLast,
 };
 
@@ -278,6 +280,9 @@ typedef struct Entity
   EntityID prev_box; // doubly linked so can remove in middle of chain
   enum CompassRotation compass_rotation;
   bool indestructible;
+  
+  // merger
+  bool wants_disconnect; // don't serialized, termporary value not used across frames
   
   // missile launcher
   float missile_construction_charge;

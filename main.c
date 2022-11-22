@@ -197,6 +197,10 @@ static struct BoxInfo
         .type = BoxMissileLauncher,
         .image_path = "loaded/missile_launcher.png",
     },
+    {
+        .type = BoxMerge,
+        .image_path = "loaded/merge.png",
+    },
 };
 #define ENTITIES_ITER(cur)                                                \
   for (Entity *cur = gs.entities; cur < gs.entities + gs.cur_next_entity; \

@@ -485,6 +485,17 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, V2 pos)
   box_add_to_boxes(gs, grid, new_box);
 }
 
+
+V2 box_compass_vector(Entity *box)
+{
+  
+  assert(box->is_box);
+  V2 to_return = (V2){.x = 1.0f, .y = 0.0f};
+  to_return = V2rotate(to_return, rotangle(box->compass_rotation));
+  
+  return to_return;
+}
+
 // removes boxes from grid, then ensures that the rule that grids must not have
 // holes in them is applied.
 static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
@@ -561,20 +572,33 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
           for (int ii = 0; ii < num_dirs; ii++)
           {
             V2 dir = dirs[ii];
+            EntityID box_in_direction = (EntityID){0};
             // @Robust @Speed faster method, not O(N^2), of getting the box
             // in the direction currently needed
-            V2 wanted_local_pos = V2add(cur_local_pos, V2scale(dir, BOX_SIZE));
-            EntityID box_in_direction = (EntityID){0};
-            BOXES_ITER(gs, cur, grid)
+            V2 compass_vect = box_compass_vector(N);
+            if (N->box_type == BoxMerge && N->wants_disconnect && V2equal(compass_vect, dir, 0.01f))
             {
-              if (V2equal(entity_shape_pos(cur), wanted_local_pos, 0.01f))
+            }
+            else
+            {
+              V2 wanted_local_pos = V2add(cur_local_pos, V2scale(dir, BOX_SIZE));
+              BOXES_ITER(gs, cur, grid)
               {
-                box_in_direction = get_id(gs, cur);
-                break;
+                if (V2equal(entity_shape_pos(cur), wanted_local_pos, 0.01f))
+                {
+                  box_in_direction = get_id(gs, cur);
+                  break;
+                }
               }
             }
 
             Entity *newbox = get_entity(gs, box_in_direction);
+            
+            if(newbox != NULL && newbox->box_type == BoxMerge && newbox->wants_disconnect && V2equal(V2scale(box_compass_vector(newbox), -1.0f), dir,0.01f))
+            {
+              newbox = NULL;
+            }
+            
             if (newbox != NULL)
             {
               box_remove_from_boxes(gs, newbox);
@@ -1566,6 +1590,11 @@ bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, uns
   }
 }
 
+static bool merge_filter(Entity *potential_merge)
+{
+  return potential_merge->is_box && potential_merge->box_type == BoxMerge;
+}
+
 static void cloaking_shield_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
 {
   Entity *from_cloaking_box = (Entity *)data;
@@ -1658,12 +1687,14 @@ static void do_explosion(GameState *gs, Entity *explosion, float dt)
   cpBodyFree(tmpbody);
 }
 
+
+
 V2 box_facing_vector(Entity *box)
 {
   assert(box->is_box);
   V2 to_return = (V2){.x = 1.0f, .y = 0.0f};
 
-  to_return = V2rotate(to_return, rotangle(box->compass_rotation));
+  to_return = box_compass_vector(box);
   to_return = V2rotate(to_return, box_rotation(box));
 
   return to_return;
@@ -1975,6 +2006,15 @@ void process(GameState *gs, float dt)
           {
             player->box_unlocks |= potential_seat->blueprints_learned;
           }
+          if (potential_seat->box_type == BoxMerge) // disconnect!
+          {
+            potential_seat->wants_disconnect = true;
+            grid_correct_for_holes(gs, box_grid(potential_seat));
+            assert(potential_seat->exists);
+            assert(potential_seat->is_box);
+            assert(potential_seat->box_type == BoxMerge);
+            potential_seat->wants_disconnect = false;
+          }
           if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
           {
             // don't let players get inside of cockpits that somebody else is already inside of
@@ -2240,6 +2280,34 @@ void process(GameState *gs, float dt)
         explosion->explosion_vel = grid_vel(box_grid(e));
         if (!e->is_platonic)
           grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
+      }
+      if (e->box_type == BoxMerge)
+      {
+        Entity *from_merge = e;
+        Entity *other_merge = closest_box_to_point_in_radius(gs, entity_pos(from_merge), MERGE_MAX_DIST, merge_filter);
+        if (box_grid(from_merge) != box_grid(other_merge))
+        {
+          bool from_facing_other = V2dot(box_facing_vector(from_merge), V2normalize(V2sub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8f;
+          bool other_facing_from = V2dot(box_facing_vector(other_merge), V2normalize(V2sub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8f;
+          if (from_facing_other && other_facing_from)
+          {
+            // do the merge
+
+            Entity *new_grid = box_grid(from_merge);
+            Entity *old_grid = box_grid(other_merge);
+            Entity *cur = get_entity(gs, old_grid->boxes);
+            old_grid->boxes = (EntityID){0};
+            while (cur != NULL)
+            {
+              Entity *next = get_entity(gs, cur->next_box);
+              V2 world = entity_pos(cur);
+              box_create(gs, cur, new_grid, grid_world_to_local(new_grid, grid_snapped_box_pos(new_grid, world))); // destroys next/prev fields on cur
+              assert(box_grid(cur) == box_grid(from_merge));
+              cur = next;
+            }
+            entity_destroy(gs, old_grid);
+          }
+        }
       }
       if (e->damage >= 1.0f)
       {
