@@ -206,13 +206,13 @@ void box_remove_from_boxes(GameState *gs, Entity *box)
 V2 player_vel(GameState *gs, Entity *e);
 V2 entity_vel(GameState *gs, Entity *e)
 {
-  assert(e->is_box || e->is_player || e->is_grid || e->is_explosion);
+  assert(e->is_box || e->is_player || e->body != NULL || e->is_explosion);
   if (e->is_box)
     return box_vel(e);
   if (e->is_player)
     return player_vel(gs, e);
-  if (e->is_grid)
-    return grid_vel(e);
+  if (e->body != NULL)
+    return cp_to_v2(cpBodyGetVelocity(e->body));
   if (e->is_explosion)
     return e->explosion_vel;
   assert(false);
@@ -244,11 +244,11 @@ static void on_missile_shape(cpShape *shape, cpContactPointSet *points, void *da
     // lookahead by their velocity
     V2 rel_velocity = V2sub(entity_vel(gs, other), entity_vel(gs, launcher));
     float dist = V2dist(entity_pos(other), entity_pos(launcher));
-    
-    float time_of_travel = sqrtf( (2.0f * dist) / (MISSILE_BURN_FORCE/MISSILE_MASS) );
-    
+
+    float time_of_travel = sqrtf((2.0f * dist) / (MISSILE_BURN_FORCE / MISSILE_MASS));
+
     V2 other_future_pos = V2add(entity_pos(other), V2scale(rel_velocity, time_of_travel));
-    
+
     V2 adjusted_to = V2sub(other_future_pos, entity_pos(launcher));
 
     to_face = V2angle(adjusted_to);
