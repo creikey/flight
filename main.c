@@ -1366,15 +1366,15 @@ static void frame(void)
 
           // re-predict the inputs
           float time_to_repredict = (float)difference;
+          uint64_t start_prediction_time = stm_now();
           if (time_to_repredict > 0.0f)
           {
-            if (time_to_repredict > MAX_REPREDICTION_TIME)
-            {
-              Log("Can't repredict all of %f, capping!\n", time_to_repredict);
-              time_to_repredict = MAX_REPREDICTION_TIME;
-            }
             while (time_to_repredict > TIMESTEP)
             {
+              if (stm_ms(stm_diff(stm_now(), start_prediction_time)) > MAX_MS_SPENT_REPREDICTING)
+              {
+                Log("Reprediction took longer than %f milliseconds", MAX_MS_SPENT_REPREDICTING);
+              }
               QUEUE_ITER(&input_queue, cur_header)
               {
                 InputFrame *cur = (InputFrame *)cur_header->data;
@@ -1387,7 +1387,6 @@ static void frame(void)
               process(&gs, TIMESTEP);
               time_to_repredict -= TIMESTEP;
             }
-            assert(time_to_repredict <= TIMESTEP);
             process(&gs, time_to_repredict);
             time_to_repredict = 0.0f;
           }

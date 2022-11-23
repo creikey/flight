@@ -73,7 +73,7 @@
 #define VOIP_DISTANCE_WHEN_CANT_HEAR (VISION_RADIUS * 0.8f)
 
 // multiplayer
-#define MAX_REPREDICTION_TIME (TIMESTEP * 50.0f)
+#define MAX_MS_SPENT_REPREDICTING 30.0f
 #define TIME_BETWEEN_SEND_GAMESTATE (1.0f / 20.0f)
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
 #define TIMESTEP (1.0f / 60.0f) // server required to simulate at this, defines what tick the game is on
