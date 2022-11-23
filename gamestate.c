@@ -1868,6 +1868,7 @@ void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type
   for (float y = -BOX_SIZE * 5.0; y <= BOX_SIZE * 5.0; y += BOX_SIZE)
   {
     BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 5.0, y}), BoxHullpiece);
+    BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 5.0, y}), BoxHullpiece);
   }
   for (float x = -BOX_SIZE * 5.0; x <= BOX_SIZE * 5.0; x += BOX_SIZE)
   {
@@ -1888,6 +1889,7 @@ void create_initial_world(GameState *gs)
   create_hard_shell_station(gs, (V2){0.0f, 100.0f}, BoxGyroscope);
   create_bomb_station(gs, (V2){0.0f, -100.0f}, BoxCloaking);
   create_bomb_station(gs, (V2){100.0f, 100.0f}, BoxMissileLauncher);
+  create_hard_shell_station(gs, (V2){50.0f, 100.0f}, BoxMerge);
 #endif
 }
 
