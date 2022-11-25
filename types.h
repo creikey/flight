@@ -6,7 +6,7 @@
 #define MAX_PLAYERS 16
 #define MAX_ENTITIES 1024 * 25
 #define BOX_SIZE 0.25f
-#define MERGE_MAX_DIST 0.35f
+#define MERGE_MAX_DIST (BOX_SIZE / 2.0f + 0.01f)
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
 #define PLAYER_JETPACK_FORCE 1.5f
@@ -17,10 +17,10 @@
 #define MISSILE_MASS 1.0f
 // how many missiles grown per second
 #define MISSILE_DAMAGE_THRESHOLD 0.2f
-#define MISSILE_CHARGE_RATE 0.5f 
+#define MISSILE_CHARGE_RATE 0.5f
 // centered on the sprite
 #define MISSILE_SPRITE_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
-#define MISSILE_COLLIDER_SIZE ((V2){.x = BOX_SIZE*0.5f, .y = BOX_SIZE*0.5f})
+#define MISSILE_COLLIDER_SIZE ((V2){.x = BOX_SIZE * 0.5f, .y = BOX_SIZE * 0.5f})
 // #define PLAYER_JETPACK_FORCE 20.0f
 // distance at which things become geostationary and no more solar power!
 #define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
@@ -38,7 +38,7 @@
 #define GYROSCOPE_ENERGY_USED_PER_SECOND 0.005f
 #define GYROSCOPE_TORQUE 0.5f
 #define CLOAKING_ENERGY_USE 0.1f
-#define CLOAKING_PANEL_SIZE BOX_SIZE*3.0f
+#define CLOAKING_PANEL_SIZE BOX_SIZE * 3.0f
 #define VISION_RADIUS 12.0f
 #define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
@@ -65,10 +65,11 @@
 
 // VOIP
 #define VOIP_PACKET_BUFFER_SIZE 15 // audio. Must be bigger than 2
-#define VOIP_EXPECTED_FRAME_COUNT 480
-#define VOIP_SAMPLE_RATE 48000
+#define VOIP_EXPECTED_FRAME_COUNT 240
+#define VOIP_SAMPLE_RATE (48000 / 2)
+
 // in seconds
-#define VOIP_TIME_PER_PACKET (1.0f / ((float)((float)VOIP_SAMPLE_RATE / VOIP_EXPECTED_FRAME_COUNT))) 
+#define VOIP_TIME_PER_PACKET (1.0f / ((float)((float)VOIP_SAMPLE_RATE / VOIP_EXPECTED_FRAME_COUNT)))
 #define VOIP_PACKET_MAX_SIZE 4000
 #define VOIP_DISTANCE_WHEN_CANT_HEAR (VISION_RADIUS * 0.8f)
 
@@ -156,7 +157,7 @@ typedef sgp_point P2;
 
 enum BoxType
 {
-  BoxInvalid,  // zero initialized box is invalid!
+  BoxInvalid, // zero initialized box is invalid!
   BoxHullpiece,
   BoxThruster,
   BoxBattery,
@@ -236,13 +237,12 @@ typedef struct Entity
   float damage;   // used by box and player
   cpBody *body;   // used by grid, player, and box
   cpShape *shape; // must be a box so shape_size can be set appropriately, and serialized
-  
-  
+
   // players and boxes can be cloaked
-  // If this is within 2 timesteps of the current game time, the entity is invisible. 
+  // If this is within 2 timesteps of the current game time, the entity is invisible.
   double time_was_last_cloaked;
   enum Squad last_cloaked_by_squad;
-  
+
   // for serializing the shape
   // @Robust remove shape_parent_entity from this struct, use the shape's body to figure out
   // what the shape's parent entity is
@@ -265,7 +265,7 @@ typedef struct Entity
   // missile
   bool is_missile;
   float time_burned_for; // until MISSILE_BURN_TIME
-  
+
   // grids
   bool is_grid;
   float total_energy_capacity;
@@ -274,46 +274,45 @@ typedef struct Entity
   // boxes
   bool is_box;
   enum BoxType box_type;
-  bool is_platonic; // can't be destroyed, unaffected by physical forces
+  bool is_platonic;    // can't be destroyed, unaffected by physical forces
   bool always_visible; // always serialized to the player. @Robust check if not used
-  EntityID next_box; // for the grid!
-  EntityID prev_box; // doubly linked so can remove in middle of chain
+  EntityID next_box;   // for the grid!
+  EntityID prev_box;   // doubly linked so can remove in middle of chain
   enum CompassRotation compass_rotation;
   bool indestructible;
-  
+
   // merger
   bool wants_disconnect; // don't serialized, termporary value not used across frames
-  
+
   // missile launcher
   float missile_construction_charge;
-  
+
   // used by medbay and cockpit
-  EntityID player_who_is_inside_of_me; 
-  
+  EntityID player_who_is_inside_of_me;
+
   // only serialized when box_type is thruster or gyroscope, used for both. Thrust
   // can mean rotation thrust!
   float wanted_thrust; // the thrust command applied to the thruster
   float thrust;        // the actual thrust it can provide based on energy sources in the grid
-  
+
   // only serialized when box_type is battery
-  float energy_used;   // battery, between 0 battery capacity. You have to look through code to figure out what that is! haha sucker!
-  
+  float energy_used; // battery, between 0 battery capacity. You have to look through code to figure out what that is! haha sucker!
+
   // only serialized when box_type is solar panel
-  float sun_amount;    // solar panel, between 0 and 1
-  
+  float sun_amount; // solar panel, between 0 and 1
+
   // cloaking only
   float cloaking_power; // 0.0 if unable to be used because no power, 1.0 if fully cloaking!
-  
+
   // scanner only stuff!
   EntityID currently_scanning;
-  float currently_scanning_progress; // when 1.0, scans it!
+  float currently_scanning_progress;   // when 1.0, scans it!
   BOX_UNLOCKS_TYPE blueprints_learned; // @Robust make this same type as blueprints
-  float scanner_head_rotate_speed; // not serialized, cosmetic
+  float scanner_head_rotate_speed;     // not serialized, cosmetic
   float scanner_head_rotate;
-  V2 platonic_nearest_direction; // normalized
+  V2 platonic_nearest_direction;     // normalized
   float platonic_detection_strength; // from zero to one
 } Entity;
-
 
 typedef struct Player
 {
@@ -336,9 +335,9 @@ typedef struct GameState
   V2 goldpos;
 
   Player players[MAX_PLAYERS];
-  
+
   V2 platonic_positions[MAX_BOX_TYPES]; // don't want to search over every entity to get the nearest platonic box!
-  
+
   bool server_side_computing; // some things only the server should know and calculate, like platonic locations
 
   // Entity arena
@@ -415,14 +414,14 @@ void initialize(struct GameState *gs, void *entity_arena, size_t entity_arena_si
 void destroy(struct GameState *gs);
 void process_fixed_timestep(GameState *gs);
 void process(struct GameState *gs, float dt); // does in place
-Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, float radius, bool(*filter_func)(Entity*));
+Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, float radius, bool (*filter_func)(Entity *));
 uint64_t tick(struct GameState *gs);
 
 // all of these return if successful or not
-bool server_to_client_serialize(struct ServerToClient *msg, unsigned char*bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk);
-bool server_to_client_deserialize(struct ServerToClient *msg, unsigned char*bytes, size_t max_len, bool from_disk);
-bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, unsigned char*bytes, size_t max_len);
-bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, unsigned char*bytes, size_t *out_len, size_t max_len);
+bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk);
+bool server_to_client_deserialize(struct ServerToClient *msg, unsigned char *bytes, size_t max_len, bool from_disk);
+bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, unsigned char *bytes, size_t max_len);
+bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, unsigned char *bytes, size_t *out_len, size_t max_len);
 
 // entities
 bool is_burning(Entity *missile);
@@ -564,6 +563,14 @@ static V2 V2sub(V2 a, V2 b)
   };
 }
 
+static float sign(float f)
+{
+  if (f >= 0.0f)
+    return 1.0f;
+  else
+    return -1.0f;
+}
+
 static bool V2equal(V2 a, V2 b, float eps)
 {
   return V2length(V2sub(a, b)) < eps;
@@ -591,6 +598,14 @@ static inline float clamp(float f, float minimum, float maximum)
   if (f > maximum)
     return maximum;
   return f;
+}
+
+static float V2anglediff(V2 a, V2 b)
+{
+  float acos_input = V2dot(a, b) / (V2length(a) * V2length(b));
+  acos_input = clamp(acos_input, -1.0f, 1.0f);
+  assert(acos_input >= -1.0f && acos_input <= 1.0f);
+  return acosf(acos_input) * sign(V2dot(a, b));
 }
 
 static float fract(float f)
@@ -711,10 +726,24 @@ static void set_color(Color c)
   sgp_set_color(c.r, c.g, c.b, c.a);
 }
 
-#define WHITE \
-  (Color) { .r = 1.0f, .g = 1.0f, .b = 1.0f, .a = 1.0f }
-#define RED \
-  (Color) { .r = 1.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f }
-#define BLUE \
-  (Color) { .r = 0.0f, .g = 0.0f, .b = 1.0f, .a = 1.0f }
+static float deg2rad(float deg)
+{
+  return (deg / 360.0f) * 2.0f * PI;
+}
+
+#define WHITE                                  \
+  (Color)                                      \
+  {                                            \
+    .r = 1.0f, .g = 1.0f, .b = 1.0f, .a = 1.0f \
+  }
+#define RED                                    \
+  (Color)                                      \
+  {                                            \
+    .r = 1.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f \
+  }
+#define BLUE                                   \
+  (Color)                                      \
+  {                                            \
+    .r = 0.0f, .g = 0.0f, .b = 1.0f, .a = 1.0f \
+  }
 #define GOLD colhex(255, 215, 0)

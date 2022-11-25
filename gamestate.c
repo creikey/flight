@@ -485,14 +485,13 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, V2 pos)
   box_add_to_boxes(gs, grid, new_box);
 }
 
-
 V2 box_compass_vector(Entity *box)
 {
-  
+
   assert(box->is_box);
   V2 to_return = (V2){.x = 1.0f, .y = 0.0f};
   to_return = V2rotate(to_return, rotangle(box->compass_rotation));
-  
+
   return to_return;
 }
 
@@ -593,12 +592,12 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
             }
 
             Entity *newbox = get_entity(gs, box_in_direction);
-            
-            if(newbox != NULL && newbox->box_type == BoxMerge && newbox->wants_disconnect && V2equal(V2scale(box_compass_vector(newbox), -1.0f), dir,0.01f))
+
+            if (newbox != NULL && newbox->box_type == BoxMerge && newbox->wants_disconnect && V2equal(V2scale(box_compass_vector(newbox), -1.0f), dir, 0.01f))
             {
               newbox = NULL;
             }
-            
+
             if (newbox != NULL)
             {
               box_remove_from_boxes(gs, newbox);
@@ -820,6 +819,7 @@ float box_rotation(Entity *box)
 {
   return (float)cpBodyGetAngle(cpShapeGetBody(box->shape));
 }
+
 V2 entity_pos(Entity *e)
 {
   if (e->is_box)
@@ -1590,9 +1590,12 @@ bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, uns
   }
 }
 
+static THREADLOCAL Entity *grid_to_exclude = NULL;
 static bool merge_filter(Entity *potential_merge)
 {
-  return potential_merge->is_box && potential_merge->box_type == BoxMerge;
+  assert(grid_to_exclude != NULL);
+  assert(grid_to_exclude->is_grid);
+  return potential_merge->is_box && potential_merge->box_type == BoxMerge && box_grid(potential_merge) != grid_to_exclude;
 }
 
 static void cloaking_shield_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
@@ -1687,8 +1690,6 @@ static void do_explosion(GameState *gs, Entity *explosion, float dt)
   cpBodyFree(tmpbody);
 }
 
-
-
 V2 box_facing_vector(Entity *box)
 {
   assert(box->is_box);
@@ -1698,6 +1699,40 @@ V2 box_facing_vector(Entity *box)
   to_return = V2rotate(to_return, box_rotation(box));
 
   return to_return;
+}
+
+enum CompassRotation facing_vector_to_compass(Entity *grid_to_transplant_to, Entity *grid_facing_vector_from, V2 facing_vector)
+{
+  assert(grid_to_transplant_to->body != NULL);
+  assert(grid_to_transplant_to->is_grid);
+
+  V2 local_to_from = grid_world_to_local(grid_facing_vector_from, V2add(entity_pos(grid_facing_vector_from), facing_vector));
+  Log("local %f %f\n", local_to_from.x, local_to_from.y);
+
+  V2 from_target = V2add(entity_pos(grid_to_transplant_to), facing_vector);
+  V2 local_target = grid_world_to_local(grid_to_transplant_to, from_target);
+  V2 local_facing = local_target;
+
+  enum CompassRotation dirs[] = {
+      Right,
+      Left,
+      Up,
+      Down};
+
+  int smallest = -1;
+  float smallest_dist = INFINITY;
+  for (int i = 0; i < ARRLEN(dirs); i++)
+  {
+    V2 point = V2rotate((V2){.x = 1.0f}, rotangle(dirs[i]));
+    float dist = V2dist(point, local_facing);
+    if (dist < smallest_dist)
+    {
+      smallest_dist = dist;
+      smallest = i;
+    }
+  }
+  assert(smallest != -1);
+  return dirs[smallest];
 }
 
 V2 thruster_force(Entity *box)
@@ -1797,11 +1832,14 @@ V2 box_vel(Entity *box)
 void create_bomb_station(GameState *gs, V2 pos, enum BoxType platonic_type)
 {
 
+  enum CompassRotation rot = Right;
+
 #define BOX_AT_TYPE(grid, pos, type)      \
   {                                       \
     Entity *box = new_entity(gs);         \
     box_create(gs, box, grid, pos);       \
     box->box_type = type;                 \
+    box->compass_rotation = rot;          \
     box->indestructible = indestructible; \
   }
 #define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
@@ -1842,14 +1880,7 @@ void create_bomb_station(GameState *gs, V2 pos, enum BoxType platonic_type)
 void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type)
 {
 
-#define BOX_AT_TYPE(grid, pos, type)      \
-  {                                       \
-    Entity *box = new_entity(gs);         \
-    box_create(gs, box, grid, pos);       \
-    box->box_type = type;                 \
-    box->indestructible = indestructible; \
-  }
-#define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
+  enum CompassRotation rot = Right;
 
   bool indestructible = false;
   Entity *grid = new_entity(gs);
@@ -1884,6 +1915,40 @@ void create_initial_world(GameState *gs)
   create_bomb_station(gs, (V2){-5.0f, 0.0f}, BoxExplosive);
   create_bomb_station(gs, (V2){0.0f, 5.0f}, BoxGyroscope);
   create_hard_shell_station(gs, (V2){-5.0f, 5.0f}, BoxCloaking);
+
+  bool indestructible = false;
+
+  float theta = deg2rad(65.0f);
+
+  V2 from = (V2){BOX_SIZE * 4.0f, -1};
+
+  enum CompassRotation rot = Right;
+  {
+    Entity *grid = new_entity(gs);
+    grid_create(gs, grid);
+    entity_set_pos(grid, V2add(from, V2rotate((V2){.x = -BOX_SIZE * 9.0f}, theta)));
+    cpBodySetAngle(grid->body, theta + PI);
+    entity_ensure_in_orbit(grid);
+    rot = Left;
+    BOX_AT_TYPE(grid, ((V2){0.0f, 0.0f}), BoxMerge);
+    BOX_AT(grid, ((V2){0.0f, -BOX_SIZE}));
+    BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0.0f}), BoxMerge);
+  }
+
+  {
+    Entity *grid = new_entity(gs);
+    grid_create(gs, grid);
+    entity_set_pos(grid, from);
+    cpBodySetAngle(grid->body, theta);
+    entity_ensure_in_orbit(grid);
+    rot = Left;
+    BOX_AT_TYPE(grid, ((V2){-BOX_SIZE, 0.0f}), BoxMerge);
+    rot = Down;
+    BOX_AT_TYPE(grid, ((V2){0.0f, 0.0f}), BoxMerge);
+    rot = Up;
+    BOX_AT_TYPE(grid, ((V2){0.0f, BOX_SIZE}), BoxMerge);
+    cpBodySetVelocity(grid->body, v2_to_cp(V2rotate((V2){-0.4f, 0.0f}, theta)));
+  }
 #else
   create_bomb_station(gs, (V2){-50.0f, 0.0f}, BoxExplosive);
   create_hard_shell_station(gs, (V2){0.0f, 100.0f}, BoxGyroscope);
@@ -2015,7 +2080,6 @@ void process(GameState *gs, float dt)
             assert(potential_seat->exists);
             assert(potential_seat->is_box);
             assert(potential_seat->box_type == BoxMerge);
-            potential_seat->wants_disconnect = false;
           }
           if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
           {
@@ -2286,28 +2350,62 @@ void process(GameState *gs, float dt)
       if (e->box_type == BoxMerge)
       {
         Entity *from_merge = e;
+        assert(from_merge != NULL);
+        
+        grid_to_exclude = box_grid(from_merge);
         Entity *other_merge = closest_box_to_point_in_radius(gs, entity_pos(from_merge), MERGE_MAX_DIST, merge_filter);
-        if (box_grid(from_merge) != box_grid(other_merge))
+        
+        if (other_merge == NULL && from_merge->wants_disconnect)
+          from_merge->wants_disconnect = false;
+        
+        if (!from_merge->wants_disconnect && other_merge != NULL && !other_merge->wants_disconnect)
         {
+          assert(box_grid(from_merge) != box_grid(other_merge));
+          
+          Entity *from_grid = box_grid(from_merge);
+          Entity *other_grid = box_grid(other_merge);
+          
+          // the merges are near eachother, but are they facing eachother...
           bool from_facing_other = V2dot(box_facing_vector(from_merge), V2normalize(V2sub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8f;
           bool other_facing_from = V2dot(box_facing_vector(other_merge), V2normalize(V2sub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8f;
-          if (from_facing_other && other_facing_from)
+          
+          // using this stuff to detect if when the other grid's boxes are snapped, they'll be snapped
+          // to be next to the from merge box
+          V2 actual_new_pos = grid_snapped_box_pos(from_grid, entity_pos(other_merge));
+          V2 needed_new_pos = V2add(entity_pos(from_merge), V2scale(box_facing_vector(from_merge), BOX_SIZE));
+          if (from_facing_other && other_facing_from && V2equal(needed_new_pos, actual_new_pos, 0.01f))
           {
             // do the merge
+            V2 facing_vector_needed = V2scale(box_facing_vector(from_merge), -1.0f);
+            V2 current_facing_vector = box_facing_vector(other_merge);
+            float angle_diff = V2anglediff(current_facing_vector, facing_vector_needed);
+            if(angle_diff == FLT_MIN)
+              angle_diff = 0.0f;
+            assert(!isnan(angle_diff));
+            
+            cpBodySetAngle(other_grid->body, cpBodyGetAngle(other_grid->body) + angle_diff);
+            
+            V2 moved_because_angle_change = V2sub(needed_new_pos, entity_pos(other_merge));
+            cpBodySetPosition(other_grid->body, v2_to_cp(V2add(entity_pos(other_grid), moved_because_angle_change)));
 
-            Entity *new_grid = box_grid(from_merge);
-            Entity *old_grid = box_grid(other_merge);
-            Entity *cur = get_entity(gs, old_grid->boxes);
-            old_grid->boxes = (EntityID){0};
+            // V2 snap_movement_vect = V2sub(actual_new_pos, entity_pos(other_merge));
+            V2 snap_movement_vect = (V2){0};
+
+            Entity *cur = get_entity(gs, other_grid->boxes);
+
+            other_grid->boxes = (EntityID){0};
             while (cur != NULL)
             {
               Entity *next = get_entity(gs, cur->next_box);
               V2 world = entity_pos(cur);
-              box_create(gs, cur, new_grid, grid_world_to_local(new_grid, grid_snapped_box_pos(new_grid, world))); // destroys next/prev fields on cur
+              enum CompassRotation new_rotation = facing_vector_to_compass(from_grid, other_grid, box_facing_vector(cur));
+              cur->compass_rotation = new_rotation;
+              V2 new_cur_pos = grid_snapped_box_pos(from_grid, V2add(snap_movement_vect, world));
+              box_create(gs, cur, from_grid, grid_world_to_local(from_grid, new_cur_pos)); // destroys next/prev fields on cur
               assert(box_grid(cur) == box_grid(from_merge));
               cur = next;
             }
-            entity_destroy(gs, old_grid);
+            entity_destroy(gs, other_grid);
           }
         }
       }
