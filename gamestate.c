@@ -1805,11 +1805,30 @@ float batteries_use_energy(GameState *gs, Entity *grid, float *energy_left_over,
   return energy_to_use;
 }
 
-float sun_gravity_at_point(V2 p)
+float entity_mass(Entity *m)
+{
+  if (m->body != NULL)
+    return (float)cpBodyGetMass(m->body);
+  else if (m->is_box)
+    return BOX_MASS;
+  else
+  {
+    assert(false);
+    return 0.0f;
+  }
+}
+
+float sun_gravity_accel_at_point(V2 p, Entity *entity_with_gravity)
 {
   if (V2length(V2sub(p, SUN_POS)) > SUN_NO_MORE_ELECTRICITY_OR_GRAVITY)
     return 0.0f;
-  return SUN_GRAVITY_STRENGTH;
+  V2 rel_vector = V2sub(entity_pos(entity_with_gravity), SUN_POS);
+  float mass = entity_mass(entity_with_gravity);
+  assert(mass != 0.0f);
+  float distance = V2length(rel_vector);
+  // return (GRAVITY_CONSTANT * (SUN_MASS * mass / (distance * distance))) / mass;
+  // the mass divides out
+  return (GRAVITY_CONSTANT * (SUN_MASS  / (distance * distance)));
 }
 
 void entity_ensure_in_orbit(Entity *e)
@@ -1818,7 +1837,7 @@ void entity_ensure_in_orbit(Entity *e)
 
   cpVect pos = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
   cpFloat r = cpvlength(pos);
-  cpFloat v = cpfsqrt(sun_gravity_at_point(cp_to_v2(pos)) / r) / r;
+  cpFloat v = cpfsqrt(sun_gravity_accel_at_point(cp_to_v2(pos), e) / r) / r;
   cpBodySetVelocity(e->body, cpvmult(cpvperp(pos), v));
 }
 
@@ -1848,7 +1867,6 @@ void create_bomb_station(GameState *gs, V2 pos, enum BoxType platonic_type)
   Entity *grid = new_entity(gs);
   grid_create(gs, grid);
   entity_set_pos(grid, pos);
-  entity_ensure_in_orbit(grid);
   Entity *platonic_box = new_entity(gs);
   box_create(gs, platonic_box, grid, (V2){0});
   platonic_box->box_type = platonic_type;
@@ -1875,6 +1893,8 @@ void create_bomb_station(GameState *gs, V2 pos, enum BoxType platonic_type)
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 2.0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 3.0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 5.0}), BoxExplosive);
+  
+  entity_ensure_in_orbit(grid);
 }
 
 void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type)
@@ -1886,7 +1906,6 @@ void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type
   Entity *grid = new_entity(gs);
   grid_create(gs, grid);
   entity_set_pos(grid, pos);
-  entity_ensure_in_orbit(grid);
   Entity *platonic_box = new_entity(gs);
   box_create(gs, platonic_box, grid, (V2){0});
   platonic_box->box_type = platonic_type;
@@ -1906,6 +1925,7 @@ void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type
     BOX_AT_TYPE(grid, ((V2){x, BOX_SIZE * 5.0}), BoxHullpiece);
     BOX_AT_TYPE(grid, ((V2){x, -BOX_SIZE * 5.0}), BoxHullpiece);
   }
+  entity_ensure_in_orbit(grid);
   indestructible = false;
 }
 void create_initial_world(GameState *gs)
@@ -1928,11 +1948,11 @@ void create_initial_world(GameState *gs)
     grid_create(gs, grid);
     entity_set_pos(grid, V2add(from, V2rotate((V2){.x = -BOX_SIZE * 9.0f}, theta)));
     cpBodySetAngle(grid->body, theta + PI);
-    entity_ensure_in_orbit(grid);
     rot = Left;
     BOX_AT_TYPE(grid, ((V2){0.0f, 0.0f}), BoxMerge);
     BOX_AT(grid, ((V2){0.0f, -BOX_SIZE}));
     BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0.0f}), BoxMerge);
+    entity_ensure_in_orbit(grid);
   }
 
   {
@@ -1940,7 +1960,6 @@ void create_initial_world(GameState *gs)
     grid_create(gs, grid);
     entity_set_pos(grid, from);
     cpBodySetAngle(grid->body, theta);
-    entity_ensure_in_orbit(grid);
     rot = Left;
     BOX_AT_TYPE(grid, ((V2){-BOX_SIZE, 0.0f}), BoxMerge);
     rot = Down;
@@ -1948,6 +1967,7 @@ void create_initial_world(GameState *gs)
     rot = Up;
     BOX_AT_TYPE(grid, ((V2){0.0f, BOX_SIZE}), BoxMerge);
     cpBodySetVelocity(grid->body, v2_to_cp(V2rotate((V2){-0.4f, 0.0f}, theta)));
+    entity_ensure_in_orbit(grid);
   }
 #else
   create_bomb_station(gs, (V2){-50.0f, 0.0f}, BoxExplosive);
@@ -2297,7 +2317,7 @@ void process(GameState *gs, float dt)
 
       if (e->body != NULL)
       {
-        cpVect g = cpvmult(pos_rel_sun, -sun_gravity_at_point(entity_pos(e)) / (sqdist * cpfsqrt(sqdist)));
+        cpVect g = cpvmult(pos_rel_sun, -sun_gravity_accel_at_point(entity_pos(e), e) / (sqdist * cpfsqrt(sqdist)));
         cpBodyUpdateVelocity(e->body, g, 1.0f, dt);
       }
     }
@@ -2351,24 +2371,24 @@ void process(GameState *gs, float dt)
       {
         Entity *from_merge = e;
         assert(from_merge != NULL);
-        
+
         grid_to_exclude = box_grid(from_merge);
         Entity *other_merge = closest_box_to_point_in_radius(gs, entity_pos(from_merge), MERGE_MAX_DIST, merge_filter);
-        
+
         if (other_merge == NULL && from_merge->wants_disconnect)
           from_merge->wants_disconnect = false;
-        
+
         if (!from_merge->wants_disconnect && other_merge != NULL && !other_merge->wants_disconnect)
         {
           assert(box_grid(from_merge) != box_grid(other_merge));
-          
+
           Entity *from_grid = box_grid(from_merge);
           Entity *other_grid = box_grid(other_merge);
-          
+
           // the merges are near eachother, but are they facing eachother...
           bool from_facing_other = V2dot(box_facing_vector(from_merge), V2normalize(V2sub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8f;
           bool other_facing_from = V2dot(box_facing_vector(other_merge), V2normalize(V2sub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8f;
-          
+
           // using this stuff to detect if when the other grid's boxes are snapped, they'll be snapped
           // to be next to the from merge box
           V2 actual_new_pos = grid_snapped_box_pos(from_grid, entity_pos(other_merge));
@@ -2379,12 +2399,12 @@ void process(GameState *gs, float dt)
             V2 facing_vector_needed = V2scale(box_facing_vector(from_merge), -1.0f);
             V2 current_facing_vector = box_facing_vector(other_merge);
             float angle_diff = V2anglediff(current_facing_vector, facing_vector_needed);
-            if(angle_diff == FLT_MIN)
+            if (angle_diff == FLT_MIN)
               angle_diff = 0.0f;
             assert(!isnan(angle_diff));
-            
+
             cpBodySetAngle(other_grid->body, cpBodyGetAngle(other_grid->body) + angle_diff);
-            
+
             V2 moved_because_angle_change = V2sub(needed_new_pos, entity_pos(other_merge));
             cpBodySetPosition(other_grid->body, v2_to_cp(V2add(entity_pos(other_grid), moved_because_angle_change)));
 
