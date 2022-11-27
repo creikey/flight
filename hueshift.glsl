@@ -52,7 +52,9 @@ void main() {
     if(is_colorless > 0) 
     {
         hsv.y = 0.0f;
-    } else if(hsv.y > 0.5) {
+    } else {
+    float green_hue = 118.0f / 360.0f;
+     if(abs(hsv.r - green_hue) < 0.15) {
         hsv.x = target_hue;
     }
    fragColor = vec4(hsv2rgb(hsv), outColor.a);

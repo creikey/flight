@@ -2579,7 +2579,7 @@ void process(GameState *gs, float dt)
           cur_box->sun_amount = 0.0f;
           SUNS_ITER(gs)
           {
-            float new_sun = clamp01(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(entity_pos(i.sun), entity_pos(cur_box)))));
+            float new_sun = clamp01(fabsf(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(entity_pos(i.sun), entity_pos(cur_box))))));
 
             // less sun the farther away you are!
             new_sun *= lerp(1.0f, 0.0f, clamp01(V2length(V2sub(entity_pos(cur_box), entity_pos(i.sun))) / sun_dist_no_gravity(i.sun)));
