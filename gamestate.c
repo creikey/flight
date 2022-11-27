@@ -2064,7 +2064,6 @@ void create_initial_world(GameState *gs)
   }
 
 #else
-  EntityID suns[] = {};
   create_bomb_station(gs, (V2){-200.0f, 0.0f}, BoxExplosive);
   create_hard_shell_station(gs, (V2){0.0f, 400.0f}, BoxGyroscope);
   create_bomb_station(gs, (V2){0.0f, -150.0f}, BoxCloaking);
