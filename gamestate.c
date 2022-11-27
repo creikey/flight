@@ -1805,6 +1805,15 @@ float batteries_use_energy(GameState *gs, Entity *grid, float *energy_left_over,
   return energy_to_use;
 }
 
+float sun_dist_no_gravity()
+{
+  // return (GRAVITY_CONSTANT * (SUN_MASS * mass / (distance * distance))) / mass;
+  // 0.01f = (GRAVITY_CONSTANT * (SUN_MASS / (distance_sqr)));
+  // 0.01f / GRAVITY_CONSTANT = SUN_MASS / distance_sqr;
+  // distance = sqrt( SUN_MASS / (0.01f / GRAVITY_CONSTANT) )
+  return sqrtf( SUN_MASS / (GRAVITY_SMALLEST / GRAVITY_CONSTANT) );
+}
+
 float entity_mass(Entity *m)
 {
   if (m->body != NULL)
@@ -1818,27 +1827,44 @@ float entity_mass(Entity *m)
   }
 }
 
-float sun_gravity_accel_at_point(V2 p, Entity *entity_with_gravity)
+V2 sun_gravity_accel_for_entity(Entity *entity_with_gravity)
 {
-  if (V2length(V2sub(p, SUN_POS)) > SUN_NO_MORE_ELECTRICITY_OR_GRAVITY)
-    return 0.0f;
+  if (V2length(V2sub(entity_pos(entity_with_gravity), SUN_POS)) >  sun_dist_no_gravity())
+    return (V2){0};
   V2 rel_vector = V2sub(entity_pos(entity_with_gravity), SUN_POS);
   float mass = entity_mass(entity_with_gravity);
   assert(mass != 0.0f);
-  float distance = V2length(rel_vector);
+  float distance_sqr = V2lengthsqr(rel_vector);
   // return (GRAVITY_CONSTANT * (SUN_MASS * mass / (distance * distance))) / mass;
   // the mass divides out
-  return (GRAVITY_CONSTANT * (SUN_MASS  / (distance * distance)));
+  float accel_magnitude = (GRAVITY_CONSTANT * (SUN_MASS / (distance_sqr)));
+  V2 towards_sun = V2normalize(V2scale(rel_vector, -1.0f));
+  return V2scale(towards_sun, accel_magnitude);
+}
+
+void entity_set_velocity(Entity *e, V2 vel)
+{
+  assert(e->body != NULL);
+  cpBodySetVelocity(e->body, v2_to_cp(vel));
 }
 
 void entity_ensure_in_orbit(Entity *e)
 {
   assert(e->body != NULL);
 
-  cpVect pos = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
-  cpFloat r = cpvlength(pos);
-  cpFloat v = cpfsqrt(sun_gravity_accel_at_point(cp_to_v2(pos), e) / r) / r;
-  cpBodySetVelocity(e->body, cpvmult(cpvperp(pos), v));
+  V2 gravity_accel = sun_gravity_accel_for_entity(e);
+  if (V2length(gravity_accel) > 0.00f)
+  {
+    float dist = V2length(V2sub(entity_pos(e), SUN_POS));
+    V2 orthogonal_to_gravity = V2normalize(V2rotate(gravity_accel, PI / 2.0f));
+    V2 wanted_vel = V2scale(orthogonal_to_gravity, sqrtf(V2length(gravity_accel) * dist));
+
+    cpBodySetVelocity(e->body, v2_to_cp(wanted_vel));
+  }
+  // cpVect pos = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
+  // cpFloat r = cpvlength(pos);
+  // cpFloat v = cpfsqrt(sun_gravity_accel_at_point(cp_to_v2(pos), e) / r) / r;
+  // cpBodySetVelocity(e->body, cpvmult(cpvperp(pos), v));
 }
 
 V2 box_vel(Entity *box)
@@ -1893,7 +1919,7 @@ void create_bomb_station(GameState *gs, V2 pos, enum BoxType platonic_type)
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 2.0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 3.0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 5.0}), BoxExplosive);
-  
+
   entity_ensure_in_orbit(grid);
 }
 
@@ -2317,8 +2343,15 @@ void process(GameState *gs, float dt)
 
       if (e->body != NULL)
       {
-        cpVect g = cpvmult(pos_rel_sun, -sun_gravity_accel_at_point(entity_pos(e), e) / (sqdist * cpfsqrt(sqdist)));
-        cpBodyUpdateVelocity(e->body, g, 1.0f, dt);
+
+        // cpVect g = cpvmult(pos_rel_sun, -sun_gravity_accel_at_point(entity_pos(e), e) / (sqdist * cpfsqrt(sqdist)));
+        // sun gravitational pull
+        V2 accel = sun_gravity_accel_for_entity(e);
+        V2 new_vel = entity_vel(gs, e);
+        new_vel = V2add(new_vel, V2scale(accel, dt));
+        cpBodySetVelocity(e->body, v2_to_cp(new_vel));
+        // cpBodySetVelocity(e->body, )
+        // cpBodyUpdateVelocity(e->body, g, 1.0f, dt);
       }
     }
 
@@ -2446,7 +2479,7 @@ void process(GameState *gs, float dt)
           cur_box->sun_amount = clamp01(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(SUN_POS, entity_pos(cur_box)))));
 
           // less sun the farther away you are!
-          cur_box->sun_amount *= lerp(1.0f, 0.0f, clamp01(V2length(V2sub(entity_pos(cur_box), SUN_POS)) / SUN_NO_MORE_ELECTRICITY_OR_GRAVITY));
+          cur_box->sun_amount *= lerp(1.0f, 0.0f, clamp01(V2length(V2sub(entity_pos(cur_box), SUN_POS)) / sun_dist_no_gravity()));
           energy_to_add += cur_box->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
         }
       }

@@ -1956,7 +1956,7 @@ static void frame(void)
         draw_circle((V2){0}, INSTANT_DEATH_DISTANCE_FROM_SUN);
 
         set_color(BLUE);
-        draw_circle((V2){0}, SUN_NO_MORE_ELECTRICITY_OR_GRAVITY);
+        draw_circle((V2){0}, sun_dist_no_gravity());
       }
 
       sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);

@@ -42,15 +42,15 @@
 #define VISION_RADIUS 12.0f
 #define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
-#define GRAVITY_CONSTANT 5.0f
+#define GRAVITY_CONSTANT 0.1f
+#define GRAVITY_SMALLEST 0.01f // used to determine when gravity is clamped to 0.0f
 #define SUN_RADIUS 10.0f
-#define SUN_NO_MORE_ELECTRICITY_OR_GRAVITY 200.0f
 #define INSTANT_DEATH_DISTANCE_FROM_SUN 2000.0f
 #define SUN_POS ((V2){50.0f, 0.0f})
 #ifdef NO_GRAVITY
 #define SUN_MASS 0.0f
 #else
-#define SUN_MASS 1000000.0f
+#define SUN_MASS (10000.0f)
 #endif
 #define SOLAR_ENERGY_PER_SECOND 0.09f
 #define DAMAGE_TO_PLAYER_PER_BLOCK 0.1f
@@ -417,6 +417,7 @@ void process_fixed_timestep(GameState *gs);
 void process(struct GameState *gs, float dt); // does in place
 Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, float radius, bool (*filter_func)(Entity *));
 uint64_t tick(struct GameState *gs);
+float sun_dist_no_gravity();
 
 // all of these return if successful or not
 bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk);
