@@ -10,11 +10,12 @@
 #define MERGE_MAX_DIST (BOX_SIZE / 2.0f + 0.01f)
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
-#define PLAYER_JETPACK_FORCE 4.0f
+#define PLAYER_JETPACK_FORCE 2.0f
 #define PLAYER_JETPACK_TORQUE 0.05f
 #define MISSILE_RANGE 4.0f
 #define MISSILE_BURN_TIME 1.5f
-#define MISSILE_BURN_FORCE 2.0f
+#define MISSILE_ARM_TIME 0.5f
+#define MISSILE_BURN_FORCE 4.0f
 #define MISSILE_MASS 1.0f
 // how many missiles grown per second
 #define MISSILE_DAMAGE_THRESHOLD 0.2f
@@ -51,12 +52,16 @@
 #define BATTERY_CAPACITY 1.5f
 #define PLAYER_ENERGY_RECHARGE_PER_SECOND 0.2f
 #define EXPLOSION_TIME 0.5f
-#define EXPLOSION_PUSH_STRENGTH 5.0f
 #define EXPLOSION_DAMAGE_PER_SEC 10.0f
-#define EXPLOSION_RADIUS 1.0f
 #define EXPLOSION_DAMAGE_THRESHOLD 0.2f // how much damage until it explodes
 #define GOLD_UNLOCK_RADIUS 1.0f
 #define TIME_BETWEEN_WORLD_SAVE 30.0f
+
+#define MISSILE_EXPLOSION_PUSH 2.5f
+#define MISSILE_EXPLOSION_RADIUS 0.4f
+
+#define BOMB_EXPLOSION_PUSH 5.0f
+#define BOMB_EXPLOSION_RADIUS 1.0f
 
 // VOIP
 #define VOIP_PACKET_BUFFER_SIZE 15 // audio. Must be bigger than 2
@@ -255,7 +260,9 @@ typedef struct Entity
   bool is_explosion;
   V2 explosion_pos;
   V2 explosion_vel;
-  float explosion_progresss; // in seconds
+  float explosion_progress; // in seconds
+  float explosion_push_strength;
+  float explosion_radius;
 
   // sun
   bool is_sun;
@@ -266,7 +273,7 @@ typedef struct Entity
 
   // missile
   bool is_missile;
-  float time_burned_for; // until MISSILE_BURN_TIME
+  float time_burned_for; // until MISSILE_BURN_TIME. Before MISSILE_ARM_TIME cannot explode
 
   // grids
   bool is_grid;

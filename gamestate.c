@@ -1156,7 +1156,9 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   {
     SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_pos));
     SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_vel));
-    SER_VAR(&e->explosion_progresss);
+    SER_VAR(&e->explosion_progress);
+    SER_VAR(&e->explosion_push_strength);
+    SER_VAR(&e->explosion_radius);
   }
 
   SER_VAR(&e->is_sun);
@@ -1690,25 +1692,27 @@ static bool scanner_filter(Entity *e)
 
 static float cur_explosion_damage = 0.0f;
 static V2 explosion_origin = {0};
+static float explosion_push_strength = 0.0f;
 static void explosion_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
 {
   GameState *gs = (GameState *)data;
   cp_shape_entity(shape)->damage += cur_explosion_damage;
   Entity *parent = get_entity(gs, cp_shape_entity(shape)->shape_parent_entity);
   V2 from_pos = entity_pos(cp_shape_entity(shape));
-  V2 impulse = V2scale(V2normalize(V2sub(from_pos, explosion_origin)), EXPLOSION_PUSH_STRENGTH);
+  V2 impulse = V2scale(V2normalize(V2sub(from_pos, explosion_origin)), explosion_push_strength);
   assert(parent->body != NULL);
   cpBodyApplyImpulseAtWorldPoint(parent->body, v2_to_cp(impulse), v2_to_cp(from_pos));
 }
 
 static void do_explosion(GameState *gs, Entity *explosion, float dt)
 {
-  cur_explosion_damage = dt * EXPLOSION_DAMAGE_PER_SEC;
-  explosion_origin = explosion->explosion_pos;
 
   cpBody *tmpbody = cpBodyNew(0.0f, 0.0f);
-  cpShape *circle = cpCircleShapeNew(tmpbody, EXPLOSION_RADIUS, v2_to_cp(explosion_origin));
+  cpShape *circle = cpCircleShapeNew(tmpbody, explosion->explosion_radius, v2_to_cp(explosion_origin));
 
+  cur_explosion_damage = dt * EXPLOSION_DAMAGE_PER_SEC;
+  explosion_origin = explosion->explosion_pos;
+  explosion_push_strength = explosion->explosion_push_strength;
   cpSpaceShapeQuery(gs->space, circle, explosion_callback_func, (void *)gs);
 
   cpShapeFree(circle);
@@ -2450,10 +2454,10 @@ void process(GameState *gs, float dt)
 
     if (e->is_explosion)
     {
-      e->explosion_progresss += dt;
+      e->explosion_progress += dt;
       e->explosion_pos = V2add(e->explosion_pos, V2scale(e->explosion_vel, dt));
       do_explosion(gs, e, dt);
-      if (e->explosion_progresss >= EXPLOSION_TIME)
+      if (e->explosion_progress >= EXPLOSION_TIME)
       {
         entity_destroy(gs, e);
       }
@@ -2466,13 +2470,14 @@ void process(GameState *gs, float dt)
         e->time_burned_for += dt;
         cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(V2rotate((V2){.x = MISSILE_BURN_FORCE, .y = 0.0f}, entity_rotation(e))), v2_to_cp(entity_pos(e)));
       }
-      if (e->damage >= MISSILE_DAMAGE_THRESHOLD)
+      if (e->damage >= MISSILE_DAMAGE_THRESHOLD && e->time_burned_for >= MISSILE_ARM_TIME)
       {
-
         Entity *explosion = new_entity(gs);
         explosion->is_explosion = true;
         explosion->explosion_pos = entity_pos(e);
         explosion->explosion_vel = cp_to_v2(cpBodyGetVelocity(e->body));
+        explosion->explosion_push_strength = MISSILE_EXPLOSION_PUSH;
+        explosion->explosion_radius = MISSILE_EXPLOSION_RADIUS;
         entity_destroy(gs, e);
       }
     }
@@ -2490,6 +2495,8 @@ void process(GameState *gs, float dt)
         explosion->is_explosion = true;
         explosion->explosion_pos = entity_pos(e);
         explosion->explosion_vel = grid_vel(box_grid(e));
+        explosion->explosion_push_strength = BOMB_EXPLOSION_PUSH;
+        explosion->explosion_radius = BOMB_EXPLOSION_RADIUS;
         if (!e->is_platonic)
           grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
       }

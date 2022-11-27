@@ -1930,8 +1930,8 @@ static void frame(void)
         {
           sgp_set_image(0, image_explosion);
           sgp_set_color(1.0f, 1.0f, 1.0f,
-                        1.0f - (e->explosion_progresss / EXPLOSION_TIME));
-          draw_texture_centered(e->explosion_pos, EXPLOSION_RADIUS * 2.0f);
+                        1.0f - (e->explosion_progress / EXPLOSION_TIME));
+          draw_texture_centered(e->explosion_pos, e->explosion_radius * 2.0f);
           sgp_reset_image(0);
         }
       }
