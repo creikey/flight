@@ -4,12 +4,13 @@
 
 #define MAX_BOX_TYPES 64
 #define MAX_PLAYERS 16
+#define MAX_SUNS 8
 #define MAX_ENTITIES 1024 * 25
 #define BOX_SIZE 0.25f
 #define MERGE_MAX_DIST (BOX_SIZE / 2.0f + 0.01f)
 #define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
-#define PLAYER_JETPACK_FORCE 1.5f
+#define PLAYER_JETPACK_FORCE 4.0f
 #define PLAYER_JETPACK_TORQUE 0.05f
 #define MISSILE_RANGE 4.0f
 #define MISSILE_BURN_TIME 1.5f
@@ -33,7 +34,7 @@
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
 #define BOX_MASS 1.0f
 #define COLLISION_DAMAGE_SCALING 0.15f
-#define THRUSTER_FORCE 12.0f
+#define THRUSTER_FORCE 24.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.005f
 #define GYROSCOPE_ENERGY_USED_PER_SECOND 0.005f
 #define GYROSCOPE_TORQUE 0.5f
@@ -44,14 +45,7 @@
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
 #define GRAVITY_CONSTANT 0.1f
 #define GRAVITY_SMALLEST 0.01f // used to determine when gravity is clamped to 0.0f
-#define SUN_RADIUS 10.0f
-#define INSTANT_DEATH_DISTANCE_FROM_SUN 2000.0f
-#define SUN_POS ((V2){50.0f, 0.0f})
-#ifdef NO_GRAVITY
-#define SUN_MASS 0.0f
-#else
-#define SUN_MASS (10000.0f)
-#endif
+#define INSTANT_DEATH_DISTANCE_FROM_CENTER 2000.0f
 #define SOLAR_ENERGY_PER_SECOND 0.09f
 #define DAMAGE_TO_PLAYER_PER_BLOCK 0.1f
 #define BATTERY_CAPACITY 1.5f
@@ -263,6 +257,13 @@ typedef struct Entity
   V2 explosion_vel;
   float explosion_progresss; // in seconds
 
+  // sun
+  bool is_sun;
+  V2 sun_vel;
+  V2 sun_pos;
+  float sun_mass;
+  float sun_radius;
+
   // missile
   bool is_missile;
   float time_burned_for; // until MISSILE_BURN_TIME
@@ -324,6 +325,17 @@ typedef struct Player
   EntityID last_used_medbay;
   InputFrame input;
 } Player;
+
+// use i.sun to access the current sun's pointer
+typedef struct SunIter
+{
+  int i;
+  Entity *sun;
+} SunIter;
+#define SUNS_ITER(gs_ptr)                      \
+  for (SunIter i = {0}; i.i < MAX_SUNS; i.i++) \
+    if ((i.sun = get_entity(gs_ptr, (gs_ptr)->suns[i.i])) != NULL)
+
 // gotta update the serialization functions when this changes
 typedef struct GameState
 {
@@ -336,6 +348,7 @@ typedef struct GameState
   V2 goldpos;
 
   Player players[MAX_PLAYERS];
+  EntityID suns[MAX_SUNS]; // can't have holes in it for serialization
 
   V2 platonic_positions[MAX_BOX_TYPES]; // don't want to search over every entity to get the nearest platonic box!
 
@@ -417,7 +430,7 @@ void process_fixed_timestep(GameState *gs);
 void process(struct GameState *gs, float dt); // does in place
 Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, float radius, bool (*filter_func)(Entity *));
 uint64_t tick(struct GameState *gs);
-float sun_dist_no_gravity();
+float sun_dist_no_gravity(Entity *sun);
 
 // all of these return if successful or not
 bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk);
@@ -434,7 +447,7 @@ V2 entity_pos(Entity *e);
 void entity_set_rotation(Entity *e, float rot);
 void entity_set_pos(Entity *e, V2 pos);
 float entity_rotation(Entity *e);
-void entity_ensure_in_orbit(Entity *e);
+void entity_ensure_in_orbit(GameState *gs, Entity *e);
 void entity_destroy(GameState *gs, Entity *e);
 #define BOX_CHAIN_ITER(gs, cur, starting_box) for (Entity *cur = get_entity(gs, starting_box); cur != NULL; cur = get_entity(gs, cur->next_box))
 #define BOXES_ITER(gs, cur, grid_entity_ptr) BOX_CHAIN_ITER(gs, cur, (grid_entity_ptr)->boxes)

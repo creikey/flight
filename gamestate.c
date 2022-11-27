@@ -347,6 +347,19 @@ Entity *new_entity(GameState *gs)
   return to_return;
 }
 
+// pos, mass, radius
+EntityID create_sun(GameState *gs, Entity *new_sun, V2 pos, V2 vel, float mass, float radius)
+{
+  assert(new_sun != NULL);
+  new_sun->is_sun = true;
+  new_sun->sun_pos = pos;
+  new_sun->sun_vel = vel;
+  new_sun->sun_mass = mass;
+  new_sun->sun_radius = radius;
+
+  return get_id(gs, new_sun);
+}
+
 void create_body(GameState *gs, Entity *e)
 {
   assert(gs->space != NULL);
@@ -830,6 +843,10 @@ V2 entity_pos(Entity *e)
   {
     return e->explosion_pos;
   }
+  else if (e->is_sun)
+  {
+    return e->sun_pos;
+  }
   else
   {
     assert(e->body != NULL);
@@ -980,8 +997,6 @@ SerMaybeFailure ser_var(SerState *ser, char *var_pointer, size_t var_size, const
 enum GameVersion
 {
   VInitial,
-  VMoreBoxes,
-  VMissileMerge,
   VMax, // this minus one will be the version used
 };
 
@@ -1121,11 +1136,10 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     }
   }
 
-  if (ser->version >= VMoreBoxes && !ser->save_or_load_from_disk)
+  if (!ser->save_or_load_from_disk)
     SER_VAR(&e->time_was_last_cloaked);
 
-  if (ser->version >= VMissileMerge)
-    SER_VAR(&e->owning_squad);
+  SER_VAR(&e->owning_squad);
 
   SER_VAR(&e->is_player);
   if (e->is_player)
@@ -1133,10 +1147,6 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_ASSERT(e->no_save_to_disk);
 
     SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
-    if (ser->version < VMissileMerge)
-    {
-      SER_VAR_NAME(&e->owning_squad, "&e->presenting_squad");
-    }
     SER_VAR(&e->squad_invited_to);
     SER_VAR(&e->goldness);
   }
@@ -1149,6 +1159,15 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_VAR(&e->explosion_progresss);
   }
 
+  SER_VAR(&e->is_sun);
+  if (e->is_sun)
+  {
+    SER_MAYBE_RETURN(ser_V2(ser, &e->sun_vel));
+    SER_MAYBE_RETURN(ser_V2(ser, &e->sun_pos));
+    SER_VAR(&e->sun_mass);
+    SER_VAR(&e->sun_radius);
+  }
+
   SER_VAR(&e->is_grid);
   if (e->is_grid)
   {
@@ -1156,13 +1175,10 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_MAYBE_RETURN(ser_entityid(ser, &e->boxes));
   }
 
-  if (ser->version >= VMissileMerge)
+  SER_VAR(&e->is_missile)
+  if (e->is_missile)
   {
-    SER_VAR(&e->is_missile)
-    if (e->is_missile)
-    {
-      SER_VAR(&e->time_burned_for);
-    }
+    SER_VAR(&e->time_burned_for);
   }
 
   SER_VAR(&e->is_box);
@@ -1171,8 +1187,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_VAR(&e->box_type);
     SER_VAR(&e->is_platonic);
 
-    if (ser->version >= VMoreBoxes)
-      SER_VAR(&e->owning_squad);
+    SER_VAR(&e->owning_squad);
 
     SER_VAR(&e->always_visible);
     SER_MAYBE_RETURN(ser_entityid(ser, &e->next_box));
@@ -1311,6 +1326,16 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
       }
     }
   }
+
+  for (int i = 0; i < MAX_SUNS; i++)
+  {
+    bool suns_done = get_entity(gs, gs->suns[i]) == NULL;
+    SER_VAR(&suns_done);
+    if (suns_done)
+      break;
+    SER_MAYBE_RETURN(ser_entityid(ser, &gs->suns[i]));
+  }
+
   if (ser->serializing)
   {
     bool entities_done = false;
@@ -1805,13 +1830,13 @@ float batteries_use_energy(GameState *gs, Entity *grid, float *energy_left_over,
   return energy_to_use;
 }
 
-float sun_dist_no_gravity()
+float sun_dist_no_gravity(Entity *sun)
 {
   // return (GRAVITY_CONSTANT * (SUN_MASS * mass / (distance * distance))) / mass;
   // 0.01f = (GRAVITY_CONSTANT * (SUN_MASS / (distance_sqr)));
   // 0.01f / GRAVITY_CONSTANT = SUN_MASS / distance_sqr;
   // distance = sqrt( SUN_MASS / (0.01f / GRAVITY_CONSTANT) )
-  return sqrtf( SUN_MASS / (GRAVITY_SMALLEST / GRAVITY_CONSTANT) );
+  return sqrtf(sun->sun_mass / (GRAVITY_SMALLEST / GRAVITY_CONSTANT));
 }
 
 float entity_mass(Entity *m)
@@ -1820,6 +1845,8 @@ float entity_mass(Entity *m)
     return (float)cpBodyGetMass(m->body);
   else if (m->is_box)
     return BOX_MASS;
+  else if (m->is_sun)
+    return m->sun_mass;
   else
   {
     assert(false);
@@ -1827,40 +1854,61 @@ float entity_mass(Entity *m)
   }
 }
 
-V2 sun_gravity_accel_for_entity(Entity *entity_with_gravity)
+V2 sun_gravity_accel_for_entity(Entity *entity_with_gravity, Entity *sun)
 {
-  if (V2length(V2sub(entity_pos(entity_with_gravity), SUN_POS)) >  sun_dist_no_gravity())
+#ifdef NO_GRAVITY
+  return (V2){0};
+#else
+
+  if (V2length(V2sub(entity_pos(entity_with_gravity), entity_pos(sun))) > sun_dist_no_gravity(sun))
     return (V2){0};
-  V2 rel_vector = V2sub(entity_pos(entity_with_gravity), SUN_POS);
+  V2 rel_vector = V2sub(entity_pos(entity_with_gravity), entity_pos(sun));
   float mass = entity_mass(entity_with_gravity);
   assert(mass != 0.0f);
   float distance_sqr = V2lengthsqr(rel_vector);
   // return (GRAVITY_CONSTANT * (SUN_MASS * mass / (distance * distance))) / mass;
   // the mass divides out
-  float accel_magnitude = (GRAVITY_CONSTANT * (SUN_MASS / (distance_sqr)));
+
+  // on top
+  float accel_magnitude = (GRAVITY_CONSTANT * (sun->sun_mass / (distance_sqr)));
+  if (distance_sqr <= sun->sun_radius)
+  {
+    accel_magnitude *= -1.0f;
+    if (distance_sqr <= sun->sun_radius * 0.25f)
+      accel_magnitude = 0.0f;
+  }
   V2 towards_sun = V2normalize(V2scale(rel_vector, -1.0f));
   return V2scale(towards_sun, accel_magnitude);
+#endif // NO_GRAVITY
 }
 
 void entity_set_velocity(Entity *e, V2 vel)
 {
-  assert(e->body != NULL);
-  cpBodySetVelocity(e->body, v2_to_cp(vel));
+  if (e->body != NULL)
+    cpBodySetVelocity(e->body, v2_to_cp(vel));
+  else if (e->is_sun)
+    e->sun_vel = vel;
+  else
+    assert(false);
 }
 
-void entity_ensure_in_orbit(Entity *e)
+void entity_ensure_in_orbit(GameState *gs, Entity *e)
 {
-  assert(e->body != NULL);
-
-  V2 gravity_accel = sun_gravity_accel_for_entity(e);
-  if (V2length(gravity_accel) > 0.00f)
+  cpVect total_new_vel = {0};
+  SUNS_ITER(gs)
   {
-    float dist = V2length(V2sub(entity_pos(e), SUN_POS));
-    V2 orthogonal_to_gravity = V2normalize(V2rotate(gravity_accel, PI / 2.0f));
-    V2 wanted_vel = V2scale(orthogonal_to_gravity, sqrtf(V2length(gravity_accel) * dist));
+    V2 gravity_accel = sun_gravity_accel_for_entity(e, i.sun);
+    if (V2length(gravity_accel) > 0.0f)
+    {
+      float dist = V2length(V2sub(entity_pos(e), entity_pos(i.sun)));
+      V2 orthogonal_to_gravity = V2normalize(V2rotate(gravity_accel, PI / 2.0f));
+      V2 wanted_vel = V2scale(orthogonal_to_gravity, sqrtf(V2length(gravity_accel) * dist));
 
-    cpBodySetVelocity(e->body, v2_to_cp(wanted_vel));
+      total_new_vel = cpvadd(total_new_vel, v2_to_cp(wanted_vel));
+    }
   }
+  entity_set_velocity(e, cp_to_v2(total_new_vel));
+
   // cpVect pos = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
   // cpFloat r = cpvlength(pos);
   // cpFloat v = cpfsqrt(sun_gravity_accel_at_point(cp_to_v2(pos), e) / r) / r;
@@ -1920,7 +1968,7 @@ void create_bomb_station(GameState *gs, V2 pos, enum BoxType platonic_type)
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 3.0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 6.0, -BOX_SIZE * 5.0}), BoxExplosive);
 
-  entity_ensure_in_orbit(grid);
+  entity_ensure_in_orbit(gs, grid);
 }
 
 void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type)
@@ -1951,13 +1999,27 @@ void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type
     BOX_AT_TYPE(grid, ((V2){x, BOX_SIZE * 5.0}), BoxHullpiece);
     BOX_AT_TYPE(grid, ((V2){x, -BOX_SIZE * 5.0}), BoxHullpiece);
   }
-  entity_ensure_in_orbit(grid);
+  entity_ensure_in_orbit(gs, grid);
   indestructible = false;
 }
 void create_initial_world(GameState *gs)
 {
+  EntityID suns[] = {
+      create_sun(gs, new_entity(gs), ((V2){100.0f, 0.0f}), ((V2){0.0f, 0.0f}), 100000.0f, 20.0f),
+      create_sun(gs, new_entity(gs), ((V2){100.0f, 50.0f}), ((V2){10.0f, 0.0f}), 10000.0f, 10.0f),
+      create_sun(gs, new_entity(gs), ((V2){100.0f, -50.0f}), ((V2){-10.0f, 0.0f}), 10000.0f, 10.0f),
+      create_sun(gs, new_entity(gs), ((V2){50.0f, 200.0f}), ((V2){5.0f, 0.0f}), 400000.0f, 30.0f),
+      create_sun(gs, new_entity(gs), ((V2){-200.0f, 200.0f}), ((V2){-15.0f, 0.0f}), 900000.0f, 60.0f),
+  };
+
+  for (int i = 0; i < ARRLEN(suns); i++)
+  {
+    gs->suns[i] = suns[i];
+  }
+
 #ifdef DEBUG_WORLD
   Log("Creating debug world\n");
+  // pos, mass, radius
   create_bomb_station(gs, (V2){-5.0f, 0.0f}, BoxExplosive);
   create_bomb_station(gs, (V2){0.0f, 5.0f}, BoxGyroscope);
   create_hard_shell_station(gs, (V2){-5.0f, 5.0f}, BoxCloaking);
@@ -1970,6 +2032,7 @@ void create_initial_world(GameState *gs)
 
   enum CompassRotation rot = Right;
   {
+
     Entity *grid = new_entity(gs);
     grid_create(gs, grid);
     entity_set_pos(grid, V2add(from, V2rotate((V2){.x = -BOX_SIZE * 9.0f}, theta)));
@@ -1978,7 +2041,7 @@ void create_initial_world(GameState *gs)
     BOX_AT_TYPE(grid, ((V2){0.0f, 0.0f}), BoxMerge);
     BOX_AT(grid, ((V2){0.0f, -BOX_SIZE}));
     BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0.0f}), BoxMerge);
-    entity_ensure_in_orbit(grid);
+    entity_ensure_in_orbit(gs, grid);
   }
 
   {
@@ -1993,13 +2056,15 @@ void create_initial_world(GameState *gs)
     rot = Up;
     BOX_AT_TYPE(grid, ((V2){0.0f, BOX_SIZE}), BoxMerge);
     cpBodySetVelocity(grid->body, v2_to_cp(V2rotate((V2){-0.4f, 0.0f}, theta)));
-    entity_ensure_in_orbit(grid);
+    entity_ensure_in_orbit(gs, grid);
   }
+
 #else
-  create_bomb_station(gs, (V2){-50.0f, 0.0f}, BoxExplosive);
-  create_hard_shell_station(gs, (V2){0.0f, 100.0f}, BoxGyroscope);
-  create_bomb_station(gs, (V2){0.0f, -100.0f}, BoxCloaking);
-  create_bomb_station(gs, (V2){100.0f, 100.0f}, BoxMissileLauncher);
+  EntityID suns[] = {};
+  create_bomb_station(gs, (V2){-200.0f, 0.0f}, BoxExplosive);
+  create_hard_shell_station(gs, (V2){0.0f, 400.0f}, BoxGyroscope);
+  create_bomb_station(gs, (V2){0.0f, -150.0f}, BoxCloaking);
+  create_bomb_station(gs, (V2){300.0f, 300.0f}, BoxMissileLauncher);
   create_hard_shell_station(gs, (V2){50.0f, 100.0f}, BoxMerge);
 #endif
 }
@@ -2022,6 +2087,31 @@ void process(GameState *gs, float dt)
   assert(gs->space != NULL);
 
   gs->time += dt;
+
+  // process sun gravity
+  SUNS_ITER(gs)
+  {
+    Entity *from_sun = i.sun;
+    V2 accel = {0};
+    SUNS_ITER(gs)
+    {
+      Entity *other_sun = i.sun;
+      if (other_sun != from_sun)
+      {
+        accel = V2add(accel, sun_gravity_accel_for_entity(from_sun, other_sun));
+      }
+    }
+#ifndef NO_GRAVITY
+    from_sun->sun_vel = V2add(from_sun->sun_vel, V2scale(accel, dt));
+    from_sun->sun_pos = V2add(from_sun->sun_pos, V2scale(from_sun->sun_vel, dt));
+
+    if (V2length(from_sun->sun_pos) >= INSTANT_DEATH_DISTANCE_FROM_CENTER)
+    {
+      from_sun->sun_vel = V2scale(from_sun->sun_vel, -0.8f);
+      from_sun->sun_pos = V2scale(V2normalize(from_sun->sun_pos), INSTANT_DEATH_DISTANCE_FROM_CENTER);
+    }
+#endif
+  }
 
   // process input
   PLAYERS_ITER(gs->players, player)
@@ -2065,7 +2155,7 @@ void process(GameState *gs, float dt)
       create_player_entity(gs, p);
       player->entity = get_id(gs, p);
       Entity *medbay = get_entity(gs, player->last_used_medbay);
-      entity_ensure_in_orbit(p);
+      entity_ensure_in_orbit(gs, p);
       if (medbay != NULL)
       {
         exit_seat(gs, medbay, p);
@@ -2301,11 +2391,10 @@ void process(GameState *gs, float dt)
     if (!e->exists)
       continue;
 
-    // sun processing
+    // instant death
     {
-      cpVect pos_rel_sun = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
-      cpFloat sqdist = cpvlengthsq(pos_rel_sun);
-      if (e->body != NULL && sqdist > (INSTANT_DEATH_DISTANCE_FROM_SUN * INSTANT_DEATH_DISTANCE_FROM_SUN))
+      cpFloat dist_from_center = cpvlengthsq(v2_to_cp(entity_pos(e)));
+      if (e->body != NULL && dist_from_center > (INSTANT_DEATH_DISTANCE_FROM_CENTER * INSTANT_DEATH_DISTANCE_FROM_CENTER))
       {
         bool platonic_found = false;
         if (e->is_grid)
@@ -2323,8 +2412,8 @@ void process(GameState *gs, float dt)
         {
           cpBody *body = e->body;
           cpBodySetVelocity(body, cpvmult(cpBodyGetVelocity(body), -0.5));
-          cpVect rel_to_sun = cpvsub(cpBodyGetPosition(body), v2_to_cp(SUN_POS));
-          cpBodySetPosition(body, cpvadd(v2_to_cp(SUN_POS), cpvmult(cpvnormalize(rel_to_sun), INSTANT_DEATH_DISTANCE_FROM_SUN)));
+          cpVect rel_to_center = cpvsub(cpBodyGetPosition(body), (cpVect){0});
+          cpBodySetPosition(body, cpvmult(cpvnormalize(rel_to_center), INSTANT_DEATH_DISTANCE_FROM_CENTER));
         }
         else
         {
@@ -2332,26 +2421,30 @@ void process(GameState *gs, float dt)
         }
         continue;
       }
-      if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
+    }
+
+    // sun processing for this current entity
+    {
+      SUNS_ITER(gs)
       {
-        sqdist = cpvlengthsq(cpvsub(v2_to_cp(entity_pos(e)), v2_to_cp(SUN_POS)));
-        if (sqdist < (SUN_RADIUS * SUN_RADIUS))
+        cpVect pos_rel_sun = v2_to_cp(V2sub(entity_pos(e), (entity_pos(i.sun))));
+        cpFloat sqdist = cpvlengthsq(pos_rel_sun);
+        if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
         {
-          e->damage += 10.0f * dt;
+          sqdist = cpvlengthsq(cpvsub(v2_to_cp(entity_pos(e)), v2_to_cp(entity_pos(i.sun))));
+          if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))
+          {
+            e->damage += 10.0f * dt;
+          }
         }
-      }
 
-      if (e->body != NULL)
-      {
-
-        // cpVect g = cpvmult(pos_rel_sun, -sun_gravity_accel_at_point(entity_pos(e), e) / (sqdist * cpfsqrt(sqdist)));
-        // sun gravitational pull
-        V2 accel = sun_gravity_accel_for_entity(e);
-        V2 new_vel = entity_vel(gs, e);
-        new_vel = V2add(new_vel, V2scale(accel, dt));
-        cpBodySetVelocity(e->body, v2_to_cp(new_vel));
-        // cpBodySetVelocity(e->body, )
-        // cpBodyUpdateVelocity(e->body, g, 1.0f, dt);
+        if (e->body != NULL)
+        {
+          V2 accel = sun_gravity_accel_for_entity(e, i.sun);
+          V2 new_vel = entity_vel(gs, e);
+          new_vel = V2add(new_vel, V2scale(accel, dt));
+          cpBodySetVelocity(e->body, v2_to_cp(new_vel));
+        }
       }
     }
 
@@ -2476,10 +2569,15 @@ void process(GameState *gs, float dt)
       {
         if (cur_box->box_type == BoxSolarPanel)
         {
-          cur_box->sun_amount = clamp01(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(SUN_POS, entity_pos(cur_box)))));
+          cur_box->sun_amount = 0.0f;
+          SUNS_ITER(gs)
+          {
+            float new_sun = clamp01(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(entity_pos(i.sun), entity_pos(cur_box)))));
 
-          // less sun the farther away you are!
-          cur_box->sun_amount *= lerp(1.0f, 0.0f, clamp01(V2length(V2sub(entity_pos(cur_box), SUN_POS)) / sun_dist_no_gravity()));
+            // less sun the farther away you are!
+            new_sun *= lerp(1.0f, 0.0f, clamp01(V2length(V2sub(entity_pos(cur_box), entity_pos(i.sun))) / sun_dist_no_gravity(i.sun)));
+            cur_box->sun_amount += new_sun;
+          }
           energy_to_add += cur_box->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
         }
       }

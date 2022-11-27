@@ -1940,23 +1940,29 @@ static void frame(void)
       set_color(GOLD);
       sgp_draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1f, 0.1f);
 
+    
+      // instant death
+      set_color(RED);
+      draw_circle((V2){0}, INSTANT_DEATH_DISTANCE_FROM_CENTER);
+    
       // the SUN
-      transform_scope
+      SUNS_ITER(&gs)
       {
-        sgp_translate(SUN_POS.x, SUN_POS.y);
-        set_color(WHITE);
-        sgp_set_image(0, image_sun);
-        draw_texture_centered((V2){0}, SUN_RADIUS * 2.0f);
-        sgp_reset_image(0);
+        transform_scope
+        {
+          sgp_translate(entity_pos(i.sun).x, entity_pos(i.sun).y);
+          set_color(WHITE);
+          sgp_set_image(0, image_sun);
+          draw_texture_centered((V2){0}, i.sun->sun_radius * 2.0f);
+          sgp_reset_image(0);
 
-        // can draw at 0,0 because everything relative to sun now!
+          // can draw at 0,0 because everything relative to sun now!
 
-        // sun DEATH RADIUS
-        set_color(RED);
-        draw_circle((V2){0}, INSTANT_DEATH_DISTANCE_FROM_SUN);
+          // sun DEATH RADIUS
 
-        set_color(BLUE);
-        draw_circle((V2){0}, sun_dist_no_gravity());
+          set_color(BLUE);
+          draw_circle((V2){0}, sun_dist_no_gravity(i.sun));
+        }
       }
 
       sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
