@@ -140,7 +140,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);DEBUG_RENDERING;SERVER_ADDRESS="127.0.0.1"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);DEBUG_RENDERING</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)\thirdparty\enet\include;$(ProjectDir)\thirdparty\Chipmunk2D\include\chipmunk;$(ProjectDir)\thirdparty;$(ProjectDir)\thirdparty\Chipmunk2D\include;$(ProjectDir)\thirdparty\minilzo;$(ProjectDir)\thirdparty\opus\include</AdditionalIncludeDirectories>
       <TreatWarningAsError>true</TreatWarningAsError>

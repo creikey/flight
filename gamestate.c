@@ -380,14 +380,19 @@ V2 player_vel(GameState *gs, Entity *player)
 {
   assert(player->is_player);
   Entity *potential_seat = get_entity(gs, player->currently_inside_of_box);
-  if (potential_seat != NULL)
+  if (potential_seat != NULL && !potential_seat->is_box)
   {
-    return cp_to_v2(cpBodyGetVelocity(get_entity(gs, potential_seat->shape_parent_entity)->body));
+    Log("Weird ass motherfucking bug where the seat inside of is an explosion or some shit\n");
+    assert(potential_seat->is_box);
   }
   else
   {
-    return cp_to_v2(cpBodyGetVelocity(player->body));
+    if (potential_seat != NULL)
+    {
+      return cp_to_v2(cpBodyGetVelocity(get_entity(gs, potential_seat->shape_parent_entity)->body));
+    }
   }
+  return cp_to_v2(cpBodyGetVelocity(player->body));
 }
 
 void grid_create(GameState *gs, Entity *e)

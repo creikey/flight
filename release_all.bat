@@ -1,4 +1,3 @@
-call vcvars
 git push
 call build_release.bat
 call update_server.bat
