@@ -1224,17 +1224,38 @@ static void ui(bool draw, float dt, float width, float height)
 static void draw_dots(V2 camera_pos, float gap)
 {
   sgp_set_color(1.0f, 1.0f, 1.0f, 1.0f);
-  const int num = 100;
-  for (int x = -num; x < num; x++)
+  // const int num = 100;
+  
+  
+  // initial_x * gap = camera_pos.x - VISION_RADIUS
+  // initial_x = (camera_pos.x - VISION_RADIUS) / gap
+  
+  
+  // int initial_x = (int)floorf((camera_pos.x - VISION_RADIUS) / gap);
+  // int final_x  = (int)floorf((camera_pos.x + VISION_RADIUS) / gap);
+  
+  // -VISION_RADIUS < x * gap - camera_pos.x < VISION_RADIUS
+  // -VISION_RADIUS + camera_pos.x < x * gap < VISION_RADIUS + camera_pos.x
+  // (-VISION_RADIUS + camera_pos.x)/gap < x < (VISION_RADIUS + camera_pos.x)/gap
+  int initial_x = (int)floorf((-VISION_RADIUS*2 + camera_pos.x)/gap);
+  int final_x = (int)ceilf((VISION_RADIUS*2 + camera_pos.x)/gap);
+  
+  int initial_y = (int)floorf((-VISION_RADIUS*2 + camera_pos.y)/gap);
+  int final_y = (int)ceilf((VISION_RADIUS*2 + camera_pos.y)/gap);
+  
+  // initial_x = -num;
+  // final_x = num;
+  
+  for (int x = initial_x; x < final_x; x++)
   {
-    for (int y = -num; y < num; y++)
+    for (int y = initial_y; y < final_y; y++)
     {
       V2 star = (V2){(float)x * gap, (float)y * gap};
+      star.x += hash11(star.x * 100.0f + star.y * 67.0f) * gap;
+      star.y += hash11(star.y * 93.0f + star.x * 53.0f) * gap;
       if (V2lengthsqr(V2sub(star, camera_pos)) > VISION_RADIUS * VISION_RADIUS)
         continue;
 
-      star.x += hash11(star.x * 100.0f + star.y * 67.0f) * gap;
-      star.y += hash11(star.y * 93.0f + star.x * 53.0f) * gap;
       sgp_draw_point(star.x, star.y);
     }
   }
@@ -1624,7 +1645,7 @@ static void frame(void)
       transform_scope
       {
         V2 scaled_camera_pos = V2scale(
-            camera_pos, 0.05f); // this is how strong/weak the parallax is
+            camera_pos, 0.0005f); // this is how strong/weak the parallax is
         sgp_translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
         set_color(WHITE);
         sgp_set_image(0, image_stars);
@@ -1641,7 +1662,7 @@ static void frame(void)
       transform_scope
       {
         V2 scaled_camera_pos = V2scale(
-            camera_pos, 0.1f); // this is how strong/weak the parallax is
+            camera_pos, 0.005f); // this is how strong/weak the parallax is
         sgp_translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
         set_color(WHITE);
         sgp_set_image(0, image_stars2);
@@ -2080,7 +2101,7 @@ void event(const sapp_event *e)
     break;
   case SAPP_EVENTTYPE_MOUSE_SCROLL:
     zoom_target *= 1.0f + (e->scroll_y / 4.0f) * 0.1f;
-    zoom_target = clamp(zoom_target, 0.5f, 900.0f);
+    zoom_target = clamp(zoom_target, ZOOM_MIN, ZOOM_MAX);
     break;
   case SAPP_EVENTTYPE_MOUSE_DOWN:
     mousedown[e->mouse_button] = true;

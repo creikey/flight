@@ -3,6 +3,8 @@
 #include "ipsettings.h"
 
 #define MAX_BOX_TYPES 64
+#define ZOOM_MIN 0.25f
+#define ZOOM_MAX 1500.0f
 #define MAX_PLAYERS 16
 #define MAX_SUNS 8
 #define MAX_ENTITIES 1024 * 25
@@ -46,7 +48,7 @@
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
 #define GRAVITY_CONSTANT 0.1f
 #define GRAVITY_SMALLEST 0.01f // used to determine when gravity is clamped to 0.0f
-#define INSTANT_DEATH_DISTANCE_FROM_CENTER 2000.0f
+#define INSTANT_DEATH_DISTANCE_FROM_CENTER 4000.0f
 #define SOLAR_ENERGY_PER_SECOND 0.09f
 #define DAMAGE_TO_PLAYER_PER_BLOCK 0.1f
 #define BATTERY_CAPACITY 1.5f
