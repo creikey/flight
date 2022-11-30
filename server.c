@@ -141,9 +141,9 @@ void server(void *info_raw)
   {
     Entity *grid = new_entity(&gs);
     grid_create(&gs, grid);
-    entity_set_pos(grid, (V2){-BOX_SIZE * 2, 0.0});
+    entity_set_pos(grid, (cpVect){-BOX_SIZE * 2, 0.0});
     Entity *box = new_entity(&gs);
-    box_create(&gs, box, grid, (V2){0});
+    box_create(&gs, box, grid, (cpVect){0});
   }
 
   // rotation test
@@ -151,16 +151,16 @@ void server(void *info_raw)
   {
     Entity *grid = new_entity(&gs);
     grid_create(&gs, grid);
-    entity_set_pos(grid, (V2){-BOX_SIZE * 2, 0.0});
+    entity_set_pos(grid, (cpVect){-BOX_SIZE * 2, 0.0});
     entity_set_rotation(grid, PI / 1.7);
     cpBodySetVelocity(grid->body, cpv(-0.1, 0.0));
     cpBodySetAngularVelocity(grid->body, 1.0);
 
-    BOX_AT(grid, ((V2){0}));
-    BOX_AT(grid, ((V2){BOX_SIZE, 0}));
-    BOX_AT(grid, ((V2){2.0 * BOX_SIZE, 0}));
-    BOX_AT(grid, ((V2){2.0 * BOX_SIZE, BOX_SIZE}));
-    BOX_AT(grid, ((V2){0.0 * BOX_SIZE, -BOX_SIZE}));
+    BOX_AT(grid, ((cpVect){0}));
+    BOX_AT(grid, ((cpVect){BOX_SIZE, 0}));
+    BOX_AT(grid, ((cpVect){2.0 * BOX_SIZE, 0}));
+    BOX_AT(grid, ((cpVect){2.0 * BOX_SIZE, BOX_SIZE}));
+    BOX_AT(grid, ((cpVect){0.0 * BOX_SIZE, -BOX_SIZE}));
   }
 
   if (enet_initialize() != 0)

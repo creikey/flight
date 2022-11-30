@@ -16,13 +16,13 @@ typedef struct Command
     union
     {
         // rect
-        V2 center;
+        cpVect center;
 
         // line
         struct
         {
-            V2 from;
-            V2 to;
+            cpVect from;
+            cpVect to;
         };
     };
 } Command;
@@ -47,15 +47,15 @@ void dbg_drawall()
         {
         case rect:
         {
-            V2 center = commands[i].center;
-            V2 upper_left = cpvadd(center, (V2){.x = -size / 2.0, .y = -size / 2.0});
+            cpVect center = commands[i].center;
+            cpVect upper_left = cpvadd(center, (cpVect){.x = -size / 2.0, .y = -size / 2.0});
             sgp_draw_filled_rect((float)upper_left.x, (float)upper_left.y, (float)size, (float)size);
             break;
         }
         case line:
         {
-            V2 from = commands[i].from;
-            V2 to = commands[i].to;
+            cpVect from = commands[i].from;
+            cpVect to = commands[i].to;
             sgp_draw_line((float)from.x, (float)from.y, (float)to.x, (float)to.y);
             break;
         }
@@ -65,7 +65,7 @@ void dbg_drawall()
     command_i = 0;
 }
 
-void dbg_line(V2 from, V2 to)
+void dbg_line(cpVect from, cpVect to)
 {
     commands[command_i] = (Command){
         .type = line,
@@ -76,7 +76,7 @@ void dbg_line(V2 from, V2 to)
     command_i %= MAX_COMMANDS;
 }
 
-void dbg_rect(V2 center)
+void dbg_rect(cpVect center)
 {
     commands[command_i] = (Command){
         .type = rect,

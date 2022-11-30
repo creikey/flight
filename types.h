@@ -10,7 +10,7 @@
 #define MAX_ENTITIES 1024 * 25
 #define BOX_SIZE 0.25f
 #define MERGE_MAX_DIST (BOX_SIZE / 2.0f + 0.01f)
-#define PLAYER_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
+#define PLAYER_SIZE ((cpVect){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
 #define PLAYER_JETPACK_FORCE 2.0f
 #define PLAYER_JETPACK_TORQUE 0.05f
@@ -23,8 +23,8 @@
 #define MISSILE_DAMAGE_THRESHOLD 0.2f
 #define MISSILE_CHARGE_RATE 0.5f
 // centered on the sprite
-#define MISSILE_SPRITE_SIZE ((V2){.x = BOX_SIZE, .y = BOX_SIZE})
-#define MISSILE_COLLIDER_SIZE ((V2){.x = BOX_SIZE * 0.5f, .y = BOX_SIZE * 0.5f})
+#define MISSILE_SPRITE_SIZE ((cpVect){.x = BOX_SIZE, .y = BOX_SIZE})
+#define MISSILE_COLLIDER_SIZE ((cpVect){.x = BOX_SIZE * 0.5f, .y = BOX_SIZE * 0.5f})
 // #define PLAYER_JETPACK_FORCE 20.0f
 // distance at which things become geostationary and no more solar power!
 #define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
@@ -136,8 +136,6 @@ typedef int opus_int32;
 
 #endif
 
-typedef cpVect V2;
-
 #define Log(...)                                     \
   {                                                  \
     fprintf(stdout, "%s:%d | ", __FILE__, __LINE__); \
@@ -198,7 +196,7 @@ static bool entityids_same(EntityID a, EntityID b)
 typedef struct InputFrame
 {
   uint64_t tick;
-  V2 movement;
+  cpVect movement;
   double rotation;
 
   int take_over_squad; // -1 means not taking over any squad
@@ -207,7 +205,7 @@ typedef struct InputFrame
   EntityID invite_this_player; // null means inviting nobody! @Robust make it so just sends interact pos input, and server processes who to invite. This depends on client side prediction + proper input processing at the right tick.
 
   bool seat_action;
-  V2 hand_pos; // local to player transationally but not rotationally
+  cpVect hand_pos; // local to player transationally but not rotationally
   // @BeforeShip bounds check on the hand_pos so that players can't reach across the entire map
 
   bool dobuild;
@@ -236,7 +234,7 @@ typedef struct Entity
   // @Robust remove shape_parent_entity from this struct, use the shape's body to figure out
   // what the shape's parent entity is
   EntityID shape_parent_entity; // can't be zero if shape is nonzero
-  V2 shape_size;
+  cpVect shape_size;
 
   // player
   bool is_player;
@@ -247,16 +245,16 @@ typedef struct Entity
 
   // explosion
   bool is_explosion;
-  V2 explosion_pos;
-  V2 explosion_vel;
+  cpVect explosion_pos;
+  cpVect explosion_vel;
   double explosion_progress; // in seconds
   double explosion_push_strength;
   double explosion_radius;
 
   // sun
   bool is_sun;
-  V2 sun_vel;
-  V2 sun_pos;
+  cpVect sun_vel;
+  cpVect sun_pos;
   double sun_mass;
   double sun_radius;
 
@@ -308,7 +306,7 @@ typedef struct Entity
   BOX_UNLOCKS_TYPE blueprints_learned; // @Robust make this same type as blueprints
   double scanner_head_rotate_speed;    // not serialized, cosmetic
   double scanner_head_rotate;
-  V2 platonic_nearest_direction;      // normalized
+  cpVect platonic_nearest_direction;      // normalized
   double platonic_detection_strength; // from zero to one
 } Entity;
 
@@ -341,12 +339,12 @@ typedef struct GameState
   // Like a whole timestep then a double for subtimestep
   double time; // @Robust separate tick integer not prone to precision issues. Could be very large as is saved to disk!
 
-  V2 goldpos;
+  cpVect goldpos;
 
   Player players[MAX_PLAYERS];
   EntityID suns[MAX_SUNS]; // can't have holes in it for serialization
 
-  V2 platonic_positions[MAX_BOX_TYPES]; // don't want to search over every entity to get the nearest platonic box!
+  cpVect platonic_positions[MAX_BOX_TYPES]; // don't want to search over every entity to get the nearest platonic box!
 
   bool server_side_computing; // some things only the server should know and calculate, like platonic locations
 
@@ -424,7 +422,7 @@ void initialize(struct GameState *gs, void *entity_arena, size_t entity_arena_si
 void destroy(struct GameState *gs);
 void process_fixed_timestep(GameState *gs);
 void process(struct GameState *gs, double dt); // does in place
-Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, double radius, bool (*filter_func)(Entity *));
+Entity *closest_box_to_point_in_radius(struct GameState *gs, cpVect point, double radius, bool (*filter_func)(Entity *));
 uint64_t tick(struct GameState *gs);
 double sun_dist_no_gravity(Entity *sun);
 
@@ -439,9 +437,9 @@ bool is_burning(Entity *missile);
 Entity *get_entity(struct GameState *gs, EntityID id);
 Entity *new_entity(struct GameState *gs);
 EntityID get_id(struct GameState *gs, Entity *e);
-V2 entity_pos(Entity *e);
+cpVect entity_pos(Entity *e);
 void entity_set_rotation(Entity *e, double rot);
-void entity_set_pos(Entity *e, V2 pos);
+void entity_set_pos(Entity *e, cpVect pos);
 double entity_rotation(Entity *e);
 void entity_ensure_in_orbit(GameState *gs, Entity *e);
 void entity_destroy(GameState *gs, Entity *e);
@@ -456,26 +454,26 @@ LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher);
 
 // grid
 void grid_create(struct GameState *gs, Entity *e);
-void box_create(struct GameState *gs, Entity *new_box, Entity *grid, V2 pos);
+void box_create(struct GameState *gs, Entity *new_box, Entity *grid, cpVect pos);
 Entity *box_grid(Entity *box);
-V2 grid_com(Entity *grid);
-V2 grid_vel(Entity *grid);
-V2 box_vel(Entity *box);
-V2 grid_local_to_world(Entity *grid, V2 local);
-V2 grid_world_to_local(Entity *grid, V2 world);
-V2 grid_snapped_box_pos(Entity *grid, V2 world); // returns the snapped pos in world coords
+cpVect grid_com(Entity *grid);
+cpVect grid_vel(Entity *grid);
+cpVect box_vel(Entity *box);
+cpVect grid_local_to_world(Entity *grid, cpVect local);
+cpVect grid_world_to_local(Entity *grid, cpVect world);
+cpVect grid_snapped_box_pos(Entity *grid, cpVect world); // returns the snapped pos in world coords
 double entity_angular_velocity(Entity *grid);
-V2 entity_shape_pos(Entity *box);
+cpVect entity_shape_pos(Entity *box);
 double box_rotation(Entity *box);
 
 // thruster
-V2 box_facing_vector(Entity *box);
-V2 thruster_force(Entity *box);
+cpVect box_facing_vector(Entity *box);
+cpVect thruster_force(Entity *box);
 
 // debug draw
 void dbg_drawall();
-void dbg_line(V2 from, V2 to);
-void dbg_rect(V2 center);
+void dbg_line(cpVect from, cpVect to);
+void dbg_rect(cpVect center);
 
 typedef struct ServerThreadInfo
 {
@@ -490,7 +488,7 @@ typedef struct AABB
   double x, y, width, height;
 } AABB;
 
-static inline AABB centered_at(V2 point, V2 size)
+static inline AABB centered_at(cpVect point, cpVect size)
 {
   return (AABB){
       .x = point.x - size.x / 2.0f,
@@ -500,28 +498,28 @@ static inline AABB centered_at(V2 point, V2 size)
   };
 }
 
-static inline bool has_point(AABB aabb, V2 point)
+static inline bool has_point(AABB aabb, cpVect point)
 {
   return point.x > aabb.x && point.x < aabb.x + aabb.width && point.y > aabb.y && point.y < aabb.y + aabb.height;
 }
 
-static inline double cpvprojectval(V2 vec, V2 onto)
+static inline double cpvprojectval(cpVect vec, cpVect onto)
 {
   double length_onto = cpvlength(onto);
   return cpvdot(vec, onto) / (length_onto * length_onto);
 }
 
 // spins around by theta
-static inline V2 cpvspin(V2 vec, double theta)
+static inline cpVect cpvspin(cpVect vec, double theta)
 {
-  return (V2){
+  return (cpVect){
       .x = vec.x * cos(theta) - vec.y * sin(theta),
       .y = vec.x * sin(theta) + vec.y * cos(theta),
   };
 }
 
 // also known as atan2
-static inline double cpvangle(V2 vec)
+static inline double cpvangle(cpVect vec)
 {
   return atan2(vec.y, vec.x);
 }
@@ -548,7 +546,7 @@ static inline double clamp(double f, double minimum, double maximum)
   return f;
 }
 
-static inline double cpvanglediff(V2 a, V2 b)
+static inline double cpvanglediff(cpVect a, cpVect b)
 {
   double acos_input = cpvdot(a, b) / (cpvlength(a) * cpvlength(b));
   acos_input = clamp(acos_input, -1.0f, 1.0f);
@@ -573,14 +571,14 @@ static inline double lerp_angle(double p_from, double p_to, double p_weight)
   return p_from + distance * p_weight;
 }
 
-static inline V2 cpvfloor(V2 p)
+static inline cpVect cpvfloor(cpVect p)
 {
-  return (V2){floor(p.x), floor(p.y)};
+  return (cpVect){floor(p.x), floor(p.y)};
 }
 
-static inline V2 cpvfract(V2 p)
+static inline cpVect cpvfract(cpVect p)
 {
-  return (V2){fract(p.x), fract(p.y)};
+  return (cpVect){fract(p.x), fract(p.y)};
 }
 
 // for random generation
