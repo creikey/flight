@@ -141,7 +141,7 @@ void server(void *info_raw)
   {
     Entity *grid = new_entity(&gs);
     grid_create(&gs, grid);
-    entity_set_pos(grid, (V2){-BOX_SIZE * 2, 0.0f});
+    entity_set_pos(grid, (V2){-BOX_SIZE * 2, 0.0});
     Entity *box = new_entity(&gs);
     box_create(&gs, box, grid, (V2){0});
   }
@@ -151,10 +151,10 @@ void server(void *info_raw)
   {
     Entity *grid = new_entity(&gs);
     grid_create(&gs, grid);
-    entity_set_pos(grid, (V2){-BOX_SIZE * 2, 0.0f});
-    entity_set_rotation(grid, PI / 1.7f);
+    entity_set_pos(grid, (V2){-BOX_SIZE * 2, 0.0});
+    entity_set_rotation(grid, PI / 1.7);
     cpBodySetVelocity(grid->body, cpv(-0.1, 0.0));
-    cpBodySetAngularVelocity(grid->body, 1.0f);
+    cpBodySetAngularVelocity(grid->body, 1.0);
 
     BOX_AT(grid, ((V2){0}));
     BOX_AT(grid, ((V2){BOX_SIZE, 0}));
@@ -196,8 +196,8 @@ void server(void *info_raw)
   uint64_t last_saved_world_time = stm_now();
   uint64_t last_sent_audio_time = stm_now();
   uint64_t last_sent_gamestate_time = stm_now();
-  float audio_time_to_send = 0.0f;
-  float total_time = 0.0f;
+  double audio_time_to_send = 0.0;
+  double total_time = 0.0;
   unsigned char *world_save_buffer = malloc(entities_size);
   while (true)
   {
@@ -337,7 +337,7 @@ void server(void *info_raw)
     total_time += (float)stm_sec(stm_diff(stm_now(), last_processed_time));
     last_processed_time = stm_now();
     // @Robost @BeforeShip if can't process quick enough will be stuck being lagged behind, think of a solution for this...
-    const float max_time = 5.0f * TIMESTEP;
+    const double max_time = 5.0 * TIMESTEP;
     if (total_time > max_time)
     {
       Log("Abnormally large total time %f, clamping\n", total_time);
@@ -414,7 +414,7 @@ void server(void *info_raw)
 
         audio_time_to_send += (float)stm_sec(stm_diff(stm_now(), last_sent_audio_time));
         last_sent_audio_time = stm_now();
-        int num_audio_packets = (int)floor(1.0f / (VOIP_TIME_PER_PACKET / audio_time_to_send));
+        int num_audio_packets = (int)floor(1.0 / (VOIP_TIME_PER_PACKET / audio_time_to_send));
 
 #define MAX_AUDIO_PACKETS_TO_SEND 12
         if (num_audio_packets > MAX_AUDIO_PACKETS_TO_SEND)
@@ -467,9 +467,9 @@ void server(void *info_raw)
                   Entity *other_player_entity = get_entity(&gs, gs.players[other_player_index].entity);
                   if (other_player_entity != NULL)
                   {
-                    float dist = V2dist(entity_pos(this_player_entity), entity_pos(other_player_entity));
-                    float volume = lerp(1.0f, 0.0f, clamp01(dist / VOIP_DISTANCE_WHEN_CANT_HEAR));
-                    if (volume > 0.01f)
+                    double dist = V2dist(entity_pos(this_player_entity), entity_pos(other_player_entity));
+                    double volume = lerp(1.0, 0.0, clamp01(dist / VOIP_DISTANCE_WHEN_CANT_HEAR));
+                    if (volume > 0.01)
                     {
                       for (int frame_i = 0; frame_i < VOIP_EXPECTED_FRAME_COUNT; frame_i++)
                       {

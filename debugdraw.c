@@ -42,21 +42,21 @@ void dbg_drawall()
     sgp_set_color(0.4f, 0.8f, 0.2f, 0.8f);
     for (int i = 0; i < command_i; i++)
     {
-        const float size = 0.05f;
+        const double size = 0.05;
         switch (commands[i].type)
         {
         case rect:
         {
             V2 center = commands[i].center;
-            V2 upper_left = V2add(center, (V2){.x = -size / 2.0f, .y = -size / 2.0f});
-            sgp_draw_filled_rect(upper_left.x, upper_left.y, size, size);
+            V2 upper_left = V2add(center, (V2){.x = -size / 2.0, .y = -size / 2.0});
+            sgp_draw_filled_rect((float)upper_left.x, (float)upper_left.y, (float)size, (float)size);
             break;
         }
         case line:
         {
             V2 from = commands[i].from;
             V2 to = commands[i].to;
-            sgp_draw_line(from.x, from.y, to.x, to.y);
+            sgp_draw_line((float)from.x, (float)from.y, (float)to.x, (float)to.y);
             break;
         }
         }

@@ -83,7 +83,7 @@ bool cloaking_active(GameState *gs, Entity *e)
 {
   // cloaking doesn't work for first 1/2 second of game because when initializing
   // everything needs to be uncloaked
-  return gs->time >= 0.5 && (gs->time - e->time_was_last_cloaked) <= TIMESTEP * 2.0f;
+  return gs->time >= 0.5 && (gs->time - e->time_was_last_cloaked) <= TIMESTEP * 2.0;
 }
 
 bool is_cloaked(GameState *gs, Entity *e, Entity *this_players_perspective)
@@ -219,8 +219,8 @@ V2 entity_vel(GameState *gs, Entity *e)
   return (V2){0};
 }
 
-static THREADLOCAL float to_face = 0.0f;
-static THREADLOCAL float nearest_dist = INFINITY;
+static THREADLOCAL double to_face = 0.0;
+static THREADLOCAL double nearest_dist = INFINITY;
 static THREADLOCAL bool target_found = false;
 static void on_missile_shape(cpShape *shape, cpContactPointSet *points, void *data)
 {
@@ -243,9 +243,9 @@ static void on_missile_shape(cpShape *shape, cpContactPointSet *points, void *da
 
     // lookahead by their velocity
     V2 rel_velocity = V2sub(entity_vel(gs, other), entity_vel(gs, launcher));
-    float dist = V2dist(entity_pos(other), entity_pos(launcher));
+    double dist = V2dist(entity_pos(other), entity_pos(launcher));
 
-    float time_of_travel = sqrtf((2.0f * dist) / (MISSILE_BURN_FORCE / MISSILE_MASS));
+    double time_of_travel = sqrt((2.0 * dist) / (MISSILE_BURN_FORCE / MISSILE_MASS));
 
     V2 other_future_pos = V2add(entity_pos(other), V2scale(rel_velocity, time_of_travel));
 
@@ -257,13 +257,13 @@ static void on_missile_shape(cpShape *shape, cpContactPointSet *points, void *da
 
 LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
 {
-  to_face = 0.0f;
-  cpBody *tmp = cpBodyNew(0.0f, 0.0f);
+  to_face = 0.0;
+  cpBody *tmp = cpBodyNew(0.0, 0.0);
   cpBodySetPosition(tmp, v2_to_cp(entity_pos(launcher)));
   cpShape *circle = cpCircleShapeNew(tmp, MISSILE_RANGE, cpv(0, 0));
 
   nearest_dist = INFINITY;
-  to_face = 0.0f;
+  to_face = 0.0;
   target_found = false;
   cpSpaceShapeQuery(gs->space, circle, on_missile_shape, (void *)launcher);
 
@@ -348,7 +348,7 @@ Entity *new_entity(GameState *gs)
 }
 
 // pos, mass, radius
-EntityID create_sun(GameState *gs, Entity *new_sun, V2 pos, V2 vel, float mass, float radius)
+EntityID create_sun(GameState *gs, Entity *new_sun, V2 pos, V2 vel, double mass, double radius)
 {
   assert(new_sun != NULL);
   new_sun->is_sun = true;
@@ -401,7 +401,7 @@ void grid_create(GameState *gs, Entity *e)
   create_body(gs, e);
 }
 
-void entity_set_rotation(Entity *e, float rot)
+void entity_set_rotation(Entity *e, double rot)
 {
   assert(e->body != NULL);
   cpBodySetAngle(e->body, rot);
@@ -415,7 +415,7 @@ void entity_set_pos(Entity *e, V2 pos)
 }
 
 // size is (1/2 the width, 1/2 the height)
-void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, V2 pos, V2 size, float mass)
+void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, V2 pos, V2 size, double mass)
 {
   if (e->shape != NULL)
   {
@@ -434,7 +434,7 @@ void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, V2 pos, V2
 
   e->shape_size = size;
   e->shape_parent_entity = get_id(gs, parent);
-  e->shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), parent->body, 4, verts, 0.0f); // this cast is done in chipmunk, not sure why it works
+  e->shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), parent->body, 4, verts, 0.0); // this cast is done in chipmunk, not sure why it works
   cpShapeSetUserData(e->shape, (void *)e);
   cpShapeSetMass(e->shape, mass);
   cpSpaceAddShape(gs->space, e->shape);
@@ -462,7 +462,7 @@ void create_player(Player *player)
 void create_missile(GameState *gs, Entity *e)
 {
   create_body(gs, e);
-  create_rectangle_shape(gs, e, e, (V2){0}, V2scale(MISSILE_COLLIDER_SIZE, 0.5f), PLAYER_MASS);
+  create_rectangle_shape(gs, e, e, (V2){0}, V2scale(MISSILE_COLLIDER_SIZE, 0.5), PLAYER_MASS);
   e->is_missile = true;
 }
 
@@ -471,7 +471,7 @@ void create_player_entity(GameState *gs, Entity *e)
   e->is_player = true;
   e->no_save_to_disk = true;
   create_body(gs, e);
-  create_rectangle_shape(gs, e, e, (V2){0}, V2scale(PLAYER_SIZE, 0.5f), PLAYER_MASS);
+  create_rectangle_shape(gs, e, e, (V2){0}, V2scale(PLAYER_SIZE, 0.5), PLAYER_MASS);
   cpShapeSetFilter(e->shape, PLAYER_SHAPE_FILTER);
 }
 
@@ -494,9 +494,9 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, V2 pos)
   assert(gs->space != NULL);
   assert(grid->is_grid);
 
-  float halfbox = BOX_SIZE / 2.0f;
+  double halfbox = BOX_SIZE / 2.0;
 
-  create_rectangle_shape(gs, new_box, grid, pos, (V2){halfbox, halfbox}, 1.0f);
+  create_rectangle_shape(gs, new_box, grid, pos, (V2){halfbox, halfbox}, 1.0);
 
   cpShapeSetFilter(new_box->shape, cpShapeFilterNew(CP_NO_GROUP, BOXES, CP_ALL_CATEGORIES));
 
@@ -507,7 +507,7 @@ V2 box_compass_vector(Entity *box)
 {
 
   assert(box->is_box);
-  V2 to_return = (V2){.x = 1.0f, .y = 0.0f};
+  V2 to_return = (V2){.x = 1.0, .y = 0.0};
   to_return = V2rotate(to_return, rotangle(box->compass_rotation));
 
   return to_return;
@@ -576,13 +576,13 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
           V2 cur_local_pos = entity_shape_pos(N);
           const V2 dirs[] = {
               (V2){
-                  .x = -1.0f, .y = 0.0f},
+                  .x = -1.0, .y = 0.0},
               (V2){
-                  .x = 1.0f, .y = 0.0f},
+                  .x = 1.0, .y = 0.0},
               (V2){
-                  .x = 0.0f, .y = 1.0f},
+                  .x = 0.0, .y = 1.0},
               (V2){
-                  .x = 0.0f, .y = -1.0f},
+                  .x = 0.0, .y = -1.0},
           };
           int num_dirs = sizeof(dirs) / sizeof(*dirs);
 
@@ -593,7 +593,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
             // @Robust @Speed faster method, not O(N^2), of getting the box
             // in the direction currently needed
             V2 compass_vect = box_compass_vector(N);
-            if (N->box_type == BoxMerge && N->wants_disconnect && V2equal(compass_vect, dir, 0.01f))
+            if (N->box_type == BoxMerge && N->wants_disconnect && V2equal(compass_vect, dir, 0.01))
             {
             }
             else
@@ -601,7 +601,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
               V2 wanted_local_pos = V2add(cur_local_pos, V2scale(dir, BOX_SIZE));
               BOXES_ITER(gs, cur, grid)
               {
-                if (V2equal(entity_shape_pos(cur), wanted_local_pos, 0.01f))
+                if (V2equal(entity_shape_pos(cur), wanted_local_pos, 0.01))
                 {
                   box_in_direction = get_id(gs, cur);
                   break;
@@ -611,7 +611,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 
             Entity *newbox = get_entity(gs, box_in_direction);
 
-            if (newbox != NULL && newbox->box_type == BoxMerge && newbox->wants_disconnect && V2equal(V2scale(box_compass_vector(newbox), -1.0f), dir, 0.01f))
+            if (newbox != NULL && newbox->box_type == BoxMerge && newbox->wants_disconnect && V2equal(V2scale(box_compass_vector(newbox), -1.0), dir, 0.01))
             {
               newbox = NULL;
             }
@@ -706,9 +706,9 @@ static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
       {
         cpVect collision_point = getPointFunc(arb, i);
         V2 local_collision_point = cp_to_v2(cpBodyWorldToLocal(missile->body, collision_point));
-        if (local_collision_point.x > MISSILE_COLLIDER_SIZE.x * 0.2f)
+        if (local_collision_point.x > MISSILE_COLLIDER_SIZE.x * 0.2)
         {
-          missile->damage += MISSILE_DAMAGE_THRESHOLD * 2.0f;
+          missile->damage += MISSILE_DAMAGE_THRESHOLD * 2.0;
         }
       }
     }
@@ -717,14 +717,14 @@ static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
   // if(entity_a->is_missile) {getPointFunc = cpArbiterGetPointA;
   // if(entity_b->is_missile) getPointFunc = cpArbiterGetPointB;
 
-  float damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * COLLISION_DAMAGE_SCALING;
+  double damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * COLLISION_DAMAGE_SCALING;
 
   if (entity_a->is_box && entity_a->box_type == BoxExplosive)
-    entity_a->damage += 2.0f * EXPLOSION_DAMAGE_THRESHOLD;
+    entity_a->damage += 2.0 * EXPLOSION_DAMAGE_THRESHOLD;
   if (entity_b->is_box && entity_b->box_type == BoxExplosive)
-    entity_b->damage += 2.0f * EXPLOSION_DAMAGE_THRESHOLD;
+    entity_b->damage += 2.0 * EXPLOSION_DAMAGE_THRESHOLD;
 
-  if (damage > 0.05f)
+  if (damage > 0.05)
   {
     // Log("Collision with damage %f\n", damage);
     entity_a->damage += damage;
@@ -794,8 +794,8 @@ V2 grid_snapped_box_pos(Entity *grid, V2 world)
   V2 local = grid_world_to_local(grid, world);
   local.x /= BOX_SIZE;
   local.y /= BOX_SIZE;
-  local.x = roundf(local.x);
-  local.y = roundf(local.y);
+  local.x = round(local.x);
+  local.y = round(local.y);
   local.x *= BOX_SIZE;
   local.y *= BOX_SIZE;
 
@@ -803,7 +803,7 @@ V2 grid_snapped_box_pos(Entity *grid, V2 world)
 }
 
 // for boxes does not include box's compass rotation
-float entity_rotation(Entity *e)
+double entity_rotation(Entity *e)
 {
   assert(e->body != NULL || e->shape != NULL);
   if (e->body != NULL)
@@ -812,7 +812,7 @@ float entity_rotation(Entity *e)
     return (float)cpBodyGetAngle(cpShapeGetBody(e->shape));
 }
 
-float entity_angular_velocity(Entity *grid)
+double entity_angular_velocity(Entity *grid)
 {
   return (float)cpBodyGetAngularVelocity(grid->body);
 }
@@ -828,12 +828,12 @@ V2 entity_shape_pos(Entity *box)
 {
   return cp_to_v2(cpShapeGetCenterOfGravity(box->shape));
 }
-float entity_shape_mass(Entity *box)
+double entity_shape_mass(Entity *box)
 {
   assert(box->shape != NULL);
   return (float)cpShapeGetMass(box->shape);
 }
-float box_rotation(Entity *box)
+double box_rotation(Entity *box)
 {
   return (float)cpBodyGetAngle(cpShapeGetBody(box->shape));
 }
@@ -863,8 +863,8 @@ struct BodyData
 {
   V2 pos;
   V2 vel;
-  float rotation;
-  float angular_velocity;
+  double rotation;
+  double angular_velocity;
 };
 
 void populate(cpBody *body, struct BodyData *data)
@@ -1120,7 +1120,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
       shape_pos = entity_shape_pos(e);
     SER_MAYBE_RETURN(ser_V2(ser, &shape_pos));
 
-    float shape_mass;
+    double shape_mass;
     if (ser->serializing)
       shape_mass = entity_shape_mass(e);
     SER_VAR(&shape_mass);
@@ -1642,7 +1642,7 @@ static void cloaking_shield_callback_func(cpShape *shape, cpContactPointSet *poi
 
 // has to be global var because can only get this information
 static THREADLOCAL cpShape *closest_to_point_in_radius_result = NULL;
-static THREADLOCAL float closest_to_point_in_radius_result_largest_dist = 0.0f;
+static THREADLOCAL double closest_to_point_in_radius_result_largest_dist = 0.0;
 static THREADLOCAL bool (*closest_to_point_in_radius_filter_func)(Entity *);
 static void closest_point_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
 {
@@ -1653,8 +1653,8 @@ static void closest_point_callback_func(cpShape *shape, cpContactPointSet *point
 
   if (closest_to_point_in_radius_filter_func != NULL && !closest_to_point_in_radius_filter_func(e))
     return;
-  float dist = V2length(cp_to_v2(cpvsub(points->points[0].pointA, points->points[0].pointB)));
-  // float dist = -points->points[0].distance;
+  double dist = V2length(cp_to_v2(cpvsub(points->points[0].pointA, points->points[0].pointB)));
+  // double dist = -points->points[0].distance;
   if (dist > closest_to_point_in_radius_result_largest_dist)
   {
     closest_to_point_in_radius_result_largest_dist = dist;
@@ -1664,12 +1664,12 @@ static void closest_point_callback_func(cpShape *shape, cpContactPointSet *point
 
 // filter func null means everything is ok, if it's not null and returns false, that means
 // exclude it from the selection. This returns the closest box entity!
-Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, float radius, bool (*filter_func)(Entity *))
+Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, double radius, bool (*filter_func)(Entity *))
 {
   closest_to_point_in_radius_result = NULL;
-  closest_to_point_in_radius_result_largest_dist = 0.0f;
+  closest_to_point_in_radius_result_largest_dist = 0.0;
   closest_to_point_in_radius_filter_func = filter_func;
-  cpBody *tmpbody = cpBodyNew(0.0f, 0.0f);
+  cpBody *tmpbody = cpBodyNew(0.0, 0.0);
   cpShape *circle = cpCircleShapeNew(tmpbody, radius, v2_to_cp(point));
   cpSpaceShapeQuery(gs->space, circle, closest_point_callback_func, NULL);
 
@@ -1695,9 +1695,9 @@ static bool scanner_filter(Entity *e)
   return true;
 }
 
-static float cur_explosion_damage = 0.0f;
+static double cur_explosion_damage = 0.0;
 static V2 explosion_origin = {0};
-static float explosion_push_strength = 0.0f;
+static double explosion_push_strength = 0.0;
 static void explosion_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
 {
   GameState *gs = (GameState *)data;
@@ -1709,10 +1709,10 @@ static void explosion_callback_func(cpShape *shape, cpContactPointSet *points, v
   cpBodyApplyImpulseAtWorldPoint(parent->body, v2_to_cp(impulse), v2_to_cp(from_pos));
 }
 
-static void do_explosion(GameState *gs, Entity *explosion, float dt)
+static void do_explosion(GameState *gs, Entity *explosion, double dt)
 {
 
-  cpBody *tmpbody = cpBodyNew(0.0f, 0.0f);
+  cpBody *tmpbody = cpBodyNew(0.0, 0.0);
   cpShape *circle = cpCircleShapeNew(tmpbody, explosion->explosion_radius, v2_to_cp(explosion_origin));
 
   cur_explosion_damage = dt * EXPLOSION_DAMAGE_PER_SEC;
@@ -1727,7 +1727,7 @@ static void do_explosion(GameState *gs, Entity *explosion, float dt)
 V2 box_facing_vector(Entity *box)
 {
   assert(box->is_box);
-  V2 to_return = (V2){.x = 1.0f, .y = 0.0f};
+  V2 to_return = (V2){.x = 1.0, .y = 0.0};
 
   to_return = box_compass_vector(box);
   to_return = V2rotate(to_return, box_rotation(box));
@@ -1754,11 +1754,11 @@ enum CompassRotation facing_vector_to_compass(Entity *grid_to_transplant_to, Ent
       Down};
 
   int smallest = -1;
-  float smallest_dist = INFINITY;
+  double smallest_dist = INFINITY;
   for (int i = 0; i < ARRLEN(dirs); i++)
   {
-    V2 point = V2rotate((V2){.x = 1.0f}, rotangle(dirs[i]));
-    float dist = V2dist(point, local_facing);
+    V2 point = V2rotate((V2){.x = 1.0}, rotangle(dirs[i]));
+    double dist = V2dist(point, local_facing);
     if (dist < smallest_dist)
     {
       smallest_dist = dist;
@@ -1799,9 +1799,9 @@ V2 get_world_hand_pos(GameState *gs, InputFrame *input, Entity *player)
   return potentially_snap_hand_pos(gs, V2add(entity_pos(player), input->hand_pos));
 }
 
-bool batteries_have_capacity_for(GameState *gs, Entity *grid, float *energy_left_over, float energy_to_use)
+bool batteries_have_capacity_for(GameState *gs, Entity *grid, double *energy_left_over, double energy_to_use)
 {
-  float seen_energy = 0.0f;
+  double seen_energy = 0.0;
   BOXES_ITER(gs, possible_battery, grid)
   {
     if (possible_battery->box_type == BoxBattery)
@@ -1816,11 +1816,11 @@ bool batteries_have_capacity_for(GameState *gs, Entity *grid, float *energy_left
 }
 
 // returns any energy unable to burn
-float batteries_use_energy(GameState *gs, Entity *grid, float *energy_left_over, float energy_to_use)
+double batteries_use_energy(GameState *gs, Entity *grid, double *energy_left_over, double energy_to_use)
 {
-  if (*energy_left_over > 0.0f)
+  if (*energy_left_over > 0.0)
   {
-    float energy_to_use_from_leftover = fminf(*energy_left_over, energy_to_use);
+    double energy_to_use_from_leftover = fmin(*energy_left_over, energy_to_use);
     *energy_left_over -= energy_to_use_from_leftover;
     energy_to_use -= energy_to_use_from_leftover;
   }
@@ -1829,26 +1829,26 @@ float batteries_use_energy(GameState *gs, Entity *grid, float *energy_left_over,
     if (possible_battery->box_type == BoxBattery)
     {
       Entity *battery = possible_battery;
-      float energy_to_burn_from_this_battery = fminf(BATTERY_CAPACITY - battery->energy_used, energy_to_use);
+      double energy_to_burn_from_this_battery = fmin(BATTERY_CAPACITY - battery->energy_used, energy_to_use);
       battery->energy_used += energy_to_burn_from_this_battery;
       energy_to_use -= energy_to_burn_from_this_battery;
-      if (energy_to_use <= 0.0f)
-        return 0.0f;
+      if (energy_to_use <= 0.0)
+        return 0.0;
     }
   }
   return energy_to_use;
 }
 
-float sun_dist_no_gravity(Entity *sun)
+double sun_dist_no_gravity(Entity *sun)
 {
   // return (GRAVITY_CONSTANT * (SUN_MASS * mass / (distance * distance))) / mass;
-  // 0.01f = (GRAVITY_CONSTANT * (SUN_MASS / (distance_sqr)));
-  // 0.01f / GRAVITY_CONSTANT = SUN_MASS / distance_sqr;
-  // distance = sqrt( SUN_MASS / (0.01f / GRAVITY_CONSTANT) )
-  return sqrtf(sun->sun_mass / (GRAVITY_SMALLEST / GRAVITY_CONSTANT));
+  // 0.01 = (GRAVITY_CONSTANT * (SUN_MASS / (distance_sqr)));
+  // 0.01 / GRAVITY_CONSTANT = SUN_MASS / distance_sqr;
+  // distance = sqrt( SUN_MASS / (0.01 / GRAVITY_CONSTANT) )
+  return sqrt(sun->sun_mass / (GRAVITY_SMALLEST / GRAVITY_CONSTANT));
 }
 
-float entity_mass(Entity *m)
+double entity_mass(Entity *m)
 {
   if (m->body != NULL)
     return (float)cpBodyGetMass(m->body);
@@ -1859,7 +1859,7 @@ float entity_mass(Entity *m)
   else
   {
     assert(false);
-    return 0.0f;
+    return 0.0;
   }
 }
 
@@ -1872,21 +1872,21 @@ V2 sun_gravity_accel_for_entity(Entity *entity_with_gravity, Entity *sun)
   if (V2length(V2sub(entity_pos(entity_with_gravity), entity_pos(sun))) > sun_dist_no_gravity(sun))
     return (V2){0};
   V2 rel_vector = V2sub(entity_pos(entity_with_gravity), entity_pos(sun));
-  float mass = entity_mass(entity_with_gravity);
-  assert(mass != 0.0f);
-  float distance_sqr = V2lengthsqr(rel_vector);
+  double mass = entity_mass(entity_with_gravity);
+  assert(mass != 0.0);
+  double distance_sqr = V2lengthsqr(rel_vector);
   // return (GRAVITY_CONSTANT * (SUN_MASS * mass / (distance * distance))) / mass;
   // the mass divides out
 
   // on top
-  float accel_magnitude = (GRAVITY_CONSTANT * (sun->sun_mass / (distance_sqr)));
+  double accel_magnitude = (GRAVITY_CONSTANT * (sun->sun_mass / (distance_sqr)));
   if (distance_sqr <= sun->sun_radius)
   {
-    accel_magnitude *= -1.0f;
-    if (distance_sqr <= sun->sun_radius * 0.25f)
-      accel_magnitude = 0.0f;
+    accel_magnitude *= -1.0;
+    if (distance_sqr <= sun->sun_radius * 0.25)
+      accel_magnitude = 0.0;
   }
-  V2 towards_sun = V2normalize(V2scale(rel_vector, -1.0f));
+  V2 towards_sun = V2normalize(V2scale(rel_vector, -1.0));
   return V2scale(towards_sun, accel_magnitude);
 #endif // NO_GRAVITY
 }
@@ -1907,11 +1907,11 @@ void entity_ensure_in_orbit(GameState *gs, Entity *e)
   SUNS_ITER(gs)
   {
     V2 gravity_accel = sun_gravity_accel_for_entity(e, i.sun);
-    if (V2length(gravity_accel) > 0.0f)
+    if (V2length(gravity_accel) > 0.0)
     {
-      float dist = V2length(V2sub(entity_pos(e), entity_pos(i.sun)));
-      V2 orthogonal_to_gravity = V2normalize(V2rotate(gravity_accel, PI / 2.0f));
-      V2 wanted_vel = V2scale(orthogonal_to_gravity, sqrtf(V2length(gravity_accel) * dist));
+      double dist = V2length(V2sub(entity_pos(e), entity_pos(i.sun)));
+      V2 orthogonal_to_gravity = V2normalize(V2rotate(gravity_accel, PI / 2.0));
+      V2 wanted_vel = V2scale(orthogonal_to_gravity, sqrt(V2length(gravity_accel) * dist));
 
       total_new_vel = cpvadd(total_new_vel, v2_to_cp(wanted_vel));
     }
@@ -1960,11 +1960,11 @@ void create_bomb_station(GameState *gs, V2 pos, enum BoxType platonic_type)
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 4, 0}), BoxHullpiece);
 
   indestructible = true;
-  for (float y = -BOX_SIZE * 5.0; y <= BOX_SIZE * 5.0; y += BOX_SIZE)
+  for (double y = -BOX_SIZE * 5.0; y <= BOX_SIZE * 5.0; y += BOX_SIZE)
   {
     BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 5.0, y}), BoxHullpiece);
   }
-  for (float x = -BOX_SIZE * 5.0; x <= BOX_SIZE * 5.0; x += BOX_SIZE)
+  for (double x = -BOX_SIZE * 5.0; x <= BOX_SIZE * 5.0; x += BOX_SIZE)
   {
     BOX_AT_TYPE(grid, ((V2){x, BOX_SIZE * 5.0}), BoxHullpiece);
     BOX_AT_TYPE(grid, ((V2){x, -BOX_SIZE * 5.0}), BoxHullpiece);
@@ -1998,12 +1998,12 @@ void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type
   BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 4, 0}), BoxHullpiece);
 
   indestructible = true;
-  for (float y = -BOX_SIZE * 5.0; y <= BOX_SIZE * 5.0; y += BOX_SIZE)
+  for (double y = -BOX_SIZE * 5.0; y <= BOX_SIZE * 5.0; y += BOX_SIZE)
   {
     BOX_AT_TYPE(grid, ((V2){BOX_SIZE * 5.0, y}), BoxHullpiece);
     BOX_AT_TYPE(grid, ((V2){-BOX_SIZE * 5.0, y}), BoxHullpiece);
   }
-  for (float x = -BOX_SIZE * 5.0; x <= BOX_SIZE * 5.0; x += BOX_SIZE)
+  for (double x = -BOX_SIZE * 5.0; x <= BOX_SIZE * 5.0; x += BOX_SIZE)
   {
     BOX_AT_TYPE(grid, ((V2){x, BOX_SIZE * 5.0}), BoxHullpiece);
     BOX_AT_TYPE(grid, ((V2){x, -BOX_SIZE * 5.0}), BoxHullpiece);
@@ -2014,11 +2014,11 @@ void create_hard_shell_station(GameState *gs, V2 pos, enum BoxType platonic_type
 void create_initial_world(GameState *gs)
 {
   EntityID suns[] = {
-      create_sun(gs, new_entity(gs), ((V2){100.0f, 0.0f}), ((V2){0.0f, 0.0f}), 100000.0f, 20.0f),
-      create_sun(gs, new_entity(gs), ((V2){100.0f, 50.0f}), ((V2){10.0f, 0.0f}), 10000.0f, 10.0f),
-      create_sun(gs, new_entity(gs), ((V2){100.0f, -50.0f}), ((V2){-10.0f, 0.0f}), 10000.0f, 10.0f),
-      create_sun(gs, new_entity(gs), ((V2){50.0f, 200.0f}), ((V2){5.0f, 0.0f}), 400000.0f, 30.0f),
-      create_sun(gs, new_entity(gs), ((V2){-200.0f, 200.0f}), ((V2){-15.0f, 0.0f}), 900000.0f, 60.0f),
+      create_sun(gs, new_entity(gs), ((V2){100.0, 0.0}), ((V2){0.0, 0.0}), 100000.0, 20.0),
+      create_sun(gs, new_entity(gs), ((V2){100.0, 50.0}), ((V2){10.0, 0.0}), 10000.0, 10.0),
+      create_sun(gs, new_entity(gs), ((V2){100.0, -50.0}), ((V2){-10.0, 0.0}), 10000.0, 10.0),
+      create_sun(gs, new_entity(gs), ((V2){50.0, 200.0}), ((V2){5.0, 0.0}), 400000.0, 30.0),
+      create_sun(gs, new_entity(gs), ((V2){-200.0, 200.0}), ((V2){-15.0, 0.0}), 900000.0, 60.0),
   };
 
   for (int i = 0; i < ARRLEN(suns); i++)
@@ -2029,27 +2029,27 @@ void create_initial_world(GameState *gs)
 #ifdef DEBUG_WORLD
   Log("Creating debug world\n");
   // pos, mass, radius
-  create_bomb_station(gs, (V2){-5.0f, 0.0f}, BoxExplosive);
-  create_bomb_station(gs, (V2){0.0f, 5.0f}, BoxGyroscope);
-  create_hard_shell_station(gs, (V2){-5.0f, 5.0f}, BoxCloaking);
+  create_bomb_station(gs, (V2){-5.0, 0.0}, BoxExplosive);
+  create_bomb_station(gs, (V2){0.0, 5.0}, BoxGyroscope);
+  create_hard_shell_station(gs, (V2){-5.0, 5.0}, BoxCloaking);
 
   bool indestructible = false;
 
-  float theta = deg2rad(65.0f);
+  double theta = deg2rad(65.0);
 
-  V2 from = (V2){BOX_SIZE * 4.0f, -1};
+  V2 from = (V2){BOX_SIZE * 4.0, -1};
 
   enum CompassRotation rot = Right;
   {
 
     Entity *grid = new_entity(gs);
     grid_create(gs, grid);
-    entity_set_pos(grid, V2add(from, V2rotate((V2){.x = -BOX_SIZE * 9.0f}, theta)));
+    entity_set_pos(grid, V2add(from, V2rotate((V2){.x = -BOX_SIZE * 9.0}, theta)));
     cpBodySetAngle(grid->body, theta + PI);
     rot = Left;
-    BOX_AT_TYPE(grid, ((V2){0.0f, 0.0f}), BoxMerge);
-    BOX_AT(grid, ((V2){0.0f, -BOX_SIZE}));
-    BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0.0f}), BoxMerge);
+    BOX_AT_TYPE(grid, ((V2){0.0, 0.0}), BoxMerge);
+    BOX_AT(grid, ((V2){0.0, -BOX_SIZE}));
+    BOX_AT_TYPE(grid, ((V2){BOX_SIZE, 0.0}), BoxMerge);
     entity_ensure_in_orbit(gs, grid);
   }
 
@@ -2059,21 +2059,21 @@ void create_initial_world(GameState *gs)
     entity_set_pos(grid, from);
     cpBodySetAngle(grid->body, theta);
     rot = Left;
-    BOX_AT_TYPE(grid, ((V2){-BOX_SIZE, 0.0f}), BoxMerge);
+    BOX_AT_TYPE(grid, ((V2){-BOX_SIZE, 0.0}), BoxMerge);
     rot = Down;
-    BOX_AT_TYPE(grid, ((V2){0.0f, 0.0f}), BoxMerge);
+    BOX_AT_TYPE(grid, ((V2){0.0, 0.0}), BoxMerge);
     rot = Up;
-    BOX_AT_TYPE(grid, ((V2){0.0f, BOX_SIZE}), BoxMerge);
-    cpBodySetVelocity(grid->body, v2_to_cp(V2rotate((V2){-0.4f, 0.0f}, theta)));
+    BOX_AT_TYPE(grid, ((V2){0.0, BOX_SIZE}), BoxMerge);
+    cpBodySetVelocity(grid->body, v2_to_cp(V2rotate((V2){-0.4, 0.0}, theta)));
     entity_ensure_in_orbit(gs, grid);
   }
 
 #else
-  create_bomb_station(gs, (V2){-200.0f, 0.0f}, BoxExplosive);
-  create_hard_shell_station(gs, (V2){0.0f, 400.0f}, BoxGyroscope);
-  create_bomb_station(gs, (V2){0.0f, -150.0f}, BoxCloaking);
-  create_bomb_station(gs, (V2){300.0f, 300.0f}, BoxMissileLauncher);
-  create_hard_shell_station(gs, (V2){50.0f, 100.0f}, BoxMerge);
+  create_bomb_station(gs, (V2){-200.0, 0.0}, BoxExplosive);
+  create_hard_shell_station(gs, (V2){0.0, 400.0}, BoxGyroscope);
+  create_bomb_station(gs, (V2){0.0, -150.0}, BoxCloaking);
+  create_bomb_station(gs, (V2){300.0, 300.0}, BoxMissileLauncher);
+  create_hard_shell_station(gs, (V2){50.0, 100.0}, BoxMerge);
 #endif
 }
 
@@ -2090,7 +2090,7 @@ void process_fixed_timestep(GameState *gs)
   process(gs, TIMESTEP);
 }
 
-void process(GameState *gs, float dt)
+void process(GameState *gs, double dt)
 {
   assert(gs->space != NULL);
 
@@ -2115,7 +2115,7 @@ void process(GameState *gs, float dt)
 
     if (V2length(from_sun->sun_pos) >= INSTANT_DEATH_DISTANCE_FROM_CENTER)
     {
-      from_sun->sun_vel = V2scale(from_sun->sun_vel, -0.8f);
+      from_sun->sun_vel = V2scale(from_sun->sun_vel, -0.8);
       from_sun->sun_pos = V2scale(V2normalize(from_sun->sun_pos), INSTANT_DEATH_DISTANCE_FROM_CENTER);
     }
 #endif
@@ -2167,7 +2167,7 @@ void process(GameState *gs, float dt)
       if (medbay != NULL)
       {
         exit_seat(gs, medbay, p);
-        p->damage = 0.95f;
+        p->damage = 0.95;
       }
     }
     assert(p->is_player);
@@ -2189,14 +2189,14 @@ void process(GameState *gs, float dt)
     }
 
 #ifdef INFINITE_RESOURCES
-    p->damage = 0.0f;
+    p->damage = 0.0;
 #endif
     // update gold win condition
     if (V2length(V2sub(cp_to_v2(cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
     {
-      p->goldness += 0.1f;
-      p->damage = 0.0f;
-      gs->goldpos = (V2){.x = hash11((float)gs->time) * 20.0f, .y = hash11((float)gs->time - 13.6f) * 20.0f};
+      p->goldness += 0.1;
+      p->damage = 0.0;
+      gs->goldpos = (V2){.x = hash11((float)gs->time) * 20.0, .y = hash11((float)gs->time - 13.6) * 20.0};
     }
 #if 1
     V2 world_hand_pos = get_world_hand_pos(gs, &player->input, p);
@@ -2207,7 +2207,7 @@ void process(GameState *gs, float dt)
       if (seat_maybe_in == NULL) // not in any seat
       {
         cpPointQueryInfo query_info = {0};
-        cpShape *result = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_hand_pos), 0.1f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
+        cpShape *result = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_hand_pos), 0.1, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
         if (result != NULL)
         {
           Entity *potential_seat = cp_shape_entity(result);
@@ -2255,20 +2255,20 @@ void process(GameState *gs, float dt)
     {
       // no cheating by making movement bigger than length 1
       V2 movement_this_tick = (V2){0};
-      float rotation_this_tick = 0.0f;
-      if (V2length(player->input.movement) > 0.0f)
+      double rotation_this_tick = 0.0;
+      if (V2length(player->input.movement) > 0.0)
       {
-        movement_this_tick = V2scale(V2normalize(player->input.movement), clamp(V2length(player->input.movement), 0.0f, 1.0f));
+        movement_this_tick = V2scale(V2normalize(player->input.movement), clamp(V2length(player->input.movement), 0.0, 1.0));
         player->input.movement = (V2){0};
       }
-      if (fabsf(player->input.rotation) > 0.0f)
+      if (fabs(player->input.rotation) > 0.0)
       {
         rotation_this_tick = player->input.rotation;
-        if (rotation_this_tick > 1.0f)
-          rotation_this_tick = 1.0f;
-        if (rotation_this_tick < -1.0f)
-          rotation_this_tick = -1.0f;
-        player->input.rotation = 0.0f;
+        if (rotation_this_tick > 1.0)
+          rotation_this_tick = 1.0;
+        if (rotation_this_tick < -1.0)
+          rotation_this_tick = -1.0;
+        player->input.rotation = 0.0;
       }
       Entity *seat_inside_of = get_entity(gs, p->currently_inside_of_box);
 
@@ -2287,7 +2287,7 @@ void process(GameState *gs, float dt)
         cpBodyApplyForceAtWorldPoint(p->body, v2_to_cp(V2scale(movement_this_tick, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
         cpBodySetTorque(p->body, rotation_this_tick * PLAYER_JETPACK_TORQUE);
         p->damage += V2length(movement_this_tick) * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
-        p->damage += fabsf(rotation_this_tick) * dt * PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND;
+        p->damage += fabs(rotation_this_tick) * dt * PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND;
       }
       else
       {
@@ -2306,7 +2306,7 @@ void process(GameState *gs, float dt)
           Entity *g = get_entity(gs, seat_inside_of->shape_parent_entity);
 
           V2 target_direction = {0};
-          if (V2length(movement_this_tick) > 0.0f)
+          if (V2length(movement_this_tick) > 0.0)
           {
             target_direction = V2normalize(movement_this_tick);
           }
@@ -2315,7 +2315,7 @@ void process(GameState *gs, float dt)
             if (cur->box_type == BoxThruster)
             {
 
-              float wanted_thrust = -V2dot(target_direction, box_facing_vector(cur));
+              double wanted_thrust = -V2dot(target_direction, box_facing_vector(cur));
               wanted_thrust = clamp01(wanted_thrust);
               cur->wanted_thrust = wanted_thrust;
             }
@@ -2338,7 +2338,7 @@ void process(GameState *gs, float dt)
 
       // @Robust sanitize this input so player can't build on any grid in the world
       Entity *target_grid = grid_to_build_on(gs, world_hand_pos);
-      cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01f, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
+      cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
       if (maybe_box_to_destroy != NULL)
       {
         Entity *cur_box = cp_shape_entity(maybe_box_to_destroy);
@@ -2354,7 +2354,7 @@ void process(GameState *gs, float dt)
         // creating a box
         p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
         V2 created_box_position;
-        if (p->damage < 1.0f) // player can't create a box that kills them by making it
+        if (p->damage < 1.0) // player can't create a box that kills them by making it
         {
           if (target_grid == NULL)
           {
@@ -2383,7 +2383,7 @@ void process(GameState *gs, float dt)
       }
     }
 #endif
-    if (p->damage >= 1.0f)
+    if (p->damage >= 1.0)
     {
       entity_destroy(gs, p);
       player->entity = (EntityID){0};
@@ -2442,7 +2442,7 @@ void process(GameState *gs, float dt)
           sqdist = cpvlengthsq(cpvsub(v2_to_cp(entity_pos(e)), v2_to_cp(entity_pos(i.sun))));
           if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))
           {
-            e->damage += 10.0f * dt;
+            e->damage += 10.0 * dt;
           }
         }
 
@@ -2472,7 +2472,7 @@ void process(GameState *gs, float dt)
       if (is_burning(e))
       {
         e->time_burned_for += dt;
-        cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(V2rotate((V2){.x = MISSILE_BURN_FORCE, .y = 0.0f}, entity_rotation(e))), v2_to_cp(entity_pos(e)));
+        cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(V2rotate((V2){.x = MISSILE_BURN_FORCE, .y = 0.0}, entity_rotation(e))), v2_to_cp(entity_pos(e)));
       }
       if (e->damage >= MISSILE_DAMAGE_THRESHOLD && e->time_burned_for >= MISSILE_ARM_TIME)
       {
@@ -2490,7 +2490,7 @@ void process(GameState *gs, float dt)
     {
       if (e->is_platonic)
       {
-        e->damage = 0.0f;
+        e->damage = 0.0;
         gs->platonic_positions[(int)e->box_type] = entity_pos(e);
       }
       if (e->box_type == BoxExplosive && e->damage >= EXPLOSION_DAMAGE_THRESHOLD)
@@ -2523,21 +2523,21 @@ void process(GameState *gs, float dt)
           Entity *other_grid = box_grid(other_merge);
 
           // the merges are near eachother, but are they facing eachother...
-          bool from_facing_other = V2dot(box_facing_vector(from_merge), V2normalize(V2sub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8f;
-          bool other_facing_from = V2dot(box_facing_vector(other_merge), V2normalize(V2sub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8f;
+          bool from_facing_other = V2dot(box_facing_vector(from_merge), V2normalize(V2sub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8;
+          bool other_facing_from = V2dot(box_facing_vector(other_merge), V2normalize(V2sub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8;
 
           // using this stuff to detect if when the other grid's boxes are snapped, they'll be snapped
           // to be next to the from merge box
           V2 actual_new_pos = grid_snapped_box_pos(from_grid, entity_pos(other_merge));
           V2 needed_new_pos = V2add(entity_pos(from_merge), V2scale(box_facing_vector(from_merge), BOX_SIZE));
-          if (from_facing_other && other_facing_from && V2equal(needed_new_pos, actual_new_pos, 0.01f))
+          if (from_facing_other && other_facing_from && V2equal(needed_new_pos, actual_new_pos, 0.01))
           {
             // do the merge
-            V2 facing_vector_needed = V2scale(box_facing_vector(from_merge), -1.0f);
+            V2 facing_vector_needed = V2scale(box_facing_vector(from_merge), -1.0);
             V2 current_facing_vector = box_facing_vector(other_merge);
-            float angle_diff = V2anglediff(current_facing_vector, facing_vector_needed);
+            double angle_diff = V2anglediff(current_facing_vector, facing_vector_needed);
             if (angle_diff == FLT_MIN)
-              angle_diff = 0.0f;
+              angle_diff = 0.0;
             assert(!isnan(angle_diff));
 
             cpBodySetAngle(other_grid->body, cpBodyGetAngle(other_grid->body) + angle_diff);
@@ -2566,7 +2566,7 @@ void process(GameState *gs, float dt)
           }
         }
       }
-      if (e->damage >= 1.0f)
+      if (e->damage >= 1.0)
       {
         grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
       }
@@ -2575,18 +2575,18 @@ void process(GameState *gs, float dt)
     {
       Entity *grid = e;
       // calculate how much energy solar panels provide
-      float energy_to_add = 0.0f;
+      double energy_to_add = 0.0;
       BOXES_ITER(gs, cur_box, grid)
       {
         if (cur_box->box_type == BoxSolarPanel)
         {
-          cur_box->sun_amount = 0.0f;
+          cur_box->sun_amount = 0.0;
           SUNS_ITER(gs)
           {
-            float new_sun = clamp01(fabsf(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(entity_pos(i.sun), entity_pos(cur_box))))));
+            double new_sun = clamp01(fabs(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(entity_pos(i.sun), entity_pos(cur_box))))));
 
             // less sun the farther away you are!
-            new_sun *= lerp(1.0f, 0.0f, clamp01(V2length(V2sub(entity_pos(cur_box), entity_pos(i.sun))) / sun_dist_no_gravity(i.sun)));
+            new_sun *= lerp(1.0, 0.0, clamp01(V2length(V2sub(entity_pos(cur_box), entity_pos(i.sun))) / sun_dist_no_gravity(i.sun)));
             cur_box->sun_amount += new_sun;
           }
           energy_to_add += cur_box->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
@@ -2596,19 +2596,19 @@ void process(GameState *gs, float dt)
       // apply all of the energy to all connected batteries
       BOXES_ITER(gs, cur, grid)
       {
-        if (energy_to_add <= 0.0f)
+        if (energy_to_add <= 0.0)
           break;
         if (cur->box_type == BoxBattery)
         {
-          float energy_sucked_up_by_battery = cur->energy_used < energy_to_add ? cur->energy_used : energy_to_add;
+          double energy_sucked_up_by_battery = cur->energy_used < energy_to_add ? cur->energy_used : energy_to_add;
           cur->energy_used -= energy_sucked_up_by_battery;
           energy_to_add -= energy_sucked_up_by_battery;
         }
-        assert(energy_to_add >= 0.0f);
+        assert(energy_to_add >= 0.0);
       }
 
       // any energy_to_add existing now can also be used to power thrusters/medbay
-      float non_battery_energy_left_over = energy_to_add;
+      double non_battery_energy_left_over = energy_to_add;
 
       // use the energy, stored in the batteries, in various boxes
       BOXES_ITER(gs, cur_box, grid)
@@ -2616,25 +2616,25 @@ void process(GameState *gs, float dt)
         if (cur_box->box_type == BoxThruster)
         {
 
-          float energy_to_consume = cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
-          if (energy_to_consume > 0.0f)
+          double energy_to_consume = cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
+          if (energy_to_consume > 0.0)
           {
-            cur_box->thrust = 0.0f;
-            float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
-            cur_box->thrust = (1.0f - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
-            if (cur_box->thrust >= 0.0f)
+            cur_box->thrust = 0.0;
+            double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
+            cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
+            if (cur_box->thrust >= 0.0)
               cpBodyApplyForceAtWorldPoint(grid->body, v2_to_cp(thruster_force(cur_box)), v2_to_cp(entity_pos(cur_box)));
           }
         }
         if (cur_box->box_type == BoxGyroscope)
         {
-          float energy_to_consume = fabsf(cur_box->wanted_thrust * GYROSCOPE_ENERGY_USED_PER_SECOND * dt);
-          if (energy_to_consume > 0.0f)
+          double energy_to_consume = fabs(cur_box->wanted_thrust * GYROSCOPE_ENERGY_USED_PER_SECOND * dt);
+          if (energy_to_consume > 0.0)
           {
-            cur_box->thrust = 0.0f;
-            float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
-            cur_box->thrust = (1.0f - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
-            if (fabsf(cur_box->thrust) >= 0.0f)
+            cur_box->thrust = 0.0;
+            double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
+            cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
+            if (fabs(cur_box->thrust) >= 0.0)
               cpBodySetTorque(grid->body, cpBodyGetTorque(grid->body) + cur_box->thrust * GYROSCOPE_TORQUE);
           }
         }
@@ -2643,30 +2643,30 @@ void process(GameState *gs, float dt)
           Entity *potential_meatbag_to_heal = get_entity(gs, cur_box->player_who_is_inside_of_me);
           if (potential_meatbag_to_heal != NULL)
           {
-            float wanted_energy_use = fminf(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
-            if (wanted_energy_use > 0.0f)
+            double wanted_energy_use = fmin(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
+            if (wanted_energy_use > 0.0)
             {
-              float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, wanted_energy_use);
-              potential_meatbag_to_heal->damage -= (1.0f - energy_unconsumed / wanted_energy_use) * wanted_energy_use;
+              double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, wanted_energy_use);
+              potential_meatbag_to_heal->damage -= (1.0 - energy_unconsumed / wanted_energy_use) * wanted_energy_use;
             }
           }
         }
         if (cur_box->box_type == BoxCloaking)
         {
-          float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, CLOAKING_ENERGY_USE * dt);
+          double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, CLOAKING_ENERGY_USE * dt);
           if (energy_unconsumed >= CLOAKING_ENERGY_USE * dt)
           {
-            cur_box->cloaking_power = lerp(cur_box->cloaking_power, 0.0, dt * 3.0f);
+            cur_box->cloaking_power = lerp(cur_box->cloaking_power, 0.0, dt * 3.0);
           }
           else
           {
-            cur_box->cloaking_power = lerp(cur_box->cloaking_power, 1.0, dt * 3.0f);
+            cur_box->cloaking_power = lerp(cur_box->cloaking_power, 1.0, dt * 3.0);
             cpBody *tmp = cpBodyNew(0.0, 0.0);
             cpBodySetPosition(tmp, v2_to_cp(entity_pos(cur_box)));
             cpBodySetAngle(tmp, entity_rotation(cur_box));
             // subtract a little from the panel size so that boxes just at the boundary of the panel
             // aren't (sometimes cloaked)/(sometimes not) from floating point imprecision
-            cpShape *box_shape = cpBoxShapeNew(tmp, CLOAKING_PANEL_SIZE - 0.03f, CLOAKING_PANEL_SIZE - 0.03f, 0.0);
+            cpShape *box_shape = cpBoxShapeNew(tmp, CLOAKING_PANEL_SIZE - 0.03, CLOAKING_PANEL_SIZE - 0.03, 0.0);
             cpSpaceShapeQuery(gs->space, box_shape, cloaking_shield_callback_func, (void *)cur_box);
             cpShapeFree(box_shape);
             cpBodyFree(tmp);
@@ -2676,21 +2676,21 @@ void process(GameState *gs, float dt)
         {
           LauncherTarget target = missile_launcher_target(gs, cur_box);
 
-          if (cur_box->missile_construction_charge < 1.0f)
+          if (cur_box->missile_construction_charge < 1.0)
           {
-            float want_use_energy = dt * MISSILE_CHARGE_RATE;
-            float energy_charged = want_use_energy - batteries_use_energy(gs, grid, &non_battery_energy_left_over, want_use_energy);
+            double want_use_energy = dt * MISSILE_CHARGE_RATE;
+            double energy_charged = want_use_energy - batteries_use_energy(gs, grid, &non_battery_energy_left_over, want_use_energy);
             cur_box->missile_construction_charge += energy_charged;
           }
 
-          if (target.target_found && cur_box->missile_construction_charge >= 1.0f)
+          if (target.target_found && cur_box->missile_construction_charge >= 1.0)
           {
-            cur_box->missile_construction_charge = 0.0f;
+            cur_box->missile_construction_charge = 0.0;
             Entity *new_missile = new_entity(gs);
             create_missile(gs, new_missile);
             new_missile->owning_squad = cur_box->owning_squad; // missiles have teams and attack eachother!
-            float missile_spawn_dist = sqrtf((BOX_SIZE / 2.0f) * (BOX_SIZE / 2.0f) * 2.0f) + MISSILE_COLLIDER_SIZE.x / 2.0f + 0.1f;
-            cpBodySetPosition(new_missile->body, v2_to_cp(V2add(entity_pos(cur_box), V2rotate((V2){.x = missile_spawn_dist, 0.0f}, target.facing_angle))));
+            double missile_spawn_dist = sqrt((BOX_SIZE / 2.0) * (BOX_SIZE / 2.0) * 2.0) + MISSILE_COLLIDER_SIZE.x / 2.0 + 0.1;
+            cpBodySetPosition(new_missile->body, v2_to_cp(V2add(entity_pos(cur_box), V2rotate((V2){.x = missile_spawn_dist, 0.0}, target.facing_angle))));
             cpBodySetAngle(new_missile->body, target.facing_angle);
             cpBodySetVelocity(new_missile->body, v2_to_cp(box_vel(cur_box)));
           }
@@ -2700,23 +2700,23 @@ void process(GameState *gs, float dt)
           // set the nearest platonic solid! only on server as only the server sees everything
           if (gs->server_side_computing)
           {
-            float energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, SCANNER_ENERGY_USE * dt);
+            double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, SCANNER_ENERGY_USE * dt);
             if (energy_unconsumed >= SCANNER_ENERGY_USE * dt)
             {
-              cur_box->platonic_detection_strength = 0.0f;
+              cur_box->platonic_detection_strength = 0.0;
               cur_box->platonic_nearest_direction = (V2){0};
             }
             else
             {
               V2 from_pos = entity_pos(cur_box);
               V2 nearest = {0};
-              float nearest_dist = INFINITY;
+              double nearest_dist = INFINITY;
               for (int i = 0; i < MAX_BOX_TYPES; i++)
               {
                 V2 cur_pos = gs->platonic_positions[i];
-                if (V2length(cur_pos) > 0.0f) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
+                if (V2length(cur_pos) > 0.0) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
                 {
-                  float length_to_cur = V2dist(from_pos, cur_pos);
+                  double length_to_cur = V2dist(from_pos, cur_pos);
                   if (length_to_cur < nearest_dist)
                   {
                     nearest_dist = length_to_cur;
@@ -2727,12 +2727,12 @@ void process(GameState *gs, float dt)
               if (nearest_dist < INFINITY)
               {
                 cur_box->platonic_nearest_direction = V2normalize(V2sub(nearest, from_pos));
-                cur_box->platonic_detection_strength = fmaxf(0.1f, 1.0f - fminf(1.0f, nearest_dist / 100.0f));
+                cur_box->platonic_detection_strength = fmax(0.1, 1.0 - fmin(1.0, nearest_dist / 100.0));
               }
               else
               {
                 cur_box->platonic_nearest_direction = (V2){0};
-                cur_box->platonic_detection_strength = 0.0f;
+                cur_box->platonic_detection_strength = 0.0;
               }
             }
           }
@@ -2747,27 +2747,27 @@ void process(GameState *gs, float dt)
 
           if (!entityids_same(cur_box->currently_scanning, new_id))
           {
-            cur_box->currently_scanning_progress = 0.0f;
+            cur_box->currently_scanning_progress = 0.0;
             cur_box->currently_scanning = new_id;
           }
 
-          float target_head_rotate_speed = cur_box->platonic_detection_strength > 0.0f ? 3.0f : 0.0f;
+          double target_head_rotate_speed = cur_box->platonic_detection_strength > 0.0 ? 3.0 : 0.0;
           if (to_learn != NULL)
           {
             cur_box->currently_scanning_progress += dt * SCANNER_SCAN_RATE;
-            target_head_rotate_speed *= 30.0f * cur_box->currently_scanning_progress;
+            target_head_rotate_speed *= 30.0 * cur_box->currently_scanning_progress;
           }
           else
-            cur_box->currently_scanning_progress = 0.0f;
+            cur_box->currently_scanning_progress = 0.0;
 
-          if (cur_box->currently_scanning_progress >= 1.0f)
+          if (cur_box->currently_scanning_progress >= 1.0)
           {
             cur_box->blueprints_learned |= box_unlock_number(to_learn->box_type);
           }
 
-          cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, target_head_rotate_speed, dt * 3.0f);
+          cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, target_head_rotate_speed, dt * 3.0);
           cur_box->scanner_head_rotate += cur_box->scanner_head_rotate_speed * dt;
-          cur_box->scanner_head_rotate = fmodf(cur_box->scanner_head_rotate, 2.0f * PI);
+          cur_box->scanner_head_rotate = fmod(cur_box->scanner_head_rotate, 2.0 * PI);
         }
       }
     }

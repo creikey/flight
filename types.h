@@ -112,25 +112,15 @@
 #endif
 
 // including headers from headers bad
-#ifndef SOKOL_GP_INCLUDED
-
-void sgp_set_color(float, float, float, float);
-
-// @Robust use double precision for all vectors, when passed back to sokol
-// somehow automatically or easily cast to floats
-typedef struct sgp_vec2
-{
-  float x, y;
-} sgp_vec2;
-
-typedef sgp_vec2 sgp_point;
-
-#endif
-
 #ifndef CHIPMUNK_H
 typedef void cpSpace;
 typedef void cpBody;
 typedef void cpShape;
+typedef struct cpVect
+{
+  double x, y;
+} cpVect;
+
 #endif
 
 #include "queue.h"
@@ -148,8 +138,7 @@ typedef int opus_int32;
 
 #endif
 
-typedef sgp_vec2 V2;
-typedef sgp_point P2;
+typedef cpVect V2;
 
 #define Log(...)                                     \
   {                                                  \
@@ -212,7 +201,7 @@ typedef struct InputFrame
 {
   uint64_t tick;
   V2 movement;
-  float rotation;
+  double rotation;
 
   int take_over_squad; // -1 means not taking over any squad
   bool accept_cur_squad_invite;
@@ -236,7 +225,7 @@ typedef struct Entity
 
   bool no_save_to_disk; // stuff generated later on, like player's bodies or space stations that respawn.
 
-  float damage;   // used by box and player
+  double damage;  // used by box and player
   cpBody *body;   // used by grid, player, and box
   cpShape *shape; // must be a box so shape_size can be set appropriately, and serialized
 
@@ -256,30 +245,30 @@ typedef struct Entity
   enum Squad owning_squad; // also controls what the player can see, because of cloaking!
   EntityID currently_inside_of_box;
   enum Squad squad_invited_to; // if squad none, then no squad invite
-  float goldness;              // how much the player is a winner
+  double goldness;             // how much the player is a winner
 
   // explosion
   bool is_explosion;
   V2 explosion_pos;
   V2 explosion_vel;
-  float explosion_progress; // in seconds
-  float explosion_push_strength;
-  float explosion_radius;
+  double explosion_progress; // in seconds
+  double explosion_push_strength;
+  double explosion_radius;
 
   // sun
   bool is_sun;
   V2 sun_vel;
   V2 sun_pos;
-  float sun_mass;
-  float sun_radius;
+  double sun_mass;
+  double sun_radius;
 
   // missile
   bool is_missile;
-  float time_burned_for; // until MISSILE_BURN_TIME. Before MISSILE_ARM_TIME cannot explode
+  double time_burned_for; // until MISSILE_BURN_TIME. Before MISSILE_ARM_TIME cannot explode
 
   // grids
   bool is_grid;
-  float total_energy_capacity;
+  double total_energy_capacity;
   EntityID boxes;
 
   // boxes
@@ -296,33 +285,33 @@ typedef struct Entity
   bool wants_disconnect; // don't serialized, termporary value not used across frames
 
   // missile launcher
-  float missile_construction_charge;
+  double missile_construction_charge;
 
   // used by medbay and cockpit
   EntityID player_who_is_inside_of_me;
 
   // only serialized when box_type is thruster or gyroscope, used for both. Thrust
   // can mean rotation thrust!
-  float wanted_thrust; // the thrust command applied to the thruster
-  float thrust;        // the actual thrust it can provide based on energy sources in the grid
+  double wanted_thrust; // the thrust command applied to the thruster
+  double thrust;        // the actual thrust it can provide based on energy sources in the grid
 
   // only serialized when box_type is battery
-  float energy_used; // battery, between 0 battery capacity. You have to look through code to figure out what that is! haha sucker!
+  double energy_used; // battery, between 0 battery capacity. You have to look through code to figure out what that is! haha sucker!
 
   // only serialized when box_type is solar panel
-  float sun_amount; // solar panel, between 0 and 1
+  double sun_amount; // solar panel, between 0 and 1
 
   // cloaking only
-  float cloaking_power; // 0.0 if unable to be used because no power, 1.0 if fully cloaking!
+  double cloaking_power; // 0.0 if unable to be used because no power, 1.0 if fully cloaking!
 
   // scanner only stuff!
   EntityID currently_scanning;
-  float currently_scanning_progress;   // when 1.0, scans it!
+  double currently_scanning_progress;  // when 1.0, scans it!
   BOX_UNLOCKS_TYPE blueprints_learned; // @Robust make this same type as blueprints
-  float scanner_head_rotate_speed;     // not serialized, cosmetic
-  float scanner_head_rotate;
-  V2 platonic_nearest_direction;     // normalized
-  float platonic_detection_strength; // from zero to one
+  double scanner_head_rotate_speed;    // not serialized, cosmetic
+  double scanner_head_rotate;
+  V2 platonic_nearest_direction;      // normalized
+  double platonic_detection_strength; // from zero to one
 } Entity;
 
 typedef struct Player
@@ -350,8 +339,8 @@ typedef struct GameState
 {
   cpSpace *space;
 
-  // @Robust for the integer tick, also store a float for how much time has been processed.
-  // Like a whole timestep then a float for subtimestep
+  // @Robust for the integer tick, also store a double for how much time has been processed.
+  // Like a whole timestep then a double for subtimestep
   double time; // @Robust separate tick integer not prone to precision issues. Could be very large as is saved to disk!
 
   V2 goldpos;
@@ -381,7 +370,7 @@ typedef struct GameState
 #define TAU (PI * 2.0f)
 
 // returns in radians
-static float rotangle(enum CompassRotation rot)
+static double rotangle(enum CompassRotation rot)
 {
   switch (rot)
   {
@@ -436,10 +425,10 @@ void create_initial_world(GameState *gs);
 void initialize(struct GameState *gs, void *entity_arena, size_t entity_arena_size);
 void destroy(struct GameState *gs);
 void process_fixed_timestep(GameState *gs);
-void process(struct GameState *gs, float dt); // does in place
-Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, float radius, bool (*filter_func)(Entity *));
+void process(struct GameState *gs, double dt); // does in place
+Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, double radius, bool (*filter_func)(Entity *));
 uint64_t tick(struct GameState *gs);
-float sun_dist_no_gravity(Entity *sun);
+double sun_dist_no_gravity(Entity *sun);
 
 // all of these return if successful or not
 bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk);
@@ -453,9 +442,9 @@ Entity *get_entity(struct GameState *gs, EntityID id);
 Entity *new_entity(struct GameState *gs);
 EntityID get_id(struct GameState *gs, Entity *e);
 V2 entity_pos(Entity *e);
-void entity_set_rotation(Entity *e, float rot);
+void entity_set_rotation(Entity *e, double rot);
 void entity_set_pos(Entity *e, V2 pos);
-float entity_rotation(Entity *e);
+double entity_rotation(Entity *e);
 void entity_ensure_in_orbit(GameState *gs, Entity *e);
 void entity_destroy(GameState *gs, Entity *e);
 #define BOX_CHAIN_ITER(gs, cur, starting_box) for (Entity *cur = get_entity(gs, starting_box); cur != NULL; cur = get_entity(gs, cur->next_box))
@@ -463,7 +452,7 @@ void entity_destroy(GameState *gs, Entity *e);
 typedef struct LauncherTarget
 {
   bool target_found;
-  float facing_angle; // in global coords
+  double facing_angle; // in global coords
 } LauncherTarget;
 LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher);
 
@@ -477,9 +466,9 @@ V2 box_vel(Entity *box);
 V2 grid_local_to_world(Entity *grid, V2 local);
 V2 grid_world_to_local(Entity *grid, V2 world);
 V2 grid_snapped_box_pos(Entity *grid, V2 world); // returns the snapped pos in world coords
-float entity_angular_velocity(Entity *grid);
+double entity_angular_velocity(Entity *grid);
 V2 entity_shape_pos(Entity *box);
-float box_rotation(Entity *box);
+double box_rotation(Entity *box);
 
 // thruster
 V2 box_facing_vector(Entity *box);
@@ -500,7 +489,7 @@ typedef struct ServerThreadInfo
 
 typedef struct AABB
 {
-  float x, y, width, height;
+  double x, y, width, height;
 } AABB;
 
 static AABB centered_at(V2 point, V2 size)
@@ -526,7 +515,7 @@ static V2 V2add(V2 a, V2 b)
   };
 }
 
-static V2 V2scale(V2 a, float f)
+static V2 V2scale(V2 a, double f)
 {
   return (V2){
       .x = a.x * f,
@@ -534,14 +523,14 @@ static V2 V2scale(V2 a, float f)
   };
 }
 
-static float V2lengthsqr(V2 v)
+static double V2lengthsqr(V2 v)
 {
   return v.x * v.x + v.y * v.y;
 }
 
-static float V2length(V2 v)
+static double V2length(V2 v)
 {
-  return sqrtf(V2lengthsqr(v));
+  return sqrt(V2lengthsqr(v));
 }
 
 static V2 V2normalize(V2 v)
@@ -549,14 +538,14 @@ static V2 V2normalize(V2 v)
   return V2scale(v, 1.0f / V2length(v));
 }
 
-static float V2dot(V2 a, V2 b)
+static double V2dot(V2 a, V2 b)
 {
   return a.x * b.x + a.y * b.y;
 }
 
-static float V2projectvalue(V2 vec, V2 onto)
+static double V2projectvalue(V2 vec, V2 onto)
 {
-  float length_onto = V2length(onto);
+  double length_onto = V2length(onto);
   return V2dot(vec, onto) / (length_onto * length_onto);
 }
 
@@ -565,18 +554,18 @@ static V2 V2project(V2 vec, V2 onto)
   return V2scale(onto, V2projectvalue(vec, onto));
 }
 
-static V2 V2rotate(V2 vec, float theta)
+static V2 V2rotate(V2 vec, double theta)
 {
   return (V2){
-      .x = vec.x * cosf(theta) - vec.y * sinf(theta),
-      .y = vec.x * sinf(theta) + vec.y * cosf(theta),
+      .x = vec.x * cos(theta) - vec.y * sin(theta),
+      .y = vec.x * sin(theta) + vec.y * cos(theta),
   };
 }
 
 // also known as atan2
-static float V2angle(V2 vec)
+static double V2angle(V2 vec)
 {
-  return atan2f(vec.y, vec.x);
+  return atan2(vec.y, vec.x);
 }
 
 static V2 V2sub(V2 a, V2 b)
@@ -587,7 +576,7 @@ static V2 V2sub(V2 a, V2 b)
   };
 }
 
-static float sign(float f)
+static double sign(double f)
 {
   if (f >= 0.0f)
     return 1.0f;
@@ -595,27 +584,27 @@ static float sign(float f)
     return -1.0f;
 }
 
-static bool V2equal(V2 a, V2 b, float eps)
+static bool V2equal(V2 a, V2 b, double eps)
 {
   return V2length(V2sub(a, b)) < eps;
 }
 
-static inline float clamp01(float f)
+static inline double clamp01(double f)
 {
-  return fmaxf(0.0f, fminf(f, 1.0f));
+  return fmax(0.0f, fmin(f, 1.0f));
 }
 
-static float V2distsqr(V2 from, V2 to)
+static double V2distsqr(V2 from, V2 to)
 {
   return V2lengthsqr(V2sub(to, from));
 }
 
-static float V2dist(V2 from, V2 to)
+static double V2dist(V2 from, V2 to)
 {
-  return sqrtf(V2distsqr(from, to));
+  return sqrt(V2distsqr(from, to));
 }
 
-static inline float clamp(float f, float minimum, float maximum)
+static inline double clamp(double f, double minimum, double maximum)
 {
   if (f < minimum)
     return minimum;
@@ -624,34 +613,34 @@ static inline float clamp(float f, float minimum, float maximum)
   return f;
 }
 
-static float V2anglediff(V2 a, V2 b)
+static double V2anglediff(V2 a, V2 b)
 {
-  float acos_input = V2dot(a, b) / (V2length(a) * V2length(b));
+  double acos_input = V2dot(a, b) / (V2length(a) * V2length(b));
   acos_input = clamp(acos_input, -1.0f, 1.0f);
   assert(acos_input >= -1.0f && acos_input <= 1.0f);
-  return acosf(acos_input) * sign(V2dot(a, b));
+  return acos(acos_input) * sign(V2dot(a, b));
 }
 
-static float fract(float f)
+static double fract(double f)
 {
-  return f - floorf(f);
+  return f - floor(f);
 }
 
-static float lerp(float a, float b, float f)
+static double lerp(double a, double b, double f)
 {
   return a * (1.0f - f) + (b * f);
 }
 
-static float lerp_angle(float p_from, float p_to, float p_weight)
+static double lerp_angle(double p_from, double p_to, double p_weight)
 {
-  float difference = fmodf(p_to - p_from, (float)TAU);
-  float distance = fmodf(2.0f * difference, (float)TAU) - difference;
+  double difference = fmod(p_to - p_from, (float)TAU);
+  double distance = fmod(2.0f * difference, (float)TAU) - difference;
   return p_from + distance * p_weight;
 }
 
 static V2 V2floor(V2 p)
 {
-  return (V2){floorf(p.x), floorf(p.y)};
+  return (V2){floor(p.x), floor(p.y)};
 }
 
 static V2 V2fract(V2 p)
@@ -659,7 +648,7 @@ static V2 V2fract(V2 p)
   return (V2){fract(p.x), fract(p.y)};
 }
 /*
-float noise(V2 p)
+double noise(V2 p)
 {
         V2 id = V2floor(p);
         V2 f = V2fract(p);
@@ -673,15 +662,15 @@ float noise(V2 p)
                 u.y);
 }
 
-float fbm(V2 p)
+double fbm(V2 p)
 {
-        float f = 0.0;
-        float gat = 0.0;
+        double f = 0.0;
+        double gat = 0.0;
 
-        for (float octave = 0.; octave < 5.; ++octave)
+        for (double octave = 0.; octave < 5.; ++octave)
         {
-                float la = pow(2.0, octave);
-                float ga = pow(0.5, octave + 1.);
+                double la = pow(2.0, octave);
+                double ga = pow(0.5, octave + 1.);
                 f += ga * noise(la * p);
                 gat += ga;
         }
@@ -692,7 +681,7 @@ float fbm(V2 p)
 }
 */
 
-static V2 V2lerp(V2 a, V2 b, float factor)
+static V2 V2lerp(V2 a, V2 b, double factor)
 {
   V2 to_return = {0};
   to_return.x = lerp(a.x, b.x, factor);
@@ -702,72 +691,14 @@ static V2 V2lerp(V2 a, V2 b, float factor)
 }
 
 // for random generation
-static float hash11(float p)
+static double hash11(double p)
 {
   p = fract(p * .1031f);
   p *= p + 33.33f;
   p *= p + p;
   return fract(p);
 }
-
-typedef struct Color
-{
-  float r, g, b, a;
-} Color;
-
-static Color colhex(int r, int g, int b)
-{
-  return (Color){
-      .r = (float)r / 255.0f,
-      .g = (float)g / 255.0f,
-      .b = (float)b / 255.0f,
-      .a = 1.0f,
-  };
-}
-
-static Color colhexcode(int hexcode)
-{
-  // 0x020509;
-  int r = (hexcode >> 16) & 0xFF;
-  int g = (hexcode >> 8) & 0xFF;
-  int b = (hexcode >> 0) & 0xFF;
-  return colhex(r, g, b);
-}
-
-static Color Collerp(Color a, Color b, float factor)
-{
-  Color to_return = {0};
-  to_return.r = lerp(a.r, b.r, factor);
-  to_return.g = lerp(a.g, b.g, factor);
-  to_return.b = lerp(a.b, b.b, factor);
-  to_return.a = lerp(a.a, b.a, factor);
-
-  return to_return;
-}
-
-static void set_color(Color c)
-{
-  sgp_set_color(c.r, c.g, c.b, c.a);
-}
-
-static float deg2rad(float deg)
+static double deg2rad(double deg)
 {
   return (deg / 360.0f) * 2.0f * PI;
 }
-
-#define WHITE                                  \
-  (Color)                                      \
-  {                                            \
-    .r = 1.0f, .g = 1.0f, .b = 1.0f, .a = 1.0f \
-  }
-#define RED                                    \
-  (Color)                                      \
-  {                                            \
-    .r = 1.0f, .g = 0.0f, .b = 0.0f, .a = 1.0f \
-  }
-#define BLUE                                   \
-  (Color)                                      \
-  {                                            \
-    .r = 0.0f, .g = 0.0f, .b = 1.0f, .a = 1.0f \
-  }
-#define GOLD colhex(255, 215, 0)

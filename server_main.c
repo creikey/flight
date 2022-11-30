@@ -20,7 +20,7 @@ void term(int signum)
 int main(int argc, char **argv)
 {
 	struct sigaction action;
-	memset(&action, 0, sizeof(struct sigaction));
+	memset(&action, 0, sizeo(struct sigaction));
 	action.sa_handler = term;
 	sigaction(SIGTERM, &action, NULL);
 
