@@ -736,9 +736,9 @@ static void draw_circle(cpVect point, double radius)
     double progress = (float)i / (float)POINTS;
     double next_progress = (float)(i + 1) / (float)POINTS;
     lines[i].a = V2point((cpVect){.x = cos(progress * 2.0 * PI) * radius,
-                              .y = sin(progress * 2.0 * PI) * radius});
+                                  .y = sin(progress * 2.0 * PI) * radius});
     lines[i].b = V2point((cpVect){.x = cos(next_progress * 2.0 * PI) * radius,
-                              .y = sin(next_progress * 2.0 * PI) * radius});
+                                  .y = sin(next_progress * 2.0 * PI) * radius});
     lines[i].a = V2point(cpvadd(pointV2(lines[i].a), point));
     lines[i].b = V2point(cpvadd(pointV2(lines[i].b), point));
   }
@@ -761,6 +761,7 @@ static void setup_hueshift(enum Squad squad)
   hueshift_uniforms_t uniform = {
       .is_colorless = meta.is_colorless,
       .target_hue = (float)meta.hue,
+      .alpha = sgp_get_color().a,
   };
   sgp_set_uniform(&uniform, sizeof(hueshift_uniforms_t));
 }
@@ -992,10 +993,10 @@ static void ui(bool draw, double dt, double width, double height)
       cpVect top_of_head = world_to_screen(
           width, height,
           cpvadd(entity_pos(inviting),
-                (cpVect){.y = player_scaling * PLAYER_SIZE.y / 2.0}));
+                 (cpVect){.y = player_scaling * PLAYER_SIZE.y / 2.0}));
       cpVect pos = cpvadd(top_of_head, (cpVect){.y = -30.0});
       cpVect to_mouse = cpvsub(mouse_pos,
-                          world_to_screen(width, height, entity_pos(inviting)));
+                               world_to_screen(width, height, entity_pos(inviting)));
       bool selecting_to_invite =
           cpvdot(cpvnormalize(to_mouse), (cpVect){0.0, -1.0}) > 0.5 &&
           cpvlength(to_mouse) > 15.0;
@@ -1142,6 +1143,7 @@ static void ui(bool draw, double dt, double width, double height)
 
           pipeline_scope(hueshift_pipeline)
           {
+            set_color(WHITE);
             setup_hueshift(this_squad);
 
             rotate_at(flag_rot[i], flag_pos[i].x, flag_pos[i].y);
@@ -1940,23 +1942,6 @@ static void frame(void)
               }
               sgp_reset_image(0);
 
-              if (b->box_type == BoxMissileLauncher)
-              {
-                set_color(RED);
-                draw_circle(entity_pos(b), MISSILE_RANGE);
-
-                // draw the charging missile
-                transform_scope
-                {
-                  rotate_at(missile_launcher_target(&gs, b).facing_angle, entity_pos(b).x, entity_pos(b).y);
-                  set_color_values(1.0, 1.0, 1.0, b->missile_construction_charge);
-                  sgp_set_image(0, image_missile);
-                  pipeline_scope(goodpixel_pipeline)
-                      draw_texture_centered(entity_pos(b), BOX_SIZE);
-                  sgp_reset_image(0);
-                }
-              }
-
               if (b->box_type == BoxScanner)
               {
                 sgp_set_image(0, image_scanner_head);
@@ -2004,6 +1989,25 @@ static void frame(void)
                 draw_line(entity_pos(b).x, entity_pos(b).y, to.x, to.y);
               }
             }
+            if (b->box_type == BoxMissileLauncher)
+            {
+              set_color(RED);
+              draw_circle(entity_pos(b), MISSILE_RANGE);
+
+              // draw the charging missile
+              transform_scope
+              {
+                rotate_at(missile_launcher_target(&gs, b).facing_angle, entity_pos(b).x, entity_pos(b).y);
+                sgp_set_image(0, image_missile);
+                pipeline_scope(hueshift_pipeline)
+                {
+                  set_color_values(1.0, 1.0, 1.0, b->missile_construction_charge);
+                  setup_hueshift(b->owning_squad);
+                  draw_texture_centered(entity_pos(b), BOX_SIZE);
+                }
+                sgp_reset_image(0);
+              }
+            }
           }
         }
 
@@ -2024,8 +2028,13 @@ static void frame(void)
               sgp_set_image(0, image_missile);
             }
 
-            pipeline_scope(goodpixel_pipeline)
-                draw_texture_rectangle_centered(entity_pos(e), MISSILE_SPRITE_SIZE);
+            pipeline_scope(hueshift_pipeline)
+            {
+              setup_hueshift(e->owning_squad);
+              draw_texture_rectangle_centered(entity_pos(e), MISSILE_SPRITE_SIZE);
+            }
+
+            sgp_reset_image(0);
           }
         }
 

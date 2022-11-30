@@ -14,6 +14,7 @@ uniform sampler2D iChannel0;
 uniform uniforms {
     int is_colorless; // if greater than zero, no color
     float target_hue;
+    float alpha;
 };
 in vec2 texUV;
 out vec4 fragColor;
@@ -47,17 +48,19 @@ vec3 hsv2rgb(vec3 c)
 
 void main() {
     vec4 outColor = texture2DAA(iChannel0, texUV);
+    outColor.a *= alpha;
     vec3 hsv = rgb2hsv(outColor.rgb);
-    
-    if(is_colorless > 0) 
-    {
-        hsv.y = 0.0f;
-    } else {
-        float green_hue = 118.0f / 360.0f;
-     if(abs(hsv.r - green_hue) < 0.15) {
-        hsv.x = target_hue;
+
+    float green_hue = 118.0f / 360.0f;
+    if(abs(hsv.r - green_hue) < 0.15) {
+        if(is_colorless > 0) 
+        {
+            hsv.y = 0.0f;
+        } else {
+            hsv.x = target_hue;
         }
     }
+    
    fragColor = vec4(hsv2rgb(hsv), outColor.a);
 }
 @end
