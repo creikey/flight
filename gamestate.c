@@ -1015,6 +1015,38 @@ SerMaybeFailure ser_V2(SerState *ser, V2 *var)
   return ser_ok;
 }
 
+// for when you only need 32 bit float precision in a vector2,
+// but it's a double
+SerMaybeFailure ser_fV2(SerState *ser, V2 *var)
+{
+  float x;
+  float y;
+  if (ser->serializing)
+  {
+    x = (float)var->x;
+    y = (float)var->y;
+  }
+  SER_VAR(&x);
+  SER_VAR(&y);
+  SER_ASSERT(!isnan(x));
+  SER_ASSERT(!isnan(y));
+
+  var->x = x;
+  var->y = y;
+  return ser_ok;
+}
+
+SerMaybeFailure ser_f(SerState *ser, double *d)
+{
+  float f;
+  if (ser->serializing)
+    f = (float)*d;
+  SER_VAR(&f);
+  SER_ASSERT(!isnan(f));
+  *d = f;
+  return ser_ok;
+}
+
 SerMaybeFailure ser_bodydata(SerState *ser, struct BodyData *data)
 {
   SER_MAYBE_RETURN(ser_V2(ser, &data->pos));
@@ -1038,7 +1070,7 @@ SerMaybeFailure ser_entityid(SerState *ser, EntityID *id)
 SerMaybeFailure ser_inputframe(SerState *ser, InputFrame *i)
 {
   SER_VAR(&i->tick);
-  SER_MAYBE_RETURN(ser_V2(ser, &i->movement));
+  SER_MAYBE_RETURN(ser_fV2(ser, &i->movement));
   SER_VAR(&i->rotation);
   SER_VAR(&i->take_over_squad);
   SER_ASSERT(i->take_over_squad >= 0 || i->take_over_squad == -1);
@@ -1048,7 +1080,7 @@ SerMaybeFailure ser_inputframe(SerState *ser, InputFrame *i)
   SER_MAYBE_RETURN(ser_entityid(ser, &i->invite_this_player));
 
   SER_VAR(&i->seat_action);
-  SER_MAYBE_RETURN(ser_V2(ser, &i->hand_pos));
+  SER_MAYBE_RETURN(ser_fV2(ser, &i->hand_pos));
 
   SER_VAR(&i->dobuild);
   SER_VAR(&i->build_type);
@@ -1087,7 +1119,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 {
   SER_VAR(&e->no_save_to_disk); // @Robust this is always false when saving to disk?
   SER_VAR(&e->generation);
-  SER_VAR(&e->damage);
+  SER_MAYBE_RETURN(ser_f(ser, &e->damage));
 
   bool has_body = ser->serializing && e->body != NULL;
   SER_VAR(&has_body);
@@ -1110,7 +1142,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 
   if (has_shape)
   {
-    SER_MAYBE_RETURN(ser_V2(ser, &e->shape_size));
+    SER_MAYBE_RETURN(ser_fV2(ser, &e->shape_size));
     SER_MAYBE_RETURN(ser_entityid(ser, &e->shape_parent_entity));
     Entity *parent = get_entity(gs, e->shape_parent_entity);
     SER_ASSERT(parent != NULL);
@@ -1118,7 +1150,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     V2 shape_pos;
     if (ser->serializing)
       shape_pos = entity_shape_pos(e);
-    SER_MAYBE_RETURN(ser_V2(ser, &shape_pos));
+    SER_MAYBE_RETURN(ser_fV2(ser, &shape_pos));
 
     double shape_mass;
     if (ser->serializing)
@@ -1142,7 +1174,9 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   }
 
   if (!ser->save_or_load_from_disk)
-    SER_VAR(&e->time_was_last_cloaked);
+  {
+    SER_MAYBE_RETURN(ser_f(ser, &e->time_was_last_cloaked));
+  }
 
   SER_VAR(&e->owning_squad);
 
@@ -1153,7 +1187,7 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 
     SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
     SER_VAR(&e->squad_invited_to);
-    SER_VAR(&e->goldness);
+    SER_MAYBE_RETURN(ser_f(ser, &e->goldness));
   }
 
   SER_VAR(&e->is_explosion);
@@ -1161,9 +1195,9 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   {
     SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_pos));
     SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_vel));
-    SER_VAR(&e->explosion_progress);
-    SER_VAR(&e->explosion_push_strength);
-    SER_VAR(&e->explosion_radius);
+    SER_MAYBE_RETURN(ser_f(ser, &e->explosion_progress));
+    SER_MAYBE_RETURN(ser_f(ser, &e->explosion_push_strength));
+    SER_MAYBE_RETURN(ser_f(ser, &e->explosion_radius));
   }
 
   SER_VAR(&e->is_sun);
@@ -1171,21 +1205,21 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
   {
     SER_MAYBE_RETURN(ser_V2(ser, &e->sun_vel));
     SER_MAYBE_RETURN(ser_V2(ser, &e->sun_pos));
-    SER_VAR(&e->sun_mass);
-    SER_VAR(&e->sun_radius);
+    SER_MAYBE_RETURN(ser_f(ser, &e->sun_mass));
+    SER_MAYBE_RETURN(ser_f(ser, &e->sun_radius));
   }
 
   SER_VAR(&e->is_grid);
   if (e->is_grid)
   {
-    SER_VAR(&e->total_energy_capacity);
+    SER_MAYBE_RETURN(ser_f(ser, &e->total_energy_capacity));
     SER_MAYBE_RETURN(ser_entityid(ser, &e->boxes));
   }
 
   SER_VAR(&e->is_missile)
   if (e->is_missile)
   {
-    SER_VAR(&e->time_burned_for);
+    SER_MAYBE_RETURN(ser_f(ser, &e->time_burned_for));
   }
 
   SER_VAR(&e->is_box);
@@ -1210,28 +1244,28 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
       break;
     case BoxThruster:
     case BoxGyroscope:
-      SER_VAR(&e->thrust);
-      SER_VAR(&e->wanted_thrust);
+      SER_MAYBE_RETURN(ser_f(ser, &e->thrust));
+      SER_MAYBE_RETURN(ser_f(ser, &e->wanted_thrust));
       break;
     case BoxBattery:
-      SER_VAR(&e->energy_used);
+      SER_MAYBE_RETURN(ser_f(ser, &e->energy_used));
       break;
     case BoxSolarPanel:
-      SER_VAR(&e->sun_amount);
+      SER_MAYBE_RETURN(ser_f(ser, &e->sun_amount));
       break;
     case BoxScanner:
       SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_scanning));
-      SER_VAR(&e->currently_scanning_progress);
+      SER_MAYBE_RETURN(ser_f(ser, &e->currently_scanning_progress));
       SER_VAR(&e->blueprints_learned);
-      SER_VAR(&e->scanner_head_rotate);
-      SER_VAR(&e->platonic_nearest_direction);
-      SER_VAR(&e->platonic_detection_strength);
+      SER_MAYBE_RETURN(ser_f(ser, &e->scanner_head_rotate));
+      SER_MAYBE_RETURN(ser_fV2(ser, &e->platonic_nearest_direction));
+      SER_MAYBE_RETURN(ser_f(ser, &e->platonic_detection_strength));
       break;
     case BoxCloaking:
-      SER_VAR(&e->cloaking_power);
+      SER_MAYBE_RETURN(ser_f(ser, &e->cloaking_power));
       break;
     case BoxMissileLauncher:
-      SER_VAR(&e->missile_construction_charge);
+      SER_MAYBE_RETURN(ser_f(ser, &e->missile_construction_charge));
       break;
     default:
       break;
