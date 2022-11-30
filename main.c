@@ -709,7 +709,7 @@ static void draw_color_rect_centered(V2 center, double size)
 
 static void draw_texture_rectangle_centered(V2 center, V2 width_height)
 {
-  V2 halfsize = V2scale(width_height, 0.5);
+  V2 halfsize = cpvmult(width_height, 0.5);
   draw_textured_rect(center.x - halfsize.x, center.y - halfsize.y, width_height.x, width_height.y);
 }
 static void draw_texture_centered(V2 center, double size)
@@ -739,8 +739,8 @@ static void draw_circle(V2 point, double radius)
                               .y = sin(progress * 2.0 * PI) * radius});
     lines[i].b = V2point((V2){.x = cos(next_progress * 2.0 * PI) * radius,
                               .y = sin(next_progress * 2.0 * PI) * radius});
-    lines[i].a = V2point(V2add(pointV2(lines[i].a), point));
-    lines[i].b = V2point(V2add(pointV2(lines[i].b), point));
+    lines[i].a = V2point(cpvadd(pointV2(lines[i].a), point));
+    lines[i].b = V2point(cpvadd(pointV2(lines[i].b), point));
   }
   sgp_draw_lines(lines, POINTS);
 }
@@ -768,20 +768,20 @@ static void setup_hueshift(enum Squad squad)
 static V2 screen_to_world(double width, double height, V2 screen)
 {
   V2 world = screen;
-  world = V2sub(world, (V2){.x = width / 2.0, .y = height / 2.0});
+  world = cpvsub(world, (V2){.x = width / 2.0, .y = height / 2.0});
   world.x /= zoom;
   world.y /= -zoom;
-  world = V2add(world, camera_pos);
+  world = cpvadd(world, camera_pos);
   return world;
 }
 
 static V2 world_to_screen(double width, double height, V2 world)
 {
   V2 screen = world;
-  screen = V2sub(screen, camera_pos);
+  screen = cpvsub(screen, camera_pos);
   screen.x *= zoom;
   screen.y *= -zoom;
-  screen = V2add(screen, (V2){.x = width / 2.0, .y = height / 2.0});
+  screen = cpvadd(screen, (V2){.x = width / 2.0, .y = height / 2.0});
   return screen;
 }
 
@@ -918,9 +918,9 @@ static void ui(bool draw, double dt, double width, double height)
     double buttons_y = invite_y + size / 2.0;
 
     bool yes_hovered =
-        invited && V2dist(mouse_pos, (V2){yes_x, buttons_y}) < yes_size / 2.0;
+        invited && cpvdist(mouse_pos, (V2){yes_x, buttons_y}) < yes_size / 2.0;
     bool no_hovered =
-        invited && V2dist(mouse_pos, (V2){no_x, buttons_y}) < no_size / 2.0;
+        invited && cpvdist(mouse_pos, (V2){no_x, buttons_y}) < no_size / 2.0;
 
     yes_size = lerp(yes_size, yes_hovered ? 75.0 : 50.0, dt * 9.0);
     no_size = lerp(no_size, no_hovered ? 75.0 : 50.0, dt * 9.0);
@@ -991,14 +991,14 @@ static void ui(bool draw, double dt, double width, double height)
     {
       V2 top_of_head = world_to_screen(
           width, height,
-          V2add(entity_pos(inviting),
+          cpvadd(entity_pos(inviting),
                 (V2){.y = player_scaling * PLAYER_SIZE.y / 2.0}));
-      V2 pos = V2add(top_of_head, (V2){.y = -30.0});
-      V2 to_mouse = V2sub(mouse_pos,
+      V2 pos = cpvadd(top_of_head, (V2){.y = -30.0});
+      V2 to_mouse = cpvsub(mouse_pos,
                           world_to_screen(width, height, entity_pos(inviting)));
       bool selecting_to_invite =
-          V2dot(V2normalize(to_mouse), (V2){0.0, -1.0}) > 0.5 &&
-          V2length(to_mouse) > 15.0;
+          cpvdot(cpvnormalize(to_mouse), (V2){0.0, -1.0}) > 0.5 &&
+          cpvlength(to_mouse) > 15.0;
       if (!mousedown[SAPP_MOUSEBUTTON_RIGHT])
       {
         if (selecting_to_invite)
@@ -1061,7 +1061,7 @@ static void ui(bool draw, double dt, double width, double height)
         target_pos.y = 200.0;
         target_rot = lerp(-PI / 3.0, PI / 3.0, flag_progress) + PI / 2.0;
       }
-      flag_pos[i] = V2lerp(flag_pos[i], target_pos, dt * 5.0);
+      flag_pos[i] = cpvlerp(flag_pos[i], target_pos, dt * 5.0);
       flag_rot[i] = lerp_angle(flag_rot[i], target_rot, dt * 5.0);
     }
 
@@ -1108,7 +1108,7 @@ static void ui(bool draw, double dt, double width, double height)
 
       double size = 128.0;
       bool hovering =
-          V2dist(mouse_pos, flag_pos[i]) < size * 0.25 && this_squad_available;
+          cpvdist(mouse_pos, flag_pos[i]) < size * 0.25 && this_squad_available;
 
       if (!choosing_flags && hovering && build_pressed)
       {
@@ -1354,7 +1354,7 @@ static void draw_dots(V2 camera_pos, double gap)
       V2 star = (V2){(float)x * gap, (float)y * gap};
       star.x += hash11(star.x * 100.0 + star.y * 67.0) * gap;
       star.y += hash11(star.y * 93.0 + star.x * 53.0) * gap;
-      if (V2lengthsqr(V2sub(star, camera_pos)) > VISION_RADIUS * VISION_RADIUS)
+      if (cpvlengthsq(cpvsub(star, camera_pos)) > VISION_RADIUS * VISION_RADIUS)
         continue;
 
       sgp_draw_point((float)star.x, (float)star.y);
@@ -1367,8 +1367,8 @@ static V2 get_global_hand_pos(V2 world_mouse_pos, bool *hand_at_arms_length)
   if (myentity() == NULL)
     return (V2){0};
 
-  V2 global_hand_pos = V2sub(world_mouse_pos, entity_pos(myentity()));
-  double hand_len = V2length(global_hand_pos);
+  V2 global_hand_pos = cpvsub(world_mouse_pos, entity_pos(myentity()));
+  double hand_len = cpvlength(global_hand_pos);
   if (hand_len > MAX_HAND_REACH)
   {
     *hand_at_arms_length = true;
@@ -1378,8 +1378,8 @@ static V2 get_global_hand_pos(V2 world_mouse_pos, bool *hand_at_arms_length)
   {
     *hand_at_arms_length = false;
   }
-  global_hand_pos = V2scale(V2normalize(global_hand_pos), hand_len);
-  global_hand_pos = V2add(global_hand_pos, entity_pos(myentity()));
+  global_hand_pos = cpvmult(cpvnormalize(global_hand_pos), hand_len);
+  global_hand_pos = cpvadd(global_hand_pos, entity_pos(myentity()));
   return global_hand_pos;
 }
 static void frame(void)
@@ -1562,7 +1562,7 @@ static void frame(void)
 
     if (myentity() != NULL)
     {
-      local_hand_pos = V2sub(global_hand_pos, entity_pos(myentity()));
+      local_hand_pos = cpvsub(global_hand_pos, entity_pos(myentity()));
     }
 
     // process player interaction (squad invites)
@@ -1570,7 +1570,7 @@ static void frame(void)
       ENTITIES_ITER(cur)
       {
         if (cur != myentity() && cur->is_player &&
-            has_point(centered_at(entity_pos(cur), V2scale(PLAYER_SIZE, player_scaling)), world_mouse_pos))
+            has_point(centered_at(entity_pos(cur), cpvmult(PLAYER_SIZE, player_scaling)), world_mouse_pos))
         {
           maybe_inviting_this_player = get_id(&gs, cur);
           interact_pressed = false;
@@ -1591,8 +1591,8 @@ static void frame(void)
           .x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
           .y = (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S],
       };
-      if (V2length(input) > 0.0)
-        input = V2normalize(input);
+      if (cpvlength(input) > 0.0)
+        input = cpvnormalize(input);
       cur_input_frame.movement = input;
       cur_input_frame.rotation = (float)keydown[SAPP_KEYCODE_E] - (float)keydown[SAPP_KEYCODE_Q];
 
@@ -1745,7 +1745,7 @@ static void frame(void)
 #if 1 // space background
       transform_scope
       {
-        V2 scaled_camera_pos = V2scale(
+        V2 scaled_camera_pos = cpvmult(
             camera_pos, 0.0005); // this is how strong/weak the parallax is
         translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
         set_color(WHITE);
@@ -1762,7 +1762,7 @@ static void frame(void)
       }
       transform_scope
       {
-        V2 scaled_camera_pos = V2scale(
+        V2 scaled_camera_pos = cpvmult(
             camera_pos, 0.005); // this is how strong/weak the parallax is
         translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
         set_color(WHITE);
@@ -1782,14 +1782,14 @@ static void frame(void)
 #if 1 // parallaxed dots
       transform_scope
       {
-        V2 scaled_camera_pos = V2scale(camera_pos, 0.25);
+        V2 scaled_camera_pos = cpvmult(camera_pos, 0.25);
         translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
         set_color(WHITE);
         draw_dots(scaled_camera_pos, 3.0);
       }
       transform_scope
       {
-        V2 scaled_camera_pos = V2scale(camera_pos, 0.5);
+        V2 scaled_camera_pos = cpvmult(camera_pos, 0.5);
         translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
         set_color(WHITE);
         draw_dots(scaled_camera_pos, 2.0);
@@ -1998,7 +1998,7 @@ static void frame(void)
               if (b->platonic_detection_strength > 0.0)
               {
                 set_color(colhexcode(0xf2d75c));
-                V2 to = V2add(entity_pos(b), V2scale(b->platonic_nearest_direction, b->platonic_detection_strength));
+                V2 to = cpvadd(entity_pos(b), cpvmult(b->platonic_nearest_direction, b->platonic_detection_strength));
                 dbg_rect(to);
                 dbg_rect(entity_pos(b));
                 draw_line(entity_pos(b).x, entity_pos(b).y, to.x, to.y);
@@ -2043,7 +2043,7 @@ static void frame(void)
               setup_hueshift(e->owning_squad);
               sgp_set_image(0, image_player);
               draw_texture_rectangle_centered(
-                  entity_pos(e), V2scale(PLAYER_SIZE, player_scaling));
+                  entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling));
               sgp_reset_image(0);
             }
           }

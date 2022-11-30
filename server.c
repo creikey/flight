@@ -467,7 +467,7 @@ void server(void *info_raw)
                   Entity *other_player_entity = get_entity(&gs, gs.players[other_player_index].entity);
                   if (other_player_entity != NULL)
                   {
-                    double dist = V2dist(entity_pos(this_player_entity), entity_pos(other_player_entity));
+                    double dist = cpvdist(entity_pos(this_player_entity), entity_pos(other_player_entity));
                     double volume = lerp(1.0, 0.0, clamp01(dist / VOIP_DISTANCE_WHEN_CANT_HEAR));
                     if (volume > 0.01)
                     {

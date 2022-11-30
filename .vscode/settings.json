@@ -52,6 +52,8 @@
         "xtr1common": "c",
         "xtree": "c",
         "stdint.h": "c",
-        "ipsettings.h": "c"
+        "ipsettings.h": "c",
+        "cpvect.h": "c",
+        "miniaudio.h": "c"
     }
 }

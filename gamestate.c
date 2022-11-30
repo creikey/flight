@@ -30,16 +30,6 @@ void __flight_assert(bool cond, const char *file, int line, const char *cond_str
   }
 }
 
-static V2 cp_to_v2(cpVect v)
-{
-  return (V2){.x = (float)v.x, .y = (float)v.y};
-}
-
-static cpVect v2_to_cp(V2 v)
-{
-  return cpv(v.x, v.y);
-}
-
 bool is_burning(Entity *missile)
 {
   assert(missile->is_missile);
@@ -212,7 +202,7 @@ V2 entity_vel(GameState *gs, Entity *e)
   if (e->is_player)
     return player_vel(gs, e);
   if (e->body != NULL)
-    return cp_to_v2(cpBodyGetVelocity(e->body));
+    return (cpBodyGetVelocity(e->body));
   if (e->is_explosion)
     return e->explosion_vel;
   assert(false);
@@ -229,29 +219,29 @@ static void on_missile_shape(cpShape *shape, cpContactPointSet *points, void *da
   GameState *gs = entitys_gamestate(launcher);
   assert(other->is_box || other->is_player || other->is_missile);
 
-  V2 to = V2sub(entity_pos(other), entity_pos(launcher));
+  V2 to = cpvsub(entity_pos(other), entity_pos(launcher));
   bool should_attack = true;
   if (other->is_box && box_grid(other) == box_grid(launcher))
     should_attack = false;
   if (other->owning_squad == launcher->owning_squad)
     should_attack = false;
 
-  if (should_attack && V2length(to) < nearest_dist)
+  if (should_attack && cpvlength(to) < nearest_dist)
   {
     target_found = true;
-    nearest_dist = V2length(to);
+    nearest_dist = cpvlength(to);
 
     // lookahead by their velocity
-    V2 rel_velocity = V2sub(entity_vel(gs, other), entity_vel(gs, launcher));
-    double dist = V2dist(entity_pos(other), entity_pos(launcher));
+    V2 rel_velocity = cpvsub(entity_vel(gs, other), entity_vel(gs, launcher));
+    double dist = cpvdist(entity_pos(other), entity_pos(launcher));
 
     double time_of_travel = sqrt((2.0 * dist) / (MISSILE_BURN_FORCE / MISSILE_MASS));
 
-    V2 other_future_pos = V2add(entity_pos(other), V2scale(rel_velocity, time_of_travel));
+    V2 other_future_pos = cpvadd(entity_pos(other), cpvmult(rel_velocity, time_of_travel));
 
-    V2 adjusted_to = V2sub(other_future_pos, entity_pos(launcher));
+    V2 adjusted_to = cpvsub(other_future_pos, entity_pos(launcher));
 
-    to_face = V2angle(adjusted_to);
+    to_face = cpvangle(adjusted_to);
   }
 }
 
@@ -259,7 +249,7 @@ LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
 {
   to_face = 0.0;
   cpBody *tmp = cpBodyNew(0.0, 0.0);
-  cpBodySetPosition(tmp, v2_to_cp(entity_pos(launcher)));
+  cpBodySetPosition(tmp, (entity_pos(launcher)));
   cpShape *circle = cpCircleShapeNew(tmp, MISSILE_RANGE, cpv(0, 0));
 
   nearest_dist = INFINITY;
@@ -389,10 +379,10 @@ V2 player_vel(GameState *gs, Entity *player)
   {
     if (potential_seat != NULL)
     {
-      return cp_to_v2(cpBodyGetVelocity(get_entity(gs, potential_seat->shape_parent_entity)->body));
+      return (cpBodyGetVelocity(get_entity(gs, potential_seat->shape_parent_entity)->body));
     }
   }
-  return cp_to_v2(cpBodyGetVelocity(player->body));
+  return (cpBodyGetVelocity(player->body));
 }
 
 void grid_create(GameState *gs, Entity *e)
@@ -400,6 +390,7 @@ void grid_create(GameState *gs, Entity *e)
   e->is_grid = true;
   create_body(gs, e);
 }
+
 
 void entity_set_rotation(Entity *e, double rot)
 {
@@ -411,7 +402,7 @@ void entity_set_pos(Entity *e, V2 pos)
 {
   assert(e->is_grid);
   assert(e->body != NULL);
-  cpBodySetPosition(e->body, v2_to_cp(pos));
+  cpBodySetPosition(e->body, (pos));
 }
 
 // size is (1/2 the width, 1/2 the height)
@@ -462,7 +453,7 @@ void create_player(Player *player)
 void create_missile(GameState *gs, Entity *e)
 {
   create_body(gs, e);
-  create_rectangle_shape(gs, e, e, (V2){0}, V2scale(MISSILE_COLLIDER_SIZE, 0.5), PLAYER_MASS);
+  create_rectangle_shape(gs, e, e, (V2){0}, cpvmult(MISSILE_COLLIDER_SIZE, 0.5), PLAYER_MASS);
   e->is_missile = true;
 }
 
@@ -471,7 +462,7 @@ void create_player_entity(GameState *gs, Entity *e)
   e->is_player = true;
   e->no_save_to_disk = true;
   create_body(gs, e);
-  create_rectangle_shape(gs, e, e, (V2){0}, V2scale(PLAYER_SIZE, 0.5), PLAYER_MASS);
+  create_rectangle_shape(gs, e, e, (V2){0}, cpvmult(PLAYER_SIZE, 0.5), PLAYER_MASS);
   cpShapeSetFilter(e->shape, PLAYER_SHAPE_FILTER);
 }
 
@@ -508,7 +499,7 @@ V2 box_compass_vector(Entity *box)
 
   assert(box->is_box);
   V2 to_return = (V2){.x = 1.0, .y = 0.0};
-  to_return = V2rotate(to_return, rotangle(box->compass_rotation));
+  to_return = cpvspin(to_return, rotangle(box->compass_rotation));
 
   return to_return;
 }
@@ -593,15 +584,15 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
             // @Robust @Speed faster method, not O(N^2), of getting the box
             // in the direction currently needed
             V2 compass_vect = box_compass_vector(N);
-            if (N->box_type == BoxMerge && N->wants_disconnect && V2equal(compass_vect, dir, 0.01))
+            if (N->box_type == BoxMerge && N->wants_disconnect && cpvnear(compass_vect, dir, 0.01))
             {
             }
             else
             {
-              V2 wanted_local_pos = V2add(cur_local_pos, V2scale(dir, BOX_SIZE));
+              V2 wanted_local_pos = cpvadd(cur_local_pos, cpvmult(dir, BOX_SIZE));
               BOXES_ITER(gs, cur, grid)
               {
-                if (V2equal(entity_shape_pos(cur), wanted_local_pos, 0.01))
+                if (cpvnear(entity_shape_pos(cur), wanted_local_pos, 0.01))
                 {
                   box_in_direction = get_id(gs, cur);
                   break;
@@ -611,7 +602,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 
             Entity *newbox = get_entity(gs, box_in_direction);
 
-            if (newbox != NULL && newbox->box_type == BoxMerge && newbox->wants_disconnect && V2equal(V2scale(box_compass_vector(newbox), -1.0), dir, 0.01))
+            if (newbox != NULL && newbox->box_type == BoxMerge && newbox->wants_disconnect && cpvnear(cpvmult(box_compass_vector(newbox), -1.0), dir, 0.01))
             {
               newbox = NULL;
             }
@@ -667,7 +658,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       cur = next;
     }
 
-    cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(grid_com(new_grid))));
+    cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, (grid_com(new_grid))));
     cpBodySetAngularVelocity(new_grid->body, entity_angular_velocity(grid));
   }
 }
@@ -705,7 +696,7 @@ static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
       for (int i = 0; i < count; i++)
       {
         cpVect collision_point = getPointFunc(arb, i);
-        V2 local_collision_point = cp_to_v2(cpBodyWorldToLocal(missile->body, collision_point));
+        V2 local_collision_point = (cpBodyWorldToLocal(missile->body, collision_point));
         if (local_collision_point.x > MISSILE_COLLIDER_SIZE.x * 0.2)
         {
           missile->damage += MISSILE_DAMAGE_THRESHOLD * 2.0;
@@ -717,7 +708,7 @@ static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
   // if(entity_a->is_missile) {getPointFunc = cpArbiterGetPointA;
   // if(entity_b->is_missile) getPointFunc = cpArbiterGetPointB;
 
-  double damage = V2length(cp_to_v2(cpArbiterTotalImpulse(arb))) * COLLISION_DAMAGE_SCALING;
+  double damage = cpvlength((cpArbiterTotalImpulse(arb))) * COLLISION_DAMAGE_SCALING;
 
   if (entity_a->is_box && entity_a->box_type == BoxExplosive)
     entity_a->damage += 2.0 * EXPLOSION_DAMAGE_THRESHOLD;
@@ -772,21 +763,21 @@ void destroy(GameState *gs)
 // center of mass, not the literal position
 V2 grid_com(Entity *grid)
 {
-  return cp_to_v2(cpBodyLocalToWorld(grid->body, cpBodyGetCenterOfGravity(grid->body)));
+  return (cpBodyLocalToWorld(grid->body, cpBodyGetCenterOfGravity(grid->body)));
 }
 
 V2 grid_vel(Entity *grid)
 {
-  return cp_to_v2(cpBodyGetVelocity(grid->body));
+  return (cpBodyGetVelocity(grid->body));
 }
 V2 grid_world_to_local(Entity *grid, V2 world)
 {
-  return cp_to_v2(cpBodyWorldToLocal(grid->body, v2_to_cp(world)));
+  return (cpBodyWorldToLocal(grid->body, (world)));
 }
 V2 grid_local_to_world(Entity *grid, V2 local)
 {
   assert(grid->is_grid);
-  return cp_to_v2(cpBodyLocalToWorld(grid->body, v2_to_cp(local)));
+  return (cpBodyLocalToWorld(grid->body, (local)));
 }
 // returned snapped position is in world coordinates
 V2 grid_snapped_box_pos(Entity *grid, V2 world)
@@ -799,7 +790,7 @@ V2 grid_snapped_box_pos(Entity *grid, V2 world)
   local.x *= BOX_SIZE;
   local.y *= BOX_SIZE;
 
-  return cp_to_v2(cpBodyLocalToWorld(grid->body, v2_to_cp(local)));
+  return (cpBodyLocalToWorld(grid->body, (local)));
 }
 
 // for boxes does not include box's compass rotation
@@ -826,7 +817,7 @@ Entity *box_grid(Entity *box)
 // in local space
 V2 entity_shape_pos(Entity *box)
 {
-  return cp_to_v2(cpShapeGetCenterOfGravity(box->shape));
+  return (cpShapeGetCenterOfGravity(box->shape));
 }
 double entity_shape_mass(Entity *box)
 {
@@ -842,7 +833,7 @@ V2 entity_pos(Entity *e)
 {
   if (e->is_box)
   {
-    return V2add(entity_pos(box_grid(e)), V2rotate(entity_shape_pos(e), entity_rotation(box_grid(e))));
+    return cpvadd(entity_pos(box_grid(e)), cpvspin(entity_shape_pos(e), entity_rotation(box_grid(e))));
   }
   else if (e->is_explosion)
   {
@@ -855,7 +846,7 @@ V2 entity_pos(Entity *e)
   else
   {
     assert(e->body != NULL);
-    return cp_to_v2(cpBodyGetPosition(e->body));
+    return (cpBodyGetPosition(e->body));
   }
 }
 
@@ -869,16 +860,16 @@ struct BodyData
 
 void populate(cpBody *body, struct BodyData *data)
 {
-  data->pos = cp_to_v2(cpBodyGetPosition(body));
-  data->vel = cp_to_v2(cpBodyGetVelocity(body));
+  data->pos = (cpBodyGetPosition(body));
+  data->vel = (cpBodyGetVelocity(body));
   data->rotation = (float)cpBodyGetAngle(body);
   data->angular_velocity = (float)cpBodyGetAngularVelocity(body);
 }
 
 void update_from(cpBody *body, struct BodyData *data)
 {
-  cpBodySetPosition(body, v2_to_cp(data->pos));
-  cpBodySetVelocity(body, v2_to_cp(data->vel));
+  cpBodySetPosition(body, (data->pos));
+  cpBodySetVelocity(body, (data->vel));
   cpBodySetAngle(body, data->rotation);
   cpBodySetAngularVelocity(body, data->angular_velocity);
 }
@@ -1403,7 +1394,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
           {
             bool this_box_in_range = ser->save_or_load_from_disk;
             this_box_in_range |= ser->for_player == NULL;
-            this_box_in_range |= (ser->for_player != NULL && V2distsqr(entity_pos(ser->for_player), entity_pos(cur_box)) < VISION_RADIUS * VISION_RADIUS); // only in vision radius
+            this_box_in_range |= (ser->for_player != NULL && cpvdistsq(entity_pos(ser->for_player), entity_pos(cur_box)) < VISION_RADIUS * VISION_RADIUS); // only in vision radius
             if (DONT_SEND_BECAUSE_CLOAKED(cur_box))
               this_box_in_range = false;
             if (cur_box->always_visible)
@@ -1687,7 +1678,7 @@ static void closest_point_callback_func(cpShape *shape, cpContactPointSet *point
 
   if (closest_to_point_in_radius_filter_func != NULL && !closest_to_point_in_radius_filter_func(e))
     return;
-  double dist = V2length(cp_to_v2(cpvsub(points->points[0].pointA, points->points[0].pointB)));
+  double dist = cpvlength((cpvsub(points->points[0].pointA, points->points[0].pointB)));
   // double dist = -points->points[0].distance;
   if (dist > closest_to_point_in_radius_result_largest_dist)
   {
@@ -1704,7 +1695,7 @@ Entity *closest_box_to_point_in_radius(struct GameState *gs, V2 point, double ra
   closest_to_point_in_radius_result_largest_dist = 0.0;
   closest_to_point_in_radius_filter_func = filter_func;
   cpBody *tmpbody = cpBodyNew(0.0, 0.0);
-  cpShape *circle = cpCircleShapeNew(tmpbody, radius, v2_to_cp(point));
+  cpShape *circle = cpCircleShapeNew(tmpbody, radius, (point));
   cpSpaceShapeQuery(gs->space, circle, closest_point_callback_func, NULL);
 
   cpShapeFree(circle);
@@ -1738,16 +1729,16 @@ static void explosion_callback_func(cpShape *shape, cpContactPointSet *points, v
   cp_shape_entity(shape)->damage += cur_explosion_damage;
   Entity *parent = get_entity(gs, cp_shape_entity(shape)->shape_parent_entity);
   V2 from_pos = entity_pos(cp_shape_entity(shape));
-  V2 impulse = V2scale(V2normalize(V2sub(from_pos, explosion_origin)), explosion_push_strength);
+  V2 impulse = cpvmult(cpvnormalize(cpvsub(from_pos, explosion_origin)), explosion_push_strength);
   assert(parent->body != NULL);
-  cpBodyApplyImpulseAtWorldPoint(parent->body, v2_to_cp(impulse), v2_to_cp(from_pos));
+  cpBodyApplyImpulseAtWorldPoint(parent->body, (impulse), (from_pos));
 }
 
 static void do_explosion(GameState *gs, Entity *explosion, double dt)
 {
 
   cpBody *tmpbody = cpBodyNew(0.0, 0.0);
-  cpShape *circle = cpCircleShapeNew(tmpbody, explosion->explosion_radius, v2_to_cp(explosion_origin));
+  cpShape *circle = cpCircleShapeNew(tmpbody, explosion->explosion_radius, (explosion_origin));
 
   cur_explosion_damage = dt * EXPLOSION_DAMAGE_PER_SEC;
   explosion_origin = explosion->explosion_pos;
@@ -1764,7 +1755,7 @@ V2 box_facing_vector(Entity *box)
   V2 to_return = (V2){.x = 1.0, .y = 0.0};
 
   to_return = box_compass_vector(box);
-  to_return = V2rotate(to_return, box_rotation(box));
+  to_return = cpvspin(to_return, box_rotation(box));
 
   return to_return;
 }
@@ -1774,10 +1765,10 @@ enum CompassRotation facing_vector_to_compass(Entity *grid_to_transplant_to, Ent
   assert(grid_to_transplant_to->body != NULL);
   assert(grid_to_transplant_to->is_grid);
 
-  V2 local_to_from = grid_world_to_local(grid_facing_vector_from, V2add(entity_pos(grid_facing_vector_from), facing_vector));
+  V2 local_to_from = grid_world_to_local(grid_facing_vector_from, cpvadd(entity_pos(grid_facing_vector_from), facing_vector));
   Log("local %f %f\n", local_to_from.x, local_to_from.y);
 
-  V2 from_target = V2add(entity_pos(grid_to_transplant_to), facing_vector);
+  V2 from_target = cpvadd(entity_pos(grid_to_transplant_to), facing_vector);
   V2 local_target = grid_world_to_local(grid_to_transplant_to, from_target);
   V2 local_facing = local_target;
 
@@ -1791,8 +1782,8 @@ enum CompassRotation facing_vector_to_compass(Entity *grid_to_transplant_to, Ent
   double smallest_dist = INFINITY;
   for (int i = 0; i < ARRLEN(dirs); i++)
   {
-    V2 point = V2rotate((V2){.x = 1.0}, rotangle(dirs[i]));
-    double dist = V2dist(point, local_facing);
+    V2 point = cpvspin((V2){.x = 1.0}, rotangle(dirs[i]));
+    double dist = cpvdist(point, local_facing);
     if (dist < smallest_dist)
     {
       smallest_dist = dist;
@@ -1805,7 +1796,7 @@ enum CompassRotation facing_vector_to_compass(Entity *grid_to_transplant_to, Ent
 
 V2 thruster_force(Entity *box)
 {
-  return V2scale(box_facing_vector(box), -box->thrust * THRUSTER_FORCE);
+  return cpvmult(box_facing_vector(box), -box->thrust * THRUSTER_FORCE);
 }
 
 uint64_t tick(GameState *gs)
@@ -1830,7 +1821,7 @@ V2 potentially_snap_hand_pos(GameState *gs, V2 world_hand_pos)
 
 V2 get_world_hand_pos(GameState *gs, InputFrame *input, Entity *player)
 {
-  return potentially_snap_hand_pos(gs, V2add(entity_pos(player), input->hand_pos));
+  return potentially_snap_hand_pos(gs, cpvadd(entity_pos(player), input->hand_pos));
 }
 
 bool batteries_have_capacity_for(GameState *gs, Entity *grid, double *energy_left_over, double energy_to_use)
@@ -1903,12 +1894,12 @@ V2 sun_gravity_accel_for_entity(Entity *entity_with_gravity, Entity *sun)
   return (V2){0};
 #else
 
-  if (V2length(V2sub(entity_pos(entity_with_gravity), entity_pos(sun))) > sun_dist_no_gravity(sun))
+  if (cpvlength(cpvsub(entity_pos(entity_with_gravity), entity_pos(sun))) > sun_dist_no_gravity(sun))
     return (V2){0};
-  V2 rel_vector = V2sub(entity_pos(entity_with_gravity), entity_pos(sun));
+  V2 rel_vector = cpvsub(entity_pos(entity_with_gravity), entity_pos(sun));
   double mass = entity_mass(entity_with_gravity);
   assert(mass != 0.0);
-  double distance_sqr = V2lengthsqr(rel_vector);
+  double distance_sqr = cpvlengthsq(rel_vector);
   // return (GRAVITY_CONSTANT * (SUN_MASS * mass / (distance * distance))) / mass;
   // the mass divides out
 
@@ -1920,15 +1911,15 @@ V2 sun_gravity_accel_for_entity(Entity *entity_with_gravity, Entity *sun)
     if (distance_sqr <= sun->sun_radius * 0.25)
       accel_magnitude = 0.0;
   }
-  V2 towards_sun = V2normalize(V2scale(rel_vector, -1.0));
-  return V2scale(towards_sun, accel_magnitude);
+  V2 towards_sun = cpvnormalize(cpvmult(rel_vector, -1.0));
+  return cpvmult(towards_sun, accel_magnitude);
 #endif // NO_GRAVITY
 }
 
 void entity_set_velocity(Entity *e, V2 vel)
 {
   if (e->body != NULL)
-    cpBodySetVelocity(e->body, v2_to_cp(vel));
+    cpBodySetVelocity(e->body, (vel));
   else if (e->is_sun)
     e->sun_vel = vel;
   else
@@ -1941,20 +1932,20 @@ void entity_ensure_in_orbit(GameState *gs, Entity *e)
   SUNS_ITER(gs)
   {
     V2 gravity_accel = sun_gravity_accel_for_entity(e, i.sun);
-    if (V2length(gravity_accel) > 0.0)
+    if (cpvlength(gravity_accel) > 0.0)
     {
-      double dist = V2length(V2sub(entity_pos(e), entity_pos(i.sun)));
-      V2 orthogonal_to_gravity = V2normalize(V2rotate(gravity_accel, PI / 2.0));
-      V2 wanted_vel = V2scale(orthogonal_to_gravity, sqrt(V2length(gravity_accel) * dist));
+      double dist = cpvlength(cpvsub(entity_pos(e), entity_pos(i.sun)));
+      V2 orthogonal_to_gravity = cpvnormalize(cpvspin(gravity_accel, PI / 2.0));
+      V2 wanted_vel = cpvmult(orthogonal_to_gravity, sqrt(cpvlength(gravity_accel) * dist));
 
-      total_new_vel = cpvadd(total_new_vel, v2_to_cp(wanted_vel));
+      total_new_vel = cpvadd(total_new_vel, (wanted_vel));
     }
   }
-  entity_set_velocity(e, cp_to_v2(total_new_vel));
+  entity_set_velocity(e, (total_new_vel));
 
-  // cpVect pos = v2_to_cp(V2sub(entity_pos(e), SUN_POS));
+  // cpVect pos = (cpvsub(entity_pos(e), SUN_POS));
   // cpFloat r = cpvlength(pos);
-  // cpFloat v = cpfsqrt(sun_gravity_accel_at_point(cp_to_v2(pos), e) / r) / r;
+  // cpFloat v = cpfsqrt(sun_gravity_accel_at_point((pos), e) / r) / r;
   // cpBodySetVelocity(e->body, cpvmult(cpvperp(pos), v));
 }
 
@@ -1962,7 +1953,7 @@ V2 box_vel(Entity *box)
 {
   assert(box->is_box);
   Entity *grid = box_grid(box);
-  return cp_to_v2(cpBodyGetVelocityAtWorldPoint(grid->body, v2_to_cp(entity_pos(box))));
+  return (cpBodyGetVelocityAtWorldPoint(grid->body, (entity_pos(box))));
 }
 
 void create_bomb_station(GameState *gs, V2 pos, enum BoxType platonic_type)
@@ -2078,7 +2069,7 @@ void create_initial_world(GameState *gs)
 
     Entity *grid = new_entity(gs);
     grid_create(gs, grid);
-    entity_set_pos(grid, V2add(from, V2rotate((V2){.x = -BOX_SIZE * 9.0}, theta)));
+    entity_set_pos(grid, cpvadd(from, cpvspin((V2){.x = -BOX_SIZE * 9.0}, theta)));
     cpBodySetAngle(grid->body, theta + PI);
     rot = Left;
     BOX_AT_TYPE(grid, ((V2){0.0, 0.0}), BoxMerge);
@@ -2098,7 +2089,7 @@ void create_initial_world(GameState *gs)
     BOX_AT_TYPE(grid, ((V2){0.0, 0.0}), BoxMerge);
     rot = Up;
     BOX_AT_TYPE(grid, ((V2){0.0, BOX_SIZE}), BoxMerge);
-    cpBodySetVelocity(grid->body, v2_to_cp(V2rotate((V2){-0.4, 0.0}, theta)));
+    cpBodySetVelocity(grid->body, (cpvspin((V2){-0.4, 0.0}, theta)));
     entity_ensure_in_orbit(gs, grid);
   }
 
@@ -2113,9 +2104,9 @@ void create_initial_world(GameState *gs)
 
 void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
 {
-  V2 pilot_seat_exit_spot = V2add(entity_pos(seat_in), V2scale(box_facing_vector(seat_in), BOX_SIZE));
-  cpBodySetPosition(p->body, v2_to_cp(pilot_seat_exit_spot));
-  // cpBodySetVelocity(p->body, v2_to_cp(player_vel(gs, p)));
+  V2 pilot_seat_exit_spot = cpvadd(entity_pos(seat_in), cpvmult(box_facing_vector(seat_in), BOX_SIZE));
+  cpBodySetPosition(p->body, (pilot_seat_exit_spot));
+  // cpBodySetVelocity(p->body, (player_vel(gs, p)));
   cpBodySetVelocity(p->body, cpBodyGetVelocity(box_grid(seat_in)->body));
 }
 
@@ -2140,17 +2131,17 @@ void process(GameState *gs, double dt)
       Entity *other_sun = i.sun;
       if (other_sun != from_sun)
       {
-        accel = V2add(accel, sun_gravity_accel_for_entity(from_sun, other_sun));
+        accel = cpvadd(accel, sun_gravity_accel_for_entity(from_sun, other_sun));
       }
     }
 #ifndef NO_GRAVITY
-    from_sun->sun_vel = V2add(from_sun->sun_vel, V2scale(accel, dt));
-    from_sun->sun_pos = V2add(from_sun->sun_pos, V2scale(from_sun->sun_vel, dt));
+    from_sun->sun_vel = cpvadd(from_sun->sun_vel, cpvmult(accel, dt));
+    from_sun->sun_pos = cpvadd(from_sun->sun_pos, cpvmult(from_sun->sun_vel, dt));
 
-    if (V2length(from_sun->sun_pos) >= INSTANT_DEATH_DISTANCE_FROM_CENTER)
+    if (cpvlength(from_sun->sun_pos) >= INSTANT_DEATH_DISTANCE_FROM_CENTER)
     {
-      from_sun->sun_vel = V2scale(from_sun->sun_vel, -0.8);
-      from_sun->sun_pos = V2scale(V2normalize(from_sun->sun_pos), INSTANT_DEATH_DISTANCE_FROM_CENTER);
+      from_sun->sun_vel = cpvmult(from_sun->sun_vel, -0.8);
+      from_sun->sun_pos = cpvmult(cpvnormalize(from_sun->sun_pos), INSTANT_DEATH_DISTANCE_FROM_CENTER);
     }
 #endif
   }
@@ -2226,7 +2217,7 @@ void process(GameState *gs, double dt)
     p->damage = 0.0;
 #endif
     // update gold win condition
-    if (V2length(V2sub(cp_to_v2(cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
+    if (cpvlength(cpvsub((cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
     {
       p->goldness += 0.1;
       p->damage = 0.0;
@@ -2241,7 +2232,7 @@ void process(GameState *gs, double dt)
       if (seat_maybe_in == NULL) // not in any seat
       {
         cpPointQueryInfo query_info = {0};
-        cpShape *result = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_hand_pos), 0.1, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
+        cpShape *result = cpSpacePointQueryNearest(gs->space, (world_hand_pos), 0.1, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
         if (result != NULL)
         {
           Entity *potential_seat = cp_shape_entity(result);
@@ -2290,9 +2281,9 @@ void process(GameState *gs, double dt)
       // no cheating by making movement bigger than length 1
       V2 movement_this_tick = (V2){0};
       double rotation_this_tick = 0.0;
-      if (V2length(player->input.movement) > 0.0)
+      if (cpvlength(player->input.movement) > 0.0)
       {
-        movement_this_tick = V2scale(V2normalize(player->input.movement), clamp(V2length(player->input.movement), 0.0, 1.0));
+        movement_this_tick = cpvmult(cpvnormalize(player->input.movement), clamp(cpvlength(player->input.movement), 0.0, 1.0));
         player->input.movement = (V2){0};
       }
       if (fabs(player->input.rotation) > 0.0)
@@ -2318,17 +2309,17 @@ void process(GameState *gs, double dt)
       if (seat_inside_of == NULL)
       {
         cpShapeSetFilter(p->shape, PLAYER_SHAPE_FILTER);
-        cpBodyApplyForceAtWorldPoint(p->body, v2_to_cp(V2scale(movement_this_tick, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
+        cpBodyApplyForceAtWorldPoint(p->body, (cpvmult(movement_this_tick, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
         cpBodySetTorque(p->body, rotation_this_tick * PLAYER_JETPACK_TORQUE);
-        p->damage += V2length(movement_this_tick) * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
+        p->damage += cpvlength(movement_this_tick) * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
         p->damage += fabs(rotation_this_tick) * dt * PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND;
       }
       else
       {
         assert(seat_inside_of->is_box);
         cpShapeSetFilter(p->shape, CP_SHAPE_FILTER_NONE); // no collisions while in a seat
-        cpBodySetPosition(p->body, v2_to_cp(entity_pos(seat_inside_of)));
-        cpBodySetVelocity(p->body, v2_to_cp(box_vel(seat_inside_of)));
+        cpBodySetPosition(p->body, (entity_pos(seat_inside_of)));
+        cpBodySetVelocity(p->body, (box_vel(seat_inside_of)));
 
         // share cloaking with box
         p->time_was_last_cloaked = seat_inside_of->time_was_last_cloaked;
@@ -2340,16 +2331,16 @@ void process(GameState *gs, double dt)
           Entity *g = get_entity(gs, seat_inside_of->shape_parent_entity);
 
           V2 target_direction = {0};
-          if (V2length(movement_this_tick) > 0.0)
+          if (cpvlength(movement_this_tick) > 0.0)
           {
-            target_direction = V2normalize(movement_this_tick);
+            target_direction = cpvnormalize(movement_this_tick);
           }
           BOXES_ITER(gs, cur, g)
           {
             if (cur->box_type == BoxThruster)
             {
 
-              double wanted_thrust = -V2dot(target_direction, box_facing_vector(cur));
+              double wanted_thrust = -cpvdot(target_direction, box_facing_vector(cur));
               wanted_thrust = clamp01(wanted_thrust);
               cur->wanted_thrust = wanted_thrust;
             }
@@ -2372,7 +2363,7 @@ void process(GameState *gs, double dt)
 
       // @Robust sanitize this input so player can't build on any grid in the world
       Entity *target_grid = grid_to_build_on(gs, world_hand_pos);
-      cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, v2_to_cp(world_build), 0.01, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
+      cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, (world_build), 0.01, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
       if (maybe_box_to_destroy != NULL)
       {
         Entity *cur_box = cp_shape_entity(maybe_box_to_destroy);
@@ -2395,7 +2386,7 @@ void process(GameState *gs, double dt)
             Entity *new_grid = new_entity(gs);
             grid_create(gs, new_grid);
             entity_set_pos(new_grid, world_build);
-            cpBodySetVelocity(new_grid->body, v2_to_cp(player_vel(gs, p)));
+            cpBodySetVelocity(new_grid->body, (player_vel(gs, p)));
             target_grid = new_grid;
             created_box_position = (V2){0};
           }
@@ -2435,7 +2426,7 @@ void process(GameState *gs, double dt)
 
     // instant death
     {
-      cpFloat dist_from_center = cpvlengthsq(v2_to_cp(entity_pos(e)));
+      cpFloat dist_from_center = cpvlengthsq((entity_pos(e)));
       if (e->body != NULL && dist_from_center > (INSTANT_DEATH_DISTANCE_FROM_CENTER * INSTANT_DEATH_DISTANCE_FROM_CENTER))
       {
         bool platonic_found = false;
@@ -2469,11 +2460,11 @@ void process(GameState *gs, double dt)
     {
       SUNS_ITER(gs)
       {
-        cpVect pos_rel_sun = v2_to_cp(V2sub(entity_pos(e), (entity_pos(i.sun))));
+        cpVect pos_rel_sun = (cpvsub(entity_pos(e), (entity_pos(i.sun))));
         cpFloat sqdist = cpvlengthsq(pos_rel_sun);
         if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
         {
-          sqdist = cpvlengthsq(cpvsub(v2_to_cp(entity_pos(e)), v2_to_cp(entity_pos(i.sun))));
+          sqdist = cpvlengthsq(cpvsub((entity_pos(e)), (entity_pos(i.sun))));
           if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))
           {
             e->damage += 10.0 * dt;
@@ -2484,8 +2475,8 @@ void process(GameState *gs, double dt)
         {
           V2 accel = sun_gravity_accel_for_entity(e, i.sun);
           V2 new_vel = entity_vel(gs, e);
-          new_vel = V2add(new_vel, V2scale(accel, dt));
-          cpBodySetVelocity(e->body, v2_to_cp(new_vel));
+          new_vel = cpvadd(new_vel, cpvmult(accel, dt));
+          cpBodySetVelocity(e->body, (new_vel));
         }
       }
     }
@@ -2493,7 +2484,7 @@ void process(GameState *gs, double dt)
     if (e->is_explosion)
     {
       e->explosion_progress += dt;
-      e->explosion_pos = V2add(e->explosion_pos, V2scale(e->explosion_vel, dt));
+      e->explosion_pos = cpvadd(e->explosion_pos, cpvmult(e->explosion_vel, dt));
       do_explosion(gs, e, dt);
       if (e->explosion_progress >= EXPLOSION_TIME)
       {
@@ -2506,14 +2497,14 @@ void process(GameState *gs, double dt)
       if (is_burning(e))
       {
         e->time_burned_for += dt;
-        cpBodyApplyForceAtWorldPoint(e->body, v2_to_cp(V2rotate((V2){.x = MISSILE_BURN_FORCE, .y = 0.0}, entity_rotation(e))), v2_to_cp(entity_pos(e)));
+        cpBodyApplyForceAtWorldPoint(e->body, (cpvspin((V2){.x = MISSILE_BURN_FORCE, .y = 0.0}, entity_rotation(e))), (entity_pos(e)));
       }
       if (e->damage >= MISSILE_DAMAGE_THRESHOLD && e->time_burned_for >= MISSILE_ARM_TIME)
       {
         Entity *explosion = new_entity(gs);
         explosion->is_explosion = true;
         explosion->explosion_pos = entity_pos(e);
-        explosion->explosion_vel = cp_to_v2(cpBodyGetVelocity(e->body));
+        explosion->explosion_vel = (cpBodyGetVelocity(e->body));
         explosion->explosion_push_strength = MISSILE_EXPLOSION_PUSH;
         explosion->explosion_radius = MISSILE_EXPLOSION_RADIUS;
         entity_destroy(gs, e);
@@ -2557,29 +2548,29 @@ void process(GameState *gs, double dt)
           Entity *other_grid = box_grid(other_merge);
 
           // the merges are near eachother, but are they facing eachother...
-          bool from_facing_other = V2dot(box_facing_vector(from_merge), V2normalize(V2sub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8;
-          bool other_facing_from = V2dot(box_facing_vector(other_merge), V2normalize(V2sub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8;
+          bool from_facing_other = cpvdot(box_facing_vector(from_merge), cpvnormalize(cpvsub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8;
+          bool other_facing_from = cpvdot(box_facing_vector(other_merge), cpvnormalize(cpvsub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8;
 
           // using this stuff to detect if when the other grid's boxes are snapped, they'll be snapped
           // to be next to the from merge box
           V2 actual_new_pos = grid_snapped_box_pos(from_grid, entity_pos(other_merge));
-          V2 needed_new_pos = V2add(entity_pos(from_merge), V2scale(box_facing_vector(from_merge), BOX_SIZE));
-          if (from_facing_other && other_facing_from && V2equal(needed_new_pos, actual_new_pos, 0.01))
+          V2 needed_new_pos = cpvadd(entity_pos(from_merge), cpvmult(box_facing_vector(from_merge), BOX_SIZE));
+          if (from_facing_other && other_facing_from && cpvnear(needed_new_pos, actual_new_pos, 0.01))
           {
             // do the merge
-            V2 facing_vector_needed = V2scale(box_facing_vector(from_merge), -1.0);
+            V2 facing_vector_needed = cpvmult(box_facing_vector(from_merge), -1.0);
             V2 current_facing_vector = box_facing_vector(other_merge);
-            double angle_diff = V2anglediff(current_facing_vector, facing_vector_needed);
+            double angle_diff = cpvanglediff(current_facing_vector, facing_vector_needed);
             if (angle_diff == FLT_MIN)
               angle_diff = 0.0;
             assert(!isnan(angle_diff));
 
             cpBodySetAngle(other_grid->body, cpBodyGetAngle(other_grid->body) + angle_diff);
 
-            V2 moved_because_angle_change = V2sub(needed_new_pos, entity_pos(other_merge));
-            cpBodySetPosition(other_grid->body, v2_to_cp(V2add(entity_pos(other_grid), moved_because_angle_change)));
+            V2 moved_because_angle_change = cpvsub(needed_new_pos, entity_pos(other_merge));
+            cpBodySetPosition(other_grid->body, (cpvadd(entity_pos(other_grid), moved_because_angle_change)));
 
-            // V2 snap_movement_vect = V2sub(actual_new_pos, entity_pos(other_merge));
+            // V2 snap_movement_vect = cpvsub(actual_new_pos, entity_pos(other_merge));
             V2 snap_movement_vect = (V2){0};
 
             Entity *cur = get_entity(gs, other_grid->boxes);
@@ -2591,7 +2582,7 @@ void process(GameState *gs, double dt)
               V2 world = entity_pos(cur);
               enum CompassRotation new_rotation = facing_vector_to_compass(from_grid, other_grid, box_facing_vector(cur));
               cur->compass_rotation = new_rotation;
-              V2 new_cur_pos = grid_snapped_box_pos(from_grid, V2add(snap_movement_vect, world));
+              V2 new_cur_pos = grid_snapped_box_pos(from_grid, cpvadd(snap_movement_vect, world));
               box_create(gs, cur, from_grid, grid_world_to_local(from_grid, new_cur_pos)); // destroys next/prev fields on cur
               assert(box_grid(cur) == box_grid(from_merge));
               cur = next;
@@ -2617,10 +2608,10 @@ void process(GameState *gs, double dt)
           cur_box->sun_amount = 0.0;
           SUNS_ITER(gs)
           {
-            double new_sun = clamp01(fabs(V2dot(box_facing_vector(cur_box), V2normalize(V2sub(entity_pos(i.sun), entity_pos(cur_box))))));
+            double new_sun = clamp01(fabs(cpvdot(box_facing_vector(cur_box), cpvnormalize(cpvsub(entity_pos(i.sun), entity_pos(cur_box))))));
 
             // less sun the farther away you are!
-            new_sun *= lerp(1.0, 0.0, clamp01(V2length(V2sub(entity_pos(cur_box), entity_pos(i.sun))) / sun_dist_no_gravity(i.sun)));
+            new_sun *= lerp(1.0, 0.0, clamp01(cpvlength(cpvsub(entity_pos(cur_box), entity_pos(i.sun))) / sun_dist_no_gravity(i.sun)));
             cur_box->sun_amount += new_sun;
           }
           energy_to_add += cur_box->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
@@ -2657,7 +2648,7 @@ void process(GameState *gs, double dt)
             double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
             cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
             if (cur_box->thrust >= 0.0)
-              cpBodyApplyForceAtWorldPoint(grid->body, v2_to_cp(thruster_force(cur_box)), v2_to_cp(entity_pos(cur_box)));
+              cpBodyApplyForceAtWorldPoint(grid->body, (thruster_force(cur_box)), (entity_pos(cur_box)));
           }
         }
         if (cur_box->box_type == BoxGyroscope)
@@ -2696,7 +2687,7 @@ void process(GameState *gs, double dt)
           {
             cur_box->cloaking_power = lerp(cur_box->cloaking_power, 1.0, dt * 3.0);
             cpBody *tmp = cpBodyNew(0.0, 0.0);
-            cpBodySetPosition(tmp, v2_to_cp(entity_pos(cur_box)));
+            cpBodySetPosition(tmp, (entity_pos(cur_box)));
             cpBodySetAngle(tmp, entity_rotation(cur_box));
             // subtract a little from the panel size so that boxes just at the boundary of the panel
             // aren't (sometimes cloaked)/(sometimes not) from floating point imprecision
@@ -2724,9 +2715,9 @@ void process(GameState *gs, double dt)
             create_missile(gs, new_missile);
             new_missile->owning_squad = cur_box->owning_squad; // missiles have teams and attack eachother!
             double missile_spawn_dist = sqrt((BOX_SIZE / 2.0) * (BOX_SIZE / 2.0) * 2.0) + MISSILE_COLLIDER_SIZE.x / 2.0 + 0.1;
-            cpBodySetPosition(new_missile->body, v2_to_cp(V2add(entity_pos(cur_box), V2rotate((V2){.x = missile_spawn_dist, 0.0}, target.facing_angle))));
+            cpBodySetPosition(new_missile->body, (cpvadd(entity_pos(cur_box), cpvspin((V2){.x = missile_spawn_dist, 0.0}, target.facing_angle))));
             cpBodySetAngle(new_missile->body, target.facing_angle);
-            cpBodySetVelocity(new_missile->body, v2_to_cp(box_vel(cur_box)));
+            cpBodySetVelocity(new_missile->body, (box_vel(cur_box)));
           }
         }
         if (cur_box->box_type == BoxScanner)
@@ -2748,9 +2739,9 @@ void process(GameState *gs, double dt)
               for (int i = 0; i < MAX_BOX_TYPES; i++)
               {
                 V2 cur_pos = gs->platonic_positions[i];
-                if (V2length(cur_pos) > 0.0) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
+                if (cpvlength(cur_pos) > 0.0) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
                 {
-                  double length_to_cur = V2dist(from_pos, cur_pos);
+                  double length_to_cur = cpvdist(from_pos, cur_pos);
                   if (length_to_cur < nearest_dist)
                   {
                     nearest_dist = length_to_cur;
@@ -2760,7 +2751,7 @@ void process(GameState *gs, double dt)
               }
               if (nearest_dist < INFINITY)
               {
-                cur_box->platonic_nearest_direction = V2normalize(V2sub(nearest, from_pos));
+                cur_box->platonic_nearest_direction = cpvnormalize(cpvsub(nearest, from_pos));
                 cur_box->platonic_detection_strength = fmax(0.1, 1.0 - fmin(1.0, nearest_dist / 100.0));
               }
               else

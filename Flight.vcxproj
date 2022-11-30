@@ -144,6 +144,7 @@
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)\thirdparty\enet\include;$(ProjectDir)\thirdparty\Chipmunk2D\include\chipmunk;$(ProjectDir)\thirdparty;$(ProjectDir)\thirdparty\Chipmunk2D\include;$(ProjectDir)\thirdparty\minilzo;$(ProjectDir)\thirdparty\opus\include</AdditionalIncludeDirectories>
       <TreatWarningAsError>true</TreatWarningAsError>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

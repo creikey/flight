@@ -48,7 +48,7 @@ void dbg_drawall()
         case rect:
         {
             V2 center = commands[i].center;
-            V2 upper_left = V2add(center, (V2){.x = -size / 2.0, .y = -size / 2.0});
+            V2 upper_left = cpvadd(center, (V2){.x = -size / 2.0, .y = -size / 2.0});
             sgp_draw_filled_rect((float)upper_left.x, (float)upper_left.y, (float)size, (float)size);
             break;
         }

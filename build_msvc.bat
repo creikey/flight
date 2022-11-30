@@ -3,10 +3,11 @@
 @REM what all the compile flags mean: https://learn.microsoft.com/en-us/cpp/build/reference/compiler-options-listed-by-category?view=msvc-170
 
 
-set OPUSLIB=%~dp0\thirdparty\opus\win32\VS2015\x64\Release\opus.lib
+set OPUSLIB=%~dp0thirdparty\opus\win32\VS2015\x64\Release\opus.lib
 
-WHERE %OPUSLIB%
-IF %ERRORLEVEL% NEQ 0 ECHO ERROR Couldn't find %OPUSLIB% compile opus by opening the visual studio project in win32\VS2015 and building the release setting
+if not exist %OPUSLIB% (
+  ECHO ERROR Couldn't find %OPUSLIB% compile opus by opening the visual studio project in win32\VS2015 and building the release setting
+)
 
 setlocal enabledelayedexpansion enableextensions
 pushd thirdparty\Chipmunk2D\src

@@ -100,11 +100,13 @@
 #include "ipsettings.h" // don't leak IP!
 
 #include "miniaudio.h" // @Robust BAD. using miniaudio mutex construct for server thread synchronization. AWFUL!
+#include "cpVect.h" // offers vector functions and types for the structs
 
 // @Robust remove this include somehow, needed for sqrt and cos
 #include <math.h>
 #include <stdint.h> // tick is unsigned integer
 #include <stdio.h>  // logging on errors for functions
+
 
 // defined in gamestate.c. Janky
 #ifndef assert
@@ -112,15 +114,11 @@
 #endif
 
 // including headers from headers bad
+
 #ifndef CHIPMUNK_H
 typedef void cpSpace;
 typedef void cpBody;
 typedef void cpShape;
-typedef struct cpVect
-{
-  double x, y;
-} cpVect;
-
 #endif
 
 #include "queue.h"
@@ -492,7 +490,7 @@ typedef struct AABB
   double x, y, width, height;
 } AABB;
 
-static AABB centered_at(V2 point, V2 size)
+static inline AABB centered_at(V2 point, V2 size)
 {
   return (AABB){
       .x = point.x - size.x / 2.0f,
@@ -502,59 +500,19 @@ static AABB centered_at(V2 point, V2 size)
   };
 }
 
-static bool has_point(AABB aabb, V2 point)
+static inline bool has_point(AABB aabb, V2 point)
 {
   return point.x > aabb.x && point.x < aabb.x + aabb.width && point.y > aabb.y && point.y < aabb.y + aabb.height;
 }
 
-static V2 V2add(V2 a, V2 b)
+static inline double cpvprojectval(V2 vec, V2 onto)
 {
-  return (V2){
-      .x = a.x + b.x,
-      .y = a.y + b.y,
-  };
+  double length_onto = cpvlength(onto);
+  return cpvdot(vec, onto) / (length_onto * length_onto);
 }
 
-static V2 V2scale(V2 a, double f)
-{
-  return (V2){
-      .x = a.x * f,
-      .y = a.y * f,
-  };
-}
-
-static double V2lengthsqr(V2 v)
-{
-  return v.x * v.x + v.y * v.y;
-}
-
-static double V2length(V2 v)
-{
-  return sqrt(V2lengthsqr(v));
-}
-
-static V2 V2normalize(V2 v)
-{
-  return V2scale(v, 1.0f / V2length(v));
-}
-
-static double V2dot(V2 a, V2 b)
-{
-  return a.x * b.x + a.y * b.y;
-}
-
-static double V2projectvalue(V2 vec, V2 onto)
-{
-  double length_onto = V2length(onto);
-  return V2dot(vec, onto) / (length_onto * length_onto);
-}
-
-static V2 V2project(V2 vec, V2 onto)
-{
-  return V2scale(onto, V2projectvalue(vec, onto));
-}
-
-static V2 V2rotate(V2 vec, double theta)
+// spins around by theta
+static inline V2 cpvspin(V2 vec, double theta)
 {
   return (V2){
       .x = vec.x * cos(theta) - vec.y * sin(theta),
@@ -563,17 +521,9 @@ static V2 V2rotate(V2 vec, double theta)
 }
 
 // also known as atan2
-static double V2angle(V2 vec)
+static inline double cpvangle(V2 vec)
 {
   return atan2(vec.y, vec.x);
-}
-
-static V2 V2sub(V2 a, V2 b)
-{
-  return (V2){
-      .x = a.x - b.x,
-      .y = a.y - b.y,
-  };
 }
 
 static double sign(double f)
@@ -584,24 +534,9 @@ static double sign(double f)
     return -1.0f;
 }
 
-static bool V2equal(V2 a, V2 b, double eps)
-{
-  return V2length(V2sub(a, b)) < eps;
-}
-
 static inline double clamp01(double f)
 {
   return fmax(0.0f, fmin(f, 1.0f));
-}
-
-static double V2distsqr(V2 from, V2 to)
-{
-  return V2lengthsqr(V2sub(to, from));
-}
-
-static double V2dist(V2 from, V2 to)
-{
-  return sqrt(V2distsqr(from, to));
 }
 
 static inline double clamp(double f, double minimum, double maximum)
@@ -613,92 +548,51 @@ static inline double clamp(double f, double minimum, double maximum)
   return f;
 }
 
-static double V2anglediff(V2 a, V2 b)
+static inline double cpvanglediff(V2 a, V2 b)
 {
-  double acos_input = V2dot(a, b) / (V2length(a) * V2length(b));
+  double acos_input = cpvdot(a, b) / (cpvlength(a) * cpvlength(b));
   acos_input = clamp(acos_input, -1.0f, 1.0f);
   assert(acos_input >= -1.0f && acos_input <= 1.0f);
-  return acos(acos_input) * sign(V2dot(a, b));
+  return acos(acos_input) * sign(cpvdot(a, b));
 }
 
-static double fract(double f)
+static inline double fract(double f)
 {
   return f - floor(f);
 }
 
-static double lerp(double a, double b, double f)
+static inline double lerp(double a, double b, double f)
 {
   return a * (1.0f - f) + (b * f);
 }
 
-static double lerp_angle(double p_from, double p_to, double p_weight)
+static inline double lerp_angle(double p_from, double p_to, double p_weight)
 {
   double difference = fmod(p_to - p_from, (float)TAU);
   double distance = fmod(2.0f * difference, (float)TAU) - difference;
   return p_from + distance * p_weight;
 }
 
-static V2 V2floor(V2 p)
+static inline V2 cpvfloor(V2 p)
 {
   return (V2){floor(p.x), floor(p.y)};
 }
 
-static V2 V2fract(V2 p)
+static inline V2 cpvfract(V2 p)
 {
   return (V2){fract(p.x), fract(p.y)};
 }
-/*
-double noise(V2 p)
-{
-        V2 id = V2floor(p);
-        V2 f = V2fract(p);
-
-        V2 u = V2dot(f, f) * (3.0f - 2.0f * f);
-
-        return mix(mix(random(id + V2(0.0, 0.0)),
-                random(id + V2(1.0, 0.0)), u.x),
-                mix(random(id + V2(0.0, 1.0)),
-                        random(id + V2(1.0, 1.0)), u.x),
-                u.y);
-}
-
-double fbm(V2 p)
-{
-        double f = 0.0;
-        double gat = 0.0;
-
-        for (double octave = 0.; octave < 5.; ++octave)
-        {
-                double la = pow(2.0, octave);
-                double ga = pow(0.5, octave + 1.);
-                f += ga * noise(la * p);
-                gat += ga;
-        }
-
-        f = f / gat;
-
-        return f;
-}
-*/
-
-static V2 V2lerp(V2 a, V2 b, double factor)
-{
-  V2 to_return = {0};
-  to_return.x = lerp(a.x, b.x, factor);
-  to_return.y = lerp(a.y, b.y, factor);
-
-  return to_return;
-}
 
 // for random generation
-static double hash11(double p)
+static inline double hash11(double p)
 {
   p = fract(p * .1031f);
   p *= p + 33.33f;
   p *= p + p;
   return fract(p);
 }
-static double deg2rad(double deg)
+
+static inline double deg2rad(double deg)
 {
   return (deg / 360.0f) * 2.0f * PI;
 }
