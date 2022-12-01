@@ -58,6 +58,7 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
+    <EnableASAN>false</EnableASAN>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug No Host|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -140,7 +141,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);DEBUG_RENDERING</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);DEBUG_RENDERING;SERVER_ADDRESS="127.0.0.1"</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)\thirdparty\enet\include;$(ProjectDir)\thirdparty\Chipmunk2D\include\chipmunk;$(ProjectDir)\thirdparty;$(ProjectDir)\thirdparty\Chipmunk2D\include;$(ProjectDir)\thirdparty\minilzo;$(ProjectDir)\thirdparty\opus\include</AdditionalIncludeDirectories>
       <TreatWarningAsError>true</TreatWarningAsError>

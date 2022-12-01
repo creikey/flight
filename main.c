@@ -32,6 +32,9 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
+#include "ipsettings.h"
+#include "profiling.h"
+
 // shaders
 #include "goodpixel.gen.h"
 #include "hueshift.gen.h"
@@ -663,6 +666,7 @@ static void init(void)
         ENetEvent event;
 
         enet_address_set_host(&address, SERVER_ADDRESS);
+        Log("Connecting to %s:%d\n", SERVER_ADDRESS, SERVER_PORT);
         address.port = SERVER_PORT;
         peer = enet_host_connect(client, &address, 2, 0);
         if (peer == NULL)
@@ -1386,739 +1390,760 @@ static cpVect get_global_hand_pos(cpVect world_mouse_pos, bool *hand_at_arms_len
 }
 static void frame(void)
 {
-  double width = (float)sapp_width(), height = (float)sapp_height();
-  double ratio = width / height;
-  double time = sapp_frame_count() * sapp_frame_duration();
-  double dt = (float)sapp_frame_duration();
-
-  // pressed input management
+  PROFILE_SCOPE("frame")
   {
-    for (int i = 0; i < MAX_KEYDOWN; i++)
+    double width = (float)sapp_width(), height = (float)sapp_height();
+    double ratio = width / height;
+    double exec_time = sapp_frame_count() * sapp_frame_duration();
+    double dt = (float)sapp_frame_duration();
+
+    // pressed input management
     {
-      if (keypressed[i].frame < sapp_frame_count())
+      for (int i = 0; i < MAX_KEYDOWN; i++)
       {
-        keypressed[i].pressed = false;
+        if (keypressed[i].frame < sapp_frame_count())
+        {
+          keypressed[i].pressed = false;
+        }
+      }
+      for (int i = 0; i < MAX_MOUSEBUTTON; i++)
+      {
+        if (mousepressed[i].frame < sapp_frame_count())
+        {
+          mousepressed[i].pressed = false;
+        }
       }
     }
-    for (int i = 0; i < MAX_MOUSEBUTTON; i++)
+
+    build_pressed = mousepressed[SAPP_MOUSEBUTTON_LEFT].pressed;
+    interact_pressed = mousepressed[SAPP_MOUSEBUTTON_RIGHT].pressed;
+
+    // networking
+    static cpVect before_reprediction = {0};
+    PROFILE_SCOPE("networking")
     {
-      if (mousepressed[i].frame < sapp_frame_count())
+      ENetEvent event;
+      while (true)
       {
-        mousepressed[i].pressed = false;
-      }
-    }
-  }
-
-  build_pressed = mousepressed[SAPP_MOUSEBUTTON_LEFT].pressed;
-  interact_pressed = mousepressed[SAPP_MOUSEBUTTON_RIGHT].pressed;
-
-  // networking
-  {
-    ENetEvent event;
-    while (true)
-    {
-      int enet_status = enet_host_service(client, &event, 0);
-      if (enet_status > 0)
-      {
-        switch (event.type)
+        int enet_status = enet_host_service(client, &event, 0);
+        if (enet_status > 0)
         {
-        case ENET_EVENT_TYPE_NONE:
-        {
-          Log("Wtf none event type?\n");
-          break;
-        }
-        case ENET_EVENT_TYPE_CONNECT:
-        {
-          Log("New client from host %x\n", event.peer->address.host);
-          break;
-        }
-
-        case ENET_EVENT_TYPE_RECEIVE:
-        {
-          unsigned char *decompressed = malloc(
-              sizeof *decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
-          size_t decompressed_max_len = MAX_SERVER_TO_CLIENT;
-          assert(LZO1X_MEM_DECOMPRESS == 0);
-
-          ma_mutex_lock(&play_packets_mutex);
-          double predicted_to_time = gs.time;
-          ServerToClient msg = (ServerToClient){
-              .cur_gs = &gs,
-              .audio_playback_buffer = &packets_to_play,
-          };
-          int return_value = lzo1x_decompress_safe(
-              event.packet->data, event.packet->dataLength, decompressed,
-              &decompressed_max_len, NULL);
-          if (return_value == LZO_E_OK)
+          switch (event.type)
           {
-            server_to_client_deserialize(&msg, decompressed,
-                                         decompressed_max_len, false);
-            my_player_index = msg.your_player;
+          case ENET_EVENT_TYPE_NONE:
+          {
+            Log("Wtf none event type?\n");
+            break;
           }
-          else
+          case ENET_EVENT_TYPE_CONNECT:
           {
-            Log("Couldn't decompress gamestate packet, error code %d from "
-                "lzo\n",
-                return_value);
-          }
-          ma_mutex_unlock(&play_packets_mutex);
-          free(decompressed);
-          enet_packet_destroy(event.packet);
-
-          double server_current_time = gs.time;
-          double difference = predicted_to_time - server_current_time;
-          double target_prediction_time =
-              (((double)peer->roundTripTime) / 1000.0) + TIMESTEP * 6.0;
-
-          // keeps it stable even though causes jumps occasionally
-          difference = fmax(difference, target_prediction_time);
-
-          double eps = TIMESTEP * 0.1;
-          if (predicted_to_time - gs.time < target_prediction_time - eps)
-          {
-            target_prediction_time_factor = 1.1;
-          }
-          else if (predicted_to_time - gs.time >
-                   target_prediction_time + eps * 2.0)
-          {
-            target_prediction_time_factor = 0.9;
-          }
-          else
-          {
-            target_prediction_time_factor = 1.0;
+            Log("New client from host %x\n", event.peer->address.host);
+            break;
           }
 
-          // re-predict the inputs
-          double time_to_repredict = (float)difference;
-          uint64_t start_prediction_time = stm_now();
-          if (time_to_repredict > 0.0)
+          case ENET_EVENT_TYPE_RECEIVE:
           {
-            while (time_to_repredict > TIMESTEP)
+            unsigned char *decompressed = malloc(
+                sizeof *decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
+            size_t decompressed_max_len = MAX_SERVER_TO_CLIENT;
+            assert(LZO1X_MEM_DECOMPRESS == 0);
+
+            ma_mutex_lock(&play_packets_mutex);
+            double predicted_to_time = time(&gs);
+            ServerToClient msg = (ServerToClient){
+                .cur_gs = &gs,
+                .audio_playback_buffer = &packets_to_play,
+            };
+            int return_value = lzo1x_decompress_safe(
+                event.packet->data, event.packet->dataLength, decompressed,
+                &decompressed_max_len, NULL);
+            if (return_value == LZO_E_OK)
             {
-              if (stm_ms(stm_diff(stm_now(), start_prediction_time)) > MAX_MS_SPENT_REPREDICTING)
+              if (myentity() != NULL)
+                before_reprediction = entity_pos(myentity());
+              PROFILE_SCOPE("Deserializing data")
               {
-                Log("Reprediction took longer than %f milliseconds", MAX_MS_SPENT_REPREDICTING);
+                server_to_client_deserialize(&msg, decompressed,
+                                             decompressed_max_len, false);
               }
-              QUEUE_ITER(&input_queue, cur_header)
-              {
-                InputFrame *cur = (InputFrame *)cur_header->data;
-                if (cur->tick == tick(&gs))
-                {
-                  myplayer()->input = *cur;
-                  break;
-                }
-              }
-              process(&gs, TIMESTEP);
-              time_to_repredict -= TIMESTEP;
+              my_player_index = msg.your_player;
             }
-            process(&gs, time_to_repredict);
-            time_to_repredict = 0.0;
+            else
+            {
+              Log("Couldn't decompress gamestate packet, error code %d from "
+                  "lzo\n",
+                  return_value);
+            }
+            ma_mutex_unlock(&play_packets_mutex);
+            free(decompressed);
+            enet_packet_destroy(event.packet);
+
+            PROFILE_SCOPE("Repredicting inputs")
+            {
+
+              double server_current_time = time(&gs);
+              double difference = predicted_to_time - server_current_time;
+              double target_prediction_time =
+                  (((double)peer->roundTripTime) / 1000.0) + TIMESTEP * 6.0;
+
+              // keeps it stable even though causes jumps occasionally
+              difference = fmax(difference, target_prediction_time);
+
+              double eps = TIMESTEP * 0.1;
+              if (predicted_to_time - time(&gs) < target_prediction_time - eps)
+              {
+                target_prediction_time_factor = 1.1;
+              }
+              else if (predicted_to_time - time(&gs) >
+                       target_prediction_time + eps * 2.0)
+              {
+                target_prediction_time_factor = 0.9;
+              }
+              else
+              {
+                target_prediction_time_factor = 1.0;
+              }
+
+              // re-predict the inputs
+              double time_to_repredict = (float)difference;
+              Log("Repredicting %f\n", time_to_repredict);
+
+              uint64_t start_prediction_time = stm_now();
+              if (time_to_repredict > 0.0)
+              {
+                while (time_to_repredict > TIMESTEP)
+                {
+                  if (stm_ms(stm_diff(stm_now(), start_prediction_time)) > MAX_MS_SPENT_REPREDICTING)
+                  {
+                    Log("Reprediction took longer than %f milliseconds, could only predict %f\n", MAX_MS_SPENT_REPREDICTING, time_to_repredict);
+                    break;
+                  }
+                  QUEUE_ITER(&input_queue, cur_header)
+                  {
+                    InputFrame *cur = (InputFrame *)cur_header->data;
+                    if (cur->tick == tick(&gs))
+                    {
+                      myplayer()->input = *cur;
+                      break;
+                    }
+                  }
+                  process(&gs, TIMESTEP, false);
+                  time_to_repredict -= TIMESTEP;
+                }
+                process(&gs, time_to_repredict, true);
+                time_to_repredict = 0.0;
+              }
+
+              current_time_ahead_of_server = time(&gs) - server_current_time;
+            }
+            break;
           }
 
-          current_time_ahead_of_server = gs.time - server_current_time;
+          case ENET_EVENT_TYPE_DISCONNECT:
+          {
+            fprintf(stderr, "Disconnected from server\n");
+            exit(-1);
+            break;
+          }
+          }
+        }
+        else if (enet_status == 0)
+        {
           break;
         }
-
-        case ENET_EVENT_TYPE_DISCONNECT:
+        else if (enet_status < 0)
         {
-          fprintf(stderr, "Disconnected from server\n");
-          exit(-1);
+          fprintf(stderr, "Error receiving enet events: %d\n", enet_status);
           break;
         }
-        }
-      }
-      else if (enet_status == 0)
-      {
-        break;
-      }
-      else if (enet_status < 0)
-      {
-        fprintf(stderr, "Error receiving enet events: %d\n", enet_status);
-        break;
       }
     }
-  }
 
-  // gameplay
-  ui(false, dt, width, height); // if ui button is pressed before game logic, set the pressed to
-  // false so it doesn't propagate from the UI modal/button
-  cpVect build_target_pos = {0};
-  double build_target_rotation = 0.0;
-  struct BuildPreviewInfo
-  {
-    cpVect grid_pos;
-    double grid_rotation;
-  } build_preview = {0};
-  cpVect global_hand_pos = {0}; // world coords! world star!
-  bool hand_at_arms_length = false;
-  recalculate_camera_pos();
-  cpVect world_mouse_pos = screen_to_world(width, height, mouse_pos);
-  {
-    // interpolate zoom
-    zoom = lerp(zoom, zoom_target, dt * 12.0);
+    // dbg_rect(before_reprediction);
 
-    // calculate build preview stuff
-    cpVect local_hand_pos = {0};
-    global_hand_pos =
-        get_global_hand_pos(world_mouse_pos, &hand_at_arms_length);
-
-    if (myentity() != NULL)
+    // gameplay
+    ui(false, dt, width, height); // if ui button is pressed before game logic, set the pressed to
+    // false so it doesn't propagate from the UI modal/button
+    cpVect build_target_pos = {0};
+    double build_target_rotation = 0.0;
+    struct BuildPreviewInfo
     {
-      local_hand_pos = cpvsub(global_hand_pos, entity_pos(myentity()));
-    }
-
-    // process player interaction (squad invites)
-    if (interact_pressed && myplayer() != NULL && myplayer()->squad != SquadNone)
-      ENTITIES_ITER(cur)
-      {
-        if (cur != myentity() && cur->is_player &&
-            has_point(centered_at(entity_pos(cur), cpvmult(PLAYER_SIZE, player_scaling)), world_mouse_pos))
-        {
-          maybe_inviting_this_player = get_id(&gs, cur);
-          interact_pressed = false;
-        }
-      }
-
-    // Create and send input packet, and predict a frame of gamestate
-    static InputFrame cur_input_frame = {
-        0}; // keep across frames for high refresh rate screens
-    static size_t last_input_committed_tick = 0;
-    {
-      // prepare the current input frame, such that when processed next,
-      // every button/action the player has pressed will be handled
-      // without frustration by the server. Resulting in authoritative game
-      // state that looks and feels good.
-
-      cpVect input = (cpVect){
-          .x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
-          .y = (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S],
-      };
-      if (cpvlength(input) > 0.0)
-        input = cpvnormalize(input);
-      cur_input_frame.movement = input;
-      cur_input_frame.rotation = (float)keydown[SAPP_KEYCODE_E] - (float)keydown[SAPP_KEYCODE_Q];
-
-      if (interact_pressed)
-        cur_input_frame.seat_action = interact_pressed;
-
-      cur_input_frame.hand_pos = local_hand_pos;
-      if (take_over_squad >= 0)
-      {
-        cur_input_frame.take_over_squad = take_over_squad;
-        take_over_squad = -1;
-      }
-      if (confirm_invite_this_player)
-      {
-        cur_input_frame.invite_this_player = maybe_inviting_this_player;
-        maybe_inviting_this_player = (EntityID){0};
-        confirm_invite_this_player = false;
-      }
-      if (accept_invite)
-      {
-        cur_input_frame.accept_cur_squad_invite = true;
-        accept_invite = false;
-      }
-      if (reject_invite)
-      {
-        cur_input_frame.reject_cur_squad_invite = true;
-        reject_invite = false;
-      }
-
-      if (build_pressed && currently_building() != BoxInvalid)
-      {
-        cur_input_frame.dobuild = build_pressed;
-        cur_input_frame.build_type = currently_building();
-        cur_input_frame.build_rotation = cur_editing_rotation;
-      }
-
-      // "commit" the input. each input must be on a successive tick.
-      if (tick(&gs) > last_input_committed_tick)
-      {
-        cur_input_frame.tick = tick(&gs);
-        last_input_committed_tick = tick(&gs);
-
-        InputFrame *to_push_to = queue_push_element(&input_queue);
-        if (to_push_to == NULL)
-        {
-          InputFrame *to_discard = queue_pop_element(&input_queue);
-          (void)to_discard;
-          to_push_to = queue_push_element(&input_queue);
-          assert(to_push_to != NULL);
-        }
-
-        *to_push_to = cur_input_frame;
-
-        if (myplayer() != NULL)
-          myplayer()->input =
-              cur_input_frame; // for the client side prediction!
-
-        cur_input_frame = (InputFrame){0};
-        cur_input_frame.take_over_squad =
-            -1; // @Robust make this zero initialized
-      }
-
-      // in client side prediction, only process the latest in the queue, not
-      // the one currently constructing.
-      static double prediction_time_factor = 1.0;
-      prediction_time_factor = lerp(prediction_time_factor,
-                                    target_prediction_time_factor, dt * 3.0);
-      process(&gs, dt * prediction_time_factor);
-
-      static int64_t last_sent_input_time = 0;
-      if (stm_sec(stm_diff(stm_now(), last_sent_input_time)) >
-          TIME_BETWEEN_INPUT_PACKETS)
-      {
-        ma_mutex_lock(&send_packets_mutex);
-        ClientToServer to_send = {
-            .mic_data = &packets_to_send,
-            .input_data = &input_queue,
-        };
-        unsigned char serialized[MAX_CLIENT_TO_SERVER] = {0};
-        size_t out_len = 0;
-        if (client_to_server_serialize(&gs, &to_send, serialized, &out_len,
-                                       MAX_CLIENT_TO_SERVER))
-        {
-          unsigned char compressed[MAX_CLIENT_TO_SERVER] = {0};
-          char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = {0};
-          size_t compressed_len = 0;
-
-          lzo1x_1_compress(serialized, out_len, compressed, &compressed_len,
-                           (void *)lzo_working_mem);
-
-          ENetPacket *packet =
-              enet_packet_create((void *)compressed, compressed_len,
-                                 ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
-          enet_peer_send(peer, 0, packet); // @Robust error check this
-          last_sent_input_time = stm_now();
-        }
-        else
-        {
-          Log("Failed to serialize client to server!\n");
-        }
-        ma_mutex_unlock(&send_packets_mutex);
-      }
-    }
-
-    // calculate world position and camera
+      cpVect grid_pos;
+      double grid_rotation;
+    } build_preview = {0};
+    cpVect global_hand_pos = {0}; // world coords! world star!
+    bool hand_at_arms_length = false;
     recalculate_camera_pos();
-    world_mouse_pos = screen_to_world(width, height, mouse_pos);
-    global_hand_pos =
-        get_global_hand_pos(world_mouse_pos, &hand_at_arms_length);
-
-    Entity *placing_grid = box_grid(closest_box_to_point_in_radius(
-        &gs, global_hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP, NULL));
-    if (placing_grid == NULL)
+    cpVect world_mouse_pos = screen_to_world(width, height, mouse_pos);
+    PROFILE_SCOPE("gameplay and prediction")
     {
-      build_preview = (struct BuildPreviewInfo){
-          .grid_pos = global_hand_pos,
-          .grid_rotation = 0.0,
-      };
+      // interpolate zoom
+      zoom = lerp(zoom, zoom_target, dt * 12.0);
+
+      // calculate build preview stuff
+      cpVect local_hand_pos = {0};
+      global_hand_pos =
+          get_global_hand_pos(world_mouse_pos, &hand_at_arms_length);
+
+      if (myentity() != NULL)
+      {
+        local_hand_pos = cpvsub(global_hand_pos, entity_pos(myentity()));
+      }
+
+      // process player interaction (squad invites)
+      if (interact_pressed && myplayer() != NULL && myplayer()->squad != SquadNone)
+        ENTITIES_ITER(cur)
+        {
+          if (cur != myentity() && cur->is_player &&
+              has_point(centered_at(entity_pos(cur), cpvmult(PLAYER_SIZE, player_scaling)), world_mouse_pos))
+          {
+            maybe_inviting_this_player = get_id(&gs, cur);
+            interact_pressed = false;
+          }
+        }
+
+      // Create and send input packet, and predict a frame of gamestate
+      static InputFrame cur_input_frame = {
+          0}; // keep across frames for high refresh rate screens
+      static size_t last_input_committed_tick = 0;
+      {
+        // prepare the current input frame, such that when processed next,
+        // every button/action the player has pressed will be handled
+        // without frustration by the server. Resulting in authoritative game
+        // state that looks and feels good.
+
+        cpVect input = (cpVect){
+            .x = (float)keydown[SAPP_KEYCODE_D] - (float)keydown[SAPP_KEYCODE_A],
+            .y = (float)keydown[SAPP_KEYCODE_W] - (float)keydown[SAPP_KEYCODE_S],
+        };
+        if (cpvlength(input) > 0.0)
+          input = cpvnormalize(input);
+        cur_input_frame.movement = input;
+        cur_input_frame.rotation = (float)keydown[SAPP_KEYCODE_E] - (float)keydown[SAPP_KEYCODE_Q];
+
+        if (interact_pressed)
+          cur_input_frame.seat_action = interact_pressed;
+
+        cur_input_frame.hand_pos = local_hand_pos;
+        if (take_over_squad >= 0)
+        {
+          cur_input_frame.take_over_squad = take_over_squad;
+          take_over_squad = -1;
+        }
+        if (confirm_invite_this_player)
+        {
+          cur_input_frame.invite_this_player = maybe_inviting_this_player;
+          maybe_inviting_this_player = (EntityID){0};
+          confirm_invite_this_player = false;
+        }
+        if (accept_invite)
+        {
+          cur_input_frame.accept_cur_squad_invite = true;
+          accept_invite = false;
+        }
+        if (reject_invite)
+        {
+          cur_input_frame.reject_cur_squad_invite = true;
+          reject_invite = false;
+        }
+
+        if (build_pressed && currently_building() != BoxInvalid)
+        {
+          cur_input_frame.dobuild = build_pressed;
+          cur_input_frame.build_type = currently_building();
+          cur_input_frame.build_rotation = cur_editing_rotation;
+        }
+
+        // "commit" the input. each input must be on a successive tick.
+        if (tick(&gs) > last_input_committed_tick)
+        {
+          cur_input_frame.tick = tick(&gs);
+          last_input_committed_tick = tick(&gs);
+
+          InputFrame *to_push_to = queue_push_element(&input_queue);
+          if (to_push_to == NULL)
+          {
+            InputFrame *to_discard = queue_pop_element(&input_queue);
+            (void)to_discard;
+            to_push_to = queue_push_element(&input_queue);
+            assert(to_push_to != NULL);
+          }
+
+          *to_push_to = cur_input_frame;
+
+          if (myplayer() != NULL)
+            myplayer()->input =
+                cur_input_frame; // for the client side prediction!
+
+          cur_input_frame = (InputFrame){0};
+          cur_input_frame.take_over_squad =
+              -1; // @Robust make this zero initialized
+        }
+
+        // in client side prediction, only process the latest in the queue, not
+        // the one currently constructing.
+        static double prediction_time_factor = 1.0;
+        prediction_time_factor = lerp(prediction_time_factor,
+                                      target_prediction_time_factor, dt * 3.0);
+        process(&gs, dt * prediction_time_factor, true);
+
+        static int64_t last_sent_input_time = 0;
+        if (stm_sec(stm_diff(stm_now(), last_sent_input_time)) >
+            TIME_BETWEEN_INPUT_PACKETS)
+        {
+          ma_mutex_lock(&send_packets_mutex);
+          ClientToServer to_send = {
+              .mic_data = &packets_to_send,
+              .input_data = &input_queue,
+          };
+          unsigned char serialized[MAX_CLIENT_TO_SERVER] = {0};
+          size_t out_len = 0;
+          if (client_to_server_serialize(&gs, &to_send, serialized, &out_len,
+                                         MAX_CLIENT_TO_SERVER))
+          {
+            unsigned char compressed[MAX_CLIENT_TO_SERVER] = {0};
+            char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = {0};
+            size_t compressed_len = 0;
+
+            lzo1x_1_compress(serialized, out_len, compressed, &compressed_len,
+                             (void *)lzo_working_mem);
+
+            ENetPacket *packet =
+                enet_packet_create((void *)compressed, compressed_len,
+                                   ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+            enet_peer_send(peer, 0, packet); // @Robust error check this
+            last_sent_input_time = stm_now();
+          }
+          else
+          {
+            Log("Failed to serialize client to server!\n");
+          }
+          ma_mutex_unlock(&send_packets_mutex);
+        }
+      }
+
+      // calculate world position and camera
+      recalculate_camera_pos();
+      world_mouse_pos = screen_to_world(width, height, mouse_pos);
+      global_hand_pos =
+          get_global_hand_pos(world_mouse_pos, &hand_at_arms_length);
+
+      Entity *placing_grid = box_grid(closest_box_to_point_in_radius(
+          &gs, global_hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP, NULL));
+      if (placing_grid == NULL)
+      {
+        build_preview = (struct BuildPreviewInfo){
+            .grid_pos = global_hand_pos,
+            .grid_rotation = 0.0,
+        };
+      }
+      else
+      {
+        global_hand_pos = grid_snapped_box_pos(placing_grid, global_hand_pos);
+        build_preview = (struct BuildPreviewInfo){
+            .grid_pos = entity_pos(placing_grid),
+            .grid_rotation = entity_rotation(placing_grid),
+        };
+      }
     }
-    else
+
+    // drawing
+    PROFILE_SCOPE("drawing")
     {
-      global_hand_pos = grid_snapped_box_pos(placing_grid, global_hand_pos);
-      build_preview = (struct BuildPreviewInfo){
-          .grid_pos = entity_pos(placing_grid),
-          .grid_rotation = entity_rotation(placing_grid),
-      };
-    }
-  }
+      sgp_begin((int)width, (int)height);
+      sgp_viewport(0, 0, (int)width, (int)height);
+      sgp_project(0.0f, (float)width, 0.0f, (float)height);
+      sgp_set_blend_mode(SGP_BLENDMODE_BLEND);
 
-  // drawing
-  {
-    sgp_begin((int)width, (int)height);
-    sgp_viewport(0, 0, (int)width, (int)height);
-    sgp_project(0.0f, (float)width, 0.0f, (float)height);
-    sgp_set_blend_mode(SGP_BLENDMODE_BLEND);
+      // Draw background color
+      set_color(colhexcode(0x000000));
+      // set_color_values(0.1, 0.1, 0.1, 1.0);
+      sgp_clear();
 
-    // Draw background color
-    set_color(colhexcode(0x000000));
-    // set_color_values(0.1, 0.1, 0.1, 1.0);
-    sgp_clear();
+      // WORLD SPACE
+      // world space coordinates are +Y up, -Y down. Like normal cartesian coords
+      transform_scope
+      {
+        translate(width / 2, height / 2);
+        scale_at(zoom, -zoom, 0.0, 0.0);
 
-    // WORLD SPACE
-    // world space coordinates are +Y up, -Y down. Like normal cartesian coords
-    transform_scope
-    {
-      translate(width / 2, height / 2);
-      scale_at(zoom, -zoom, 0.0, 0.0);
-
-      // parllax layers, just the zooming, but not 100% of the camera panning
+        // parllax layers, just the zooming, but not 100% of the camera panning
 #if 1 // space background
-      transform_scope
-      {
-        cpVect scaled_camera_pos = cpvmult(
-            camera_pos, 0.0005); // this is how strong/weak the parallax is
-        translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
-        set_color(WHITE);
-        sgp_set_image(0, image_stars);
-        double stars_height_over_width =
-            (float)sg_query_image_info(image_stars).height /
-            (float)sg_query_image_info(image_stars).width;
-        const double stars_width = 35.0;
-        double stars_height = stars_width * stars_height_over_width;
-        pipeline_scope(goodpixel_pipeline)
-            draw_textured_rect(-stars_width / 2.0, -stars_height / 2.0, stars_width, stars_height);
-        // draw_textured_rect(0, 0, stars_width, stars_height);
-        sgp_reset_image(0);
-      }
-      transform_scope
-      {
-        cpVect scaled_camera_pos = cpvmult(
-            camera_pos, 0.005); // this is how strong/weak the parallax is
-        translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
-        set_color(WHITE);
-        sgp_set_image(0, image_stars2);
-        double stars_height_over_width =
-            (float)sg_query_image_info(image_stars).height /
-            (float)sg_query_image_info(image_stars).width;
-        const double stars_width = 35.0;
-        double stars_height = stars_width * stars_height_over_width;
-        pipeline_scope(goodpixel_pipeline)
-            draw_textured_rect(-stars_width / 2.0, -stars_height / 2.0, stars_width, stars_height);
-        // draw_textured_rect(0, 0, stars_width, stars_height);
-        sgp_reset_image(0);
-      }
+        transform_scope
+        {
+          cpVect scaled_camera_pos = cpvmult(
+              camera_pos, 0.0005); // this is how strong/weak the parallax is
+          translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
+          set_color(WHITE);
+          sgp_set_image(0, image_stars);
+          double stars_height_over_width =
+              (float)sg_query_image_info(image_stars).height /
+              (float)sg_query_image_info(image_stars).width;
+          const double stars_width = 35.0;
+          double stars_height = stars_width * stars_height_over_width;
+          pipeline_scope(goodpixel_pipeline)
+              draw_textured_rect(-stars_width / 2.0, -stars_height / 2.0, stars_width, stars_height);
+          // draw_textured_rect(0, 0, stars_width, stars_height);
+          sgp_reset_image(0);
+        }
+        transform_scope
+        {
+          cpVect scaled_camera_pos = cpvmult(
+              camera_pos, 0.005); // this is how strong/weak the parallax is
+          translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
+          set_color(WHITE);
+          sgp_set_image(0, image_stars2);
+          double stars_height_over_width =
+              (float)sg_query_image_info(image_stars).height /
+              (float)sg_query_image_info(image_stars).width;
+          const double stars_width = 35.0;
+          double stars_height = stars_width * stars_height_over_width;
+          pipeline_scope(goodpixel_pipeline)
+              draw_textured_rect(-stars_width / 2.0, -stars_height / 2.0, stars_width, stars_height);
+          // draw_textured_rect(0, 0, stars_width, stars_height);
+          sgp_reset_image(0);
+        }
 #endif
 
 #if 1 // parallaxed dots
-      transform_scope
-      {
-        cpVect scaled_camera_pos = cpvmult(camera_pos, 0.25);
-        translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
-        set_color(WHITE);
-        draw_dots(scaled_camera_pos, 3.0);
-      }
-      transform_scope
-      {
-        cpVect scaled_camera_pos = cpvmult(camera_pos, 0.5);
-        translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
-        set_color(WHITE);
-        draw_dots(scaled_camera_pos, 2.0);
-      }
-#endif
-
-      // camera go to player
-      translate(-camera_pos.x, -camera_pos.y);
-
-      draw_dots(camera_pos, 1.5); // in plane dots
-
-      // hand reached limit circle
-      if (myentity() != NULL)
-      {
-        static double hand_reach_alpha = 1.0;
-        hand_reach_alpha = lerp(hand_reach_alpha,
-                                hand_at_arms_length ? 1.0 : 0.0, dt * 5.0);
-        set_color_values(1.0, 1.0, 1.0, hand_reach_alpha);
-        draw_circle(entity_pos(myentity()), MAX_HAND_REACH);
-      }
-
-      // vision circle, what player can see
-      if (myentity() != NULL)
-      {
-        set_color(colhexcode(0x4685e3));
-        draw_circle(entity_pos(myentity()), VISION_RADIUS);
-      }
-
-      double halfbox = BOX_SIZE / 2.0;
-
-      // mouse frozen, debugging tool
-      if (mouse_frozen)
-      {
-        set_color_values(1.0, 0.0, 0.0, 0.5);
-        draw_filled_rect(world_mouse_pos.x, world_mouse_pos.y, 0.1, 0.1);
-      }
-
-      // building preview
-      if (currently_building() != BoxInvalid && can_build(currently_building()))
-      {
-        set_color_values(0.5, 0.5, 0.5,
-                         (sin((float)time * 9.0) + 1.0) / 3.0 + 0.2);
-
         transform_scope
         {
-          sgp_set_image(0, boxinfo(currently_building()).image);
-          rotate_at(build_preview.grid_rotation +
-                        rotangle(cur_editing_rotation),
-                    global_hand_pos.x, global_hand_pos.y);
-          pipeline_scope(goodpixel_pipeline)
-              draw_texture_centered(global_hand_pos, BOX_SIZE);
-          // drawbox(hand_pos, build_preview.grid_rotation, 0.0,
-          // cur_editing_boxtype, cur_editing_rotation);
-          sgp_reset_image(0);
+          cpVect scaled_camera_pos = cpvmult(camera_pos, 0.25);
+          translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
+          set_color(WHITE);
+          draw_dots(scaled_camera_pos, 3.0);
         }
-      }
-
-      player_scaling =
-          lerp(player_scaling, zoom < 6.5 ? 100.0 : 1.0, dt * 7.0);
-      ENTITIES_ITER(e)
-      {
-        // draw grid
-        if (e->is_grid)
+        transform_scope
         {
-          Entity *g = e;
-          BOXES_ITER(&gs, b, g)
-          {
-            set_color_values(1.0, 1.0, 1.0, 1.0);
-            if (b->box_type == BoxBattery)
-            {
-              double cur_alpha = sgp_get_color().a;
-              Color from = WHITE;
-              Color to = colhex(255, 0, 0);
-              Color result =
-                  Collerp(from, to, b->energy_used / BATTERY_CAPACITY);
-              set_color_values(result.r, result.g, result.b, cur_alpha);
-            }
-            transform_scope
-            {
-              rotate_at(entity_rotation(g) + rotangle(b->compass_rotation),
-                        entity_pos(b).x, entity_pos(b).y);
+          cpVect scaled_camera_pos = cpvmult(camera_pos, 0.5);
+          translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
+          set_color(WHITE);
+          draw_dots(scaled_camera_pos, 2.0);
+        }
+#endif
 
-              if (b->box_type == BoxThruster)
+        // camera go to player
+        translate(-camera_pos.x, -camera_pos.y);
+
+        draw_dots(camera_pos, 1.5); // in plane dots
+
+        // hand reached limit circle
+        if (myentity() != NULL)
+        {
+          static double hand_reach_alpha = 1.0;
+          hand_reach_alpha = lerp(hand_reach_alpha,
+                                  hand_at_arms_length ? 1.0 : 0.0, dt * 5.0);
+          set_color_values(1.0, 1.0, 1.0, hand_reach_alpha);
+          draw_circle(entity_pos(myentity()), MAX_HAND_REACH);
+        }
+
+        // vision circle, what player can see
+        if (myentity() != NULL)
+        {
+          set_color(colhexcode(0x4685e3));
+          draw_circle(entity_pos(myentity()), VISION_RADIUS);
+        }
+
+        double halfbox = BOX_SIZE / 2.0;
+
+        // mouse frozen, debugging tool
+        if (mouse_frozen)
+        {
+          set_color_values(1.0, 0.0, 0.0, 0.5);
+          draw_filled_rect(world_mouse_pos.x, world_mouse_pos.y, 0.1, 0.1);
+        }
+
+        // building preview
+        if (currently_building() != BoxInvalid && can_build(currently_building()))
+        {
+          set_color_values(0.5, 0.5, 0.5,
+                           (sin((float)exec_time * 9.0) + 1.0) / 3.0 + 0.2);
+
+          transform_scope
+          {
+            sgp_set_image(0, boxinfo(currently_building()).image);
+            rotate_at(build_preview.grid_rotation +
+                          rotangle(cur_editing_rotation),
+                      global_hand_pos.x, global_hand_pos.y);
+            pipeline_scope(goodpixel_pipeline)
+                draw_texture_centered(global_hand_pos, BOX_SIZE);
+            // drawbox(hand_pos, build_preview.grid_rotation, 0.0,
+            // cur_editing_boxtype, cur_editing_rotation);
+            sgp_reset_image(0);
+          }
+        }
+
+        player_scaling =
+            lerp(player_scaling, zoom < 6.5 ? 100.0 : 1.0, dt * 7.0);
+        ENTITIES_ITER(e)
+        {
+          // draw grid
+          if (e->is_grid)
+          {
+            Entity *g = e;
+            BOXES_ITER(&gs, b, g)
+            {
+              set_color_values(1.0, 1.0, 1.0, 1.0);
+              if (b->box_type == BoxBattery)
               {
+                double cur_alpha = sgp_get_color().a;
+                Color from = WHITE;
+                Color to = colhex(255, 0, 0);
+                Color result =
+                    Collerp(from, to, b->energy_used / BATTERY_CAPACITY);
+                set_color_values(result.r, result.g, result.b, cur_alpha);
+              }
+              transform_scope
+              {
+                rotate_at(entity_rotation(g) + rotangle(b->compass_rotation),
+                          entity_pos(b).x, entity_pos(b).y);
+
+                if (b->box_type == BoxThruster)
+                {
+                  transform_scope
+                  {
+                    set_color_values(1.0, 1.0, 1.0, 1.0);
+                    sgp_set_image(0, image_thrusterburn);
+                    double scaling = 0.95 + lerp(0.0, 0.3, b->thrust);
+                    scale_at(scaling, 1.0, entity_pos(b).x, entity_pos(b).y);
+                    pipeline_scope(goodpixel_pipeline)
+                    {
+                      draw_texture_centered(entity_pos(b), BOX_SIZE);
+                    }
+                    sgp_reset_image(0);
+                  }
+                }
+                sg_image img = boxinfo(b->box_type).image;
+                if (b->box_type == BoxCockpit)
+                {
+                  if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
+                    img = image_cockpit_used;
+                }
+                if (b->box_type == BoxMedbay)
+                {
+                  if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
+                    img = image_medbay_used;
+                }
+                if (b->box_type == BoxSolarPanel)
+                {
+                  sgp_set_image(0, image_solarpanel_charging);
+                  set_color_values(1.0, 1.0, 1.0, b->sun_amount);
+                  pipeline_scope(goodpixel_pipeline)
+                      draw_texture_centered(entity_pos(b), BOX_SIZE);
+                  sgp_reset_image(0);
+                  set_color_values(1.0, 1.0, 1.0, 1.0 - b->sun_amount);
+                  /* Color to_set = colhexcode(0xeb9834);
+                  to_set.a = b->sun_amount * 0.5;
+                  set_color(to_set);
+                  draw_color_rect_centered(entity_pos(b), BOX_SIZE);
+                  */
+                }
+
+                sgp_set_image(0, img);
+                if (b->indestructible)
+                {
+                  set_color_values(0.2, 0.2, 0.2, 1.0);
+                }
+                else if (b->is_platonic)
+                {
+                  set_color(GOLD);
+                }
+
+                // all of these box types show team colors so are drawn with the hue shifting shader
+                // used with the player
+                if (b->box_type == BoxCloaking || b->box_type == BoxMissileLauncher)
+                {
+                  pipeline_scope(hueshift_pipeline)
+                  {
+                    setup_hueshift(b->owning_squad);
+                    draw_texture_centered(entity_pos(b), BOX_SIZE);
+                  }
+                }
+                else
+                {
+                  pipeline_scope(goodpixel_pipeline)
+                      draw_texture_centered(entity_pos(b), BOX_SIZE);
+                }
+                sgp_reset_image(0);
+
+                if (b->box_type == BoxScanner)
+                {
+                  sgp_set_image(0, image_scanner_head);
+                  transform_scope
+                  {
+                    pipeline_scope(goodpixel_pipeline)
+                    {
+                      rotate_at(b->scanner_head_rotate, entity_pos(b).x, entity_pos(b).y);
+                      draw_texture_centered(entity_pos(b), BOX_SIZE);
+                    }
+                  }
+                  sgp_reset_image(0);
+                  set_color(WHITE);
+                }
+
+                // scanner range, visualizes what scanner can scan
+                if (b->box_type == BoxScanner)
+                {
+                  set_color(BLUE);
+                  draw_circle(entity_pos(b), SCANNER_RADIUS);
+                  set_color(WHITE);
+                }
+                set_color_values(0.5, 0.1, 0.1, b->damage);
+                draw_color_rect_centered(entity_pos(b), BOX_SIZE);
+
+                if (b->box_type == BoxCloaking)
+                {
+                  set_color_values(1.0, 1.0, 1.0, b->cloaking_power);
+                  sgp_set_image(0, image_cloaking_panel);
+                  pipeline_scope(goodpixel_pipeline)
+                      draw_texture_centered(entity_pos(b), CLOAKING_PANEL_SIZE);
+                  sgp_reset_image(0);
+                }
+              }
+
+              // outside of the transform scope
+              if (b->box_type == BoxScanner)
+              {
+                if (b->platonic_detection_strength > 0.0)
+                {
+                  set_color(colhexcode(0xf2d75c));
+                  cpVect to = cpvadd(entity_pos(b), cpvmult(b->platonic_nearest_direction, b->platonic_detection_strength));
+                  dbg_rect(to);
+                  dbg_rect(entity_pos(b));
+                  draw_line(entity_pos(b).x, entity_pos(b).y, to.x, to.y);
+                }
+              }
+              if (b->box_type == BoxMissileLauncher)
+              {
+                set_color(RED);
+                draw_circle(entity_pos(b), MISSILE_RANGE);
+
+                // draw the charging missile
                 transform_scope
                 {
-                  set_color_values(1.0, 1.0, 1.0, 1.0);
-                  sgp_set_image(0, image_thrusterburn);
-                  double scaling = 0.95 + lerp(0.0, 0.3, b->thrust);
-                  scale_at(scaling, 1.0, entity_pos(b).x, entity_pos(b).y);
-                  pipeline_scope(goodpixel_pipeline)
+                  rotate_at(missile_launcher_target(&gs, b).facing_angle, entity_pos(b).x, entity_pos(b).y);
+                  sgp_set_image(0, image_missile);
+                  pipeline_scope(hueshift_pipeline)
                   {
+                    set_color_values(1.0, 1.0, 1.0, b->missile_construction_charge);
+                    setup_hueshift(b->owning_squad);
                     draw_texture_centered(entity_pos(b), BOX_SIZE);
                   }
                   sgp_reset_image(0);
                 }
               }
-              sg_image img = boxinfo(b->box_type).image;
-              if (b->box_type == BoxCockpit)
-              {
-                if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
-                  img = image_cockpit_used;
-              }
-              if (b->box_type == BoxMedbay)
-              {
-                if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
-                  img = image_medbay_used;
-              }
-              if (b->box_type == BoxSolarPanel)
-              {
-                sgp_set_image(0, image_solarpanel_charging);
-                set_color_values(1.0, 1.0, 1.0, b->sun_amount);
-                pipeline_scope(goodpixel_pipeline)
-                    draw_texture_centered(entity_pos(b), BOX_SIZE);
-                sgp_reset_image(0);
-                set_color_values(1.0, 1.0, 1.0, 1.0 - b->sun_amount);
-                /* Color to_set = colhexcode(0xeb9834);
-                to_set.a = b->sun_amount * 0.5;
-                set_color(to_set);
-                draw_color_rect_centered(entity_pos(b), BOX_SIZE);
-                */
-              }
+            }
+          }
 
-              sgp_set_image(0, img);
-              if (b->indestructible)
-              {
-                set_color_values(0.2, 0.2, 0.2, 1.0);
-              }
-              else if (b->is_platonic)
-              {
-                set_color(GOLD);
-              }
+          // draw missile
+          if (e->is_missile)
+          {
+            transform_scope
+            {
+              rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
+              set_color_values(1.0, 1.0, 1.0, 1.0);
 
-              // all of these box types show team colors so are drawn with the hue shifting shader
-              // used with the player
-              if (b->box_type == BoxCloaking || b->box_type == BoxMissileLauncher)
+              if (is_burning(e))
               {
-                pipeline_scope(hueshift_pipeline)
-                {
-                  setup_hueshift(b->owning_squad);
-                  draw_texture_centered(entity_pos(b), BOX_SIZE);
-                }
+                sgp_set_image(0, image_missile_burning);
               }
               else
               {
-                pipeline_scope(goodpixel_pipeline)
-                    draw_texture_centered(entity_pos(b), BOX_SIZE);
-              }
-              sgp_reset_image(0);
-
-              if (b->box_type == BoxScanner)
-              {
-                sgp_set_image(0, image_scanner_head);
-                transform_scope
-                {
-                  pipeline_scope(goodpixel_pipeline)
-                  {
-                    rotate_at(b->scanner_head_rotate, entity_pos(b).x, entity_pos(b).y);
-                    draw_texture_centered(entity_pos(b), BOX_SIZE);
-                  }
-                }
-                sgp_reset_image(0);
-                set_color(WHITE);
-              }
-
-              // scanner range, visualizes what scanner can scan
-              if (b->box_type == BoxScanner)
-              {
-                set_color(BLUE);
-                draw_circle(entity_pos(b), SCANNER_RADIUS);
-                set_color(WHITE);
-              }
-              set_color_values(0.5, 0.1, 0.1, b->damage);
-              draw_color_rect_centered(entity_pos(b), BOX_SIZE);
-
-              if (b->box_type == BoxCloaking)
-              {
-                set_color_values(1.0, 1.0, 1.0, b->cloaking_power);
-                sgp_set_image(0, image_cloaking_panel);
-                pipeline_scope(goodpixel_pipeline)
-                    draw_texture_centered(entity_pos(b), CLOAKING_PANEL_SIZE);
-                sgp_reset_image(0);
-              }
-            }
-
-            // outside of the transform scope
-            if (b->box_type == BoxScanner)
-            {
-              if (b->platonic_detection_strength > 0.0)
-              {
-                set_color(colhexcode(0xf2d75c));
-                cpVect to = cpvadd(entity_pos(b), cpvmult(b->platonic_nearest_direction, b->platonic_detection_strength));
-                dbg_rect(to);
-                dbg_rect(entity_pos(b));
-                draw_line(entity_pos(b).x, entity_pos(b).y, to.x, to.y);
-              }
-            }
-            if (b->box_type == BoxMissileLauncher)
-            {
-              set_color(RED);
-              draw_circle(entity_pos(b), MISSILE_RANGE);
-
-              // draw the charging missile
-              transform_scope
-              {
-                rotate_at(missile_launcher_target(&gs, b).facing_angle, entity_pos(b).x, entity_pos(b).y);
                 sgp_set_image(0, image_missile);
-                pipeline_scope(hueshift_pipeline)
-                {
-                  set_color_values(1.0, 1.0, 1.0, b->missile_construction_charge);
-                  setup_hueshift(b->owning_squad);
-                  draw_texture_centered(entity_pos(b), BOX_SIZE);
-                }
+              }
+
+              pipeline_scope(hueshift_pipeline)
+              {
+                setup_hueshift(e->owning_squad);
+                draw_texture_rectangle_centered(entity_pos(e), MISSILE_SPRITE_SIZE);
+              }
+
+              sgp_reset_image(0);
+            }
+          }
+
+          // draw player
+          if (e->is_player &&
+              get_entity(&gs, e->currently_inside_of_box) == NULL)
+          {
+            transform_scope
+            {
+              rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
+              set_color_values(1.0, 1.0, 1.0, 1.0);
+
+              pipeline_scope(hueshift_pipeline)
+              {
+                setup_hueshift(e->owning_squad);
+                sgp_set_image(0, image_player);
+                draw_texture_rectangle_centered(
+                    entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling));
                 sgp_reset_image(0);
               }
             }
           }
-        }
-
-        // draw missile
-        if (e->is_missile)
-        {
-          transform_scope
+          if (e->is_explosion)
           {
-            rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
-            set_color_values(1.0, 1.0, 1.0, 1.0);
-
-            if (is_burning(e))
-            {
-              sgp_set_image(0, image_missile_burning);
-            }
-            else
-            {
-              sgp_set_image(0, image_missile);
-            }
-
-            pipeline_scope(hueshift_pipeline)
-            {
-              setup_hueshift(e->owning_squad);
-              draw_texture_rectangle_centered(entity_pos(e), MISSILE_SPRITE_SIZE);
-            }
-
+            sgp_set_image(0, image_explosion);
+            set_color_values(1.0, 1.0, 1.0,
+                             1.0 - (e->explosion_progress / EXPLOSION_TIME));
+            draw_texture_centered(e->explosion_pos, e->explosion_radius * 2.0);
             sgp_reset_image(0);
           }
         }
 
-        // draw player
-        if (e->is_player &&
-            get_entity(&gs, e->currently_inside_of_box) == NULL)
+        // gold target
+        set_color(GOLD);
+        draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1, 0.1);
+
+        // instant death
+        set_color(RED);
+        draw_circle((cpVect){0}, INSTANT_DEATH_DISTANCE_FROM_CENTER);
+
+        // the SUN
+        SUNS_ITER(&gs)
         {
           transform_scope
           {
-            rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
-            set_color_values(1.0, 1.0, 1.0, 1.0);
+            translate(entity_pos(i.sun).x, entity_pos(i.sun).y);
+            set_color(WHITE);
+            sgp_set_image(0, image_sun);
+            draw_texture_centered((cpVect){0}, i.sun->sun_radius * 2.0);
+            sgp_reset_image(0);
 
-            pipeline_scope(hueshift_pipeline)
-            {
-              setup_hueshift(e->owning_squad);
-              sgp_set_image(0, image_player);
-              draw_texture_rectangle_centered(
-                  entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling));
-              sgp_reset_image(0);
-            }
+            // can draw at 0,0 because everything relative to sun now!
+
+            // sun DEATH RADIUS
+
+            set_color(BLUE);
+            draw_circle((cpVect){0}, sun_dist_no_gravity(i.sun));
           }
         }
-        if (e->is_explosion)
-        {
-          sgp_set_image(0, image_explosion);
-          set_color_values(1.0, 1.0, 1.0,
-                           1.0 - (e->explosion_progress / EXPLOSION_TIME));
-          draw_texture_centered(e->explosion_pos, e->explosion_radius * 2.0);
-          sgp_reset_image(0);
-        }
-      }
 
-      // gold target
-      set_color(GOLD);
-      draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1, 0.1);
+        set_color_values(1.0, 1.0, 1.0, 1.0);
+        dbg_drawall();
+      } // world space transform end
 
-      // instant death
-      set_color(RED);
-      draw_circle((cpVect){0}, INSTANT_DEATH_DISTANCE_FROM_CENTER);
-
-      // the SUN
-      SUNS_ITER(&gs)
+      // low health
+      if (myentity() != NULL)
       {
-        transform_scope
-        {
-          translate(entity_pos(i.sun).x, entity_pos(i.sun).y);
-          set_color(WHITE);
-          sgp_set_image(0, image_sun);
-          draw_texture_centered((cpVect){0}, i.sun->sun_radius * 2.0);
-          sgp_reset_image(0);
-
-          // can draw at 0,0 because everything relative to sun now!
-
-          // sun DEATH RADIUS
-
-          set_color(BLUE);
-          draw_circle((cpVect){0}, sun_dist_no_gravity(i.sun));
-        }
+        set_color_values(1.0, 1.0, 1.0, myentity()->damage);
+        sgp_set_image(0, image_low_health);
+        draw_texture_rectangle_centered((cpVect){width / 2.0, height / 2.0},
+                                        (cpVect){width, height});
+        sgp_reset_image(0);
       }
 
-      set_color_values(1.0, 1.0, 1.0, 1.0);
-      dbg_drawall();
-    } // world space transform end
-
-    // low health
-    if (myentity() != NULL)
-    {
-      set_color_values(1.0, 1.0, 1.0, myentity()->damage);
-      sgp_set_image(0, image_low_health);
-      draw_texture_rectangle_centered((cpVect){width / 2.0, height / 2.0},
-                                      (cpVect){width, height});
-      sgp_reset_image(0);
+      // UI drawn in screen space
+      ui(true, dt, width, height);
     }
 
-    // UI drawn in screen space
-    ui(true, dt, width, height);
+    sg_pass_action pass_action = {0};
+    sg_begin_default_pass(&pass_action, (int)width, (int)height);
+    sgp_flush();
+    sgp_end();
+    sg_end_pass();
+    sg_commit();
   }
-
-  sg_pass_action pass_action = {0};
-  sg_begin_default_pass(&pass_action, (int)width, (int)height);
-  sgp_flush();
-  sgp_end();
-  sg_end_pass();
-  sg_commit();
 }
 
 void cleanup(void)
@@ -2129,6 +2154,9 @@ void cleanup(void)
   server_info.should_quit = true;
   ma_mutex_unlock(&server_info.info_mutex);
   WaitForSingleObject(server_thread_handle, INFINITE);
+
+  end_profiling_mythread();
+  end_profiling();
 
   ma_mutex_uninit(&send_packets_mutex);
   ma_mutex_uninit(&play_packets_mutex);
@@ -2248,6 +2276,8 @@ sapp_desc sokol_main(int argc, char *argv[])
   stm_setup();
   ma_mutex_init(&server_info.info_mutex);
   server_info.world_save = "debug_world.bin";
+  init_profiling("astris.spall");
+  init_profiling_mythread(0);
   if (argc > 1)
   {
     server_thread_handle =

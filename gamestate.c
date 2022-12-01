@@ -3,6 +3,8 @@
 #include "queue.h"
 #include "stdbool.h"
 #include "types.h"
+#define PROFILING_IMPL
+#include "profiling.h"
 
 #include "ipsettings.h" // debug/developer settings
 
@@ -73,7 +75,7 @@ bool cloaking_active(GameState *gs, Entity *e)
 {
   // cloaking doesn't work for first 1/2 second of game because when initializing
   // everything needs to be uncloaked
-  return gs->time >= 0.5 && (gs->time - e->time_was_last_cloaked) <= TIMESTEP * 2.0;
+  return time(gs) >= 0.5 && (time(gs) - e->time_was_last_cloaked) <= TIMESTEP * 2.0;
 }
 
 bool is_cloaked(GameState *gs, Entity *e, Entity *this_players_perspective)
@@ -390,7 +392,6 @@ void grid_create(GameState *gs, Entity *e)
   e->is_grid = true;
   create_body(gs, e);
 }
-
 
 void entity_set_rotation(Entity *e, double rot)
 {
@@ -1339,7 +1340,9 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
   SER_ASSERT(cur_next_entity <= ser->max_entity_index);
 
   SER_VAR(&s->your_player);
-  SER_VAR(&gs->time);
+
+  SER_VAR(&gs->tick);
+  SER_VAR(&gs->subframe_time);
 
   SER_MAYBE_RETURN(ser_V2(ser, &gs->goldpos));
 
@@ -1661,7 +1664,7 @@ static void cloaking_shield_callback_func(cpShape *shape, cpContactPointSet *poi
   GameState *gs = entitys_gamestate(from_cloaking_box);
   Entity *to_cloak = cp_shape_entity(shape);
 
-  to_cloak->time_was_last_cloaked = gs->time;
+  to_cloak->time_was_last_cloaked = time(gs);
   to_cloak->last_cloaked_by_squad = from_cloaking_box->owning_squad;
 }
 
@@ -1801,7 +1804,13 @@ cpVect thruster_force(Entity *box)
 
 uint64_t tick(GameState *gs)
 {
-  return (uint64_t)floor(gs->time / ((double)TIMESTEP));
+  // return (uint64_t)floor(gs->time / ((double)TIMESTEP));
+  return gs->tick;
+}
+
+double time(GameState *gs)
+{
+  return ((double)gs->tick * TIMESTEP) + gs->subframe_time;
 }
 
 Entity *grid_to_build_on(GameState *gs, cpVect world_hand_pos)
@@ -2110,693 +2119,732 @@ void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
   cpBodySetVelocity(p->body, cpBodyGetVelocity(box_grid(seat_in)->body));
 }
 
-void process_fixed_timestep(GameState *gs)
+void process(struct GameState *gs, double dt, bool is_subframe)
 {
-  process(gs, TIMESTEP);
-}
-
-void process(GameState *gs, double dt)
-{
-  assert(gs->space != NULL);
-
-  gs->time += dt;
-
-  // process sun gravity
-  SUNS_ITER(gs)
+  PROFILE_SCOPE("Gameplay processing")
   {
-    Entity *from_sun = i.sun;
-    cpVect accel = {0};
-    SUNS_ITER(gs)
-    {
-      Entity *other_sun = i.sun;
-      if (other_sun != from_sun)
-      {
-        accel = cpvadd(accel, sun_gravity_accel_for_entity(from_sun, other_sun));
-      }
-    }
-#ifndef NO_GRAVITY
-    from_sun->sun_vel = cpvadd(from_sun->sun_vel, cpvmult(accel, dt));
-    from_sun->sun_pos = cpvadd(from_sun->sun_pos, cpvmult(from_sun->sun_vel, dt));
+    assert(gs->space != NULL);
 
-    if (cpvlength(from_sun->sun_pos) >= INSTANT_DEATH_DISTANCE_FROM_CENTER)
+    PROFILE_SCOPE("subframe stuff")
     {
-      from_sun->sun_vel = cpvmult(from_sun->sun_vel, -0.8);
-      from_sun->sun_pos = cpvmult(cpvnormalize(from_sun->sun_pos), INSTANT_DEATH_DISTANCE_FROM_CENTER);
-    }
-#endif
-  }
 
-  // process input
-  PLAYERS_ITER(gs->players, player)
-  {
-    if (player->input.take_over_squad >= 0)
-    {
-      if (player->input.take_over_squad == SquadNone)
+      if (is_subframe)
       {
-        player->squad = SquadNone;
-      }
-      else
-      {
-        bool squad_taken = false;
-        PLAYERS_ITER(gs->players, other_player)
+        gs->subframe_time += dt;
+        while (gs->subframe_time > TIMESTEP)
         {
-          if (other_player->squad == player->input.take_over_squad)
-          {
-            squad_taken = true;
-            break;
-          }
-        }
-        if (!squad_taken)
-          player->squad = player->input.take_over_squad;
-      }
-      player->input.take_over_squad = -1;
-    }
-
-    // squad invites
-    Entity *possibly_to_invite = get_entity(gs, player->input.invite_this_player);
-    if (player->input.invite_this_player.generation > 0)
-      player->input.invite_this_player = (EntityID){0}; // just in case
-    if (player->squad != SquadNone && possibly_to_invite != NULL && possibly_to_invite->is_player)
-    {
-      possibly_to_invite->squad_invited_to = player->squad;
-    }
-    Entity *p = get_entity(gs, player->entity);
-    // player respawning
-    if (p == NULL)
-    {
-      p = new_entity(gs);
-      create_player_entity(gs, p);
-      player->entity = get_id(gs, p);
-      Entity *medbay = get_entity(gs, player->last_used_medbay);
-      entity_ensure_in_orbit(gs, p);
-      if (medbay != NULL)
-      {
-        exit_seat(gs, medbay, p);
-        p->damage = 0.95;
-      }
-    }
-    assert(p->is_player);
-    p->owning_squad = player->squad;
-
-    if (p->squad_invited_to != SquadNone)
-    {
-      if (player->input.accept_cur_squad_invite)
-      {
-        player->squad = p->squad_invited_to;
-        p->squad_invited_to = SquadNone;
-        player->input.accept_cur_squad_invite = false;
-      }
-      if (player->input.reject_cur_squad_invite)
-      {
-        p->squad_invited_to = SquadNone;
-        player->input.reject_cur_squad_invite = false;
-      }
-    }
-
-#ifdef INFINITE_RESOURCES
-    p->damage = 0.0;
-#endif
-    // update gold win condition
-    if (cpvlength(cpvsub((cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
-    {
-      p->goldness += 0.1;
-      p->damage = 0.0;
-      gs->goldpos = (cpVect){.x = hash11((float)gs->time) * 20.0, .y = hash11((float)gs->time - 13.6) * 20.0};
-    }
-#if 1
-    cpVect world_hand_pos = get_world_hand_pos(gs, &player->input, p);
-    if (player->input.seat_action)
-    {
-      player->input.seat_action = false; // "handle" the input
-      Entity *seat_maybe_in = get_entity(gs, p->currently_inside_of_box);
-      if (seat_maybe_in == NULL) // not in any seat
-      {
-        cpPointQueryInfo query_info = {0};
-        cpShape *result = cpSpacePointQueryNearest(gs->space, (world_hand_pos), 0.1, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
-        if (result != NULL)
-        {
-          Entity *potential_seat = cp_shape_entity(result);
-          assert(potential_seat->is_box);
-
-          if (potential_seat->box_type == BoxScanner) // learn everything from the scanner
-          {
-            player->box_unlocks |= potential_seat->blueprints_learned;
-          }
-          if (potential_seat->box_type == BoxMerge) // disconnect!
-          {
-            potential_seat->wants_disconnect = true;
-            grid_correct_for_holes(gs, box_grid(potential_seat));
-            assert(potential_seat->exists);
-            assert(potential_seat->is_box);
-            assert(potential_seat->box_type == BoxMerge);
-          }
-          if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
-          {
-            // don't let players get inside of cockpits that somebody else is already inside of
-            if (get_entity(gs, potential_seat->player_who_is_inside_of_me) == NULL)
-            {
-              p->currently_inside_of_box = get_id(gs, potential_seat);
-              potential_seat->player_who_is_inside_of_me = get_id(gs, p);
-              if (potential_seat->box_type == BoxMedbay)
-                player->last_used_medbay = p->currently_inside_of_box;
-            }
-          }
-        }
-        else
-        {
-          Log("No seat to get into for a player at point %f %f\n", world_hand_pos.x, world_hand_pos.y);
+          gs->subframe_time -= TIMESTEP;
+          gs->tick++;
         }
       }
       else
       {
-        exit_seat(gs, seat_maybe_in, p);
-        seat_maybe_in->player_who_is_inside_of_me = (EntityID){0};
-        p->currently_inside_of_box = (EntityID){0};
-      }
-    }
-#endif
-
-    // process movement
-    {
-      // no cheating by making movement bigger than length 1
-      cpVect movement_this_tick = (cpVect){0};
-      double rotation_this_tick = 0.0;
-      if (cpvlength(player->input.movement) > 0.0)
-      {
-        movement_this_tick = cpvmult(cpvnormalize(player->input.movement), clamp(cpvlength(player->input.movement), 0.0, 1.0));
-        player->input.movement = (cpVect){0};
-      }
-      if (fabs(player->input.rotation) > 0.0)
-      {
-        rotation_this_tick = player->input.rotation;
-        if (rotation_this_tick > 1.0)
-          rotation_this_tick = 1.0;
-        if (rotation_this_tick < -1.0)
-          rotation_this_tick = -1.0;
-        player->input.rotation = 0.0;
-      }
-      Entity *seat_inside_of = get_entity(gs, p->currently_inside_of_box);
-
-      // strange rare bug I saw happen, related to explosives, but no idea how to
-      // reproduce. @Robust put a breakpoint here, reproduce, and fix it!
-      if (seat_inside_of != NULL && !seat_inside_of->is_box)
-      {
-        Log("Strange thing happened where player was in non box seat!\n");
-        seat_inside_of = NULL;
-        p->currently_inside_of_box = (EntityID){0};
-      }
-
-      if (seat_inside_of == NULL)
-      {
-        cpShapeSetFilter(p->shape, PLAYER_SHAPE_FILTER);
-        cpBodyApplyForceAtWorldPoint(p->body, (cpvmult(movement_this_tick, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
-        cpBodySetTorque(p->body, rotation_this_tick * PLAYER_JETPACK_TORQUE);
-        p->damage += cpvlength(movement_this_tick) * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
-        p->damage += fabs(rotation_this_tick) * dt * PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND;
-      }
-      else
-      {
-        assert(seat_inside_of->is_box);
-        cpShapeSetFilter(p->shape, CP_SHAPE_FILTER_NONE); // no collisions while in a seat
-        cpBodySetPosition(p->body, (entity_pos(seat_inside_of)));
-        cpBodySetVelocity(p->body, (box_vel(seat_inside_of)));
-
-        // share cloaking with box
-        p->time_was_last_cloaked = seat_inside_of->time_was_last_cloaked;
-        p->last_cloaked_by_squad = seat_inside_of->last_cloaked_by_squad;
-
-        // set thruster thrust from movement
-        if (seat_inside_of->box_type == BoxCockpit)
-        {
-          Entity *g = get_entity(gs, seat_inside_of->shape_parent_entity);
-
-          cpVect target_direction = {0};
-          if (cpvlength(movement_this_tick) > 0.0)
-          {
-            target_direction = cpvnormalize(movement_this_tick);
-          }
-          BOXES_ITER(gs, cur, g)
-          {
-            if (cur->box_type == BoxThruster)
-            {
-
-              double wanted_thrust = -cpvdot(target_direction, box_facing_vector(cur));
-              wanted_thrust = clamp01(wanted_thrust);
-              cur->wanted_thrust = wanted_thrust;
-            }
-            if (cur->box_type == BoxGyroscope)
-            {
-              cur->wanted_thrust = rotation_this_tick;
-            }
-          }
-        }
+        assert(gs->subframe_time == 0.0);
+        gs->tick++;
       }
     }
 
-#if 1 // building
-    if (player->input.dobuild)
-    {
-      player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
-
-      cpPointQueryInfo info = {0};
-      cpVect world_build = world_hand_pos;
-
-      // @Robust sanitize this input so player can't build on any grid in the world
-      Entity *target_grid = grid_to_build_on(gs, world_hand_pos);
-      cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, (world_build), 0.01, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
-      if (maybe_box_to_destroy != NULL)
-      {
-        Entity *cur_box = cp_shape_entity(maybe_box_to_destroy);
-        if (!cur_box->indestructible && !cur_box->is_platonic)
-        {
-          Entity *cur_grid = cp_body_entity(cpShapeGetBody(maybe_box_to_destroy));
-          p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK * ((BATTERY_CAPACITY - cur_box->energy_used) / BATTERY_CAPACITY);
-          grid_remove_box(gs, cur_grid, cur_box);
-        }
-      }
-      else if (box_unlocked(player, player->input.build_type))
-      {
-        // creating a box
-        p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
-        cpVect created_box_position;
-        if (p->damage < 1.0) // player can't create a box that kills them by making it
-        {
-          if (target_grid == NULL)
-          {
-            Entity *new_grid = new_entity(gs);
-            grid_create(gs, new_grid);
-            entity_set_pos(new_grid, world_build);
-            cpBodySetVelocity(new_grid->body, (player_vel(gs, p)));
-            target_grid = new_grid;
-            created_box_position = (cpVect){0};
-          }
-          else
-          {
-            created_box_position = grid_world_to_local(target_grid, world_build);
-          }
-          Entity *new_box = new_entity(gs);
-          box_create(gs, new_box, target_grid, created_box_position);
-          new_box->owning_squad = player->squad;
-          grid_correct_for_holes(gs, target_grid); // no holey ship for you!
-          new_box->box_type = player->input.build_type;
-          new_box->compass_rotation = player->input.build_rotation;
-          if (new_box->box_type == BoxScanner)
-            new_box->blueprints_learned = player->box_unlocks;
-          if (new_box->box_type == BoxBattery)
-            new_box->energy_used = BATTERY_CAPACITY;
-        }
-      }
-    }
-#endif
-    if (p->damage >= 1.0)
-    {
-      entity_destroy(gs, p);
-      player->entity = (EntityID){0};
-    }
-
-    p->damage = clamp01(p->damage);
-  }
-
-  // process entities
-  for (size_t i = 0; i < gs->cur_next_entity; i++)
-  {
-    Entity *e = &gs->entities[i];
-    if (!e->exists)
-      continue;
-
-    // instant death
-    {
-      cpFloat dist_from_center = cpvlengthsq((entity_pos(e)));
-      if (e->body != NULL && dist_from_center > (INSTANT_DEATH_DISTANCE_FROM_CENTER * INSTANT_DEATH_DISTANCE_FROM_CENTER))
-      {
-        bool platonic_found = false;
-        if (e->is_grid)
-        {
-          BOXES_ITER(gs, cur_box, e)
-          {
-            if (cur_box->is_platonic)
-            {
-              platonic_found = true;
-              break;
-            }
-          }
-        }
-        if (platonic_found)
-        {
-          cpBody *body = e->body;
-          cpBodySetVelocity(body, cpvmult(cpBodyGetVelocity(body), -0.5));
-          cpVect rel_to_center = cpvsub(cpBodyGetPosition(body), (cpVect){0});
-          cpBodySetPosition(body, cpvmult(cpvnormalize(rel_to_center), INSTANT_DEATH_DISTANCE_FROM_CENTER));
-        }
-        else
-        {
-          entity_destroy(gs, e);
-        }
-        continue;
-      }
-    }
-
-    // sun processing for this current entity
+    PROFILE_SCOPE("sun gravity")
     {
       SUNS_ITER(gs)
       {
-        cpVect pos_rel_sun = (cpvsub(entity_pos(e), (entity_pos(i.sun))));
-        cpFloat sqdist = cpvlengthsq(pos_rel_sun);
-        if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
+        Entity *from_sun = i.sun;
+        cpVect accel = {0};
+        SUNS_ITER(gs)
         {
-          sqdist = cpvlengthsq(cpvsub((entity_pos(e)), (entity_pos(i.sun))));
-          if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))
+          Entity *other_sun = i.sun;
+          if (other_sun != from_sun)
           {
-            e->damage += 10.0 * dt;
+            accel = cpvadd(accel, sun_gravity_accel_for_entity(from_sun, other_sun));
           }
         }
+#ifndef NO_GRAVITY
+        from_sun->sun_vel = cpvadd(from_sun->sun_vel, cpvmult(accel, dt));
+        from_sun->sun_pos = cpvadd(from_sun->sun_pos, cpvmult(from_sun->sun_vel, dt));
 
-        if (e->body != NULL)
+        if (cpvlength(from_sun->sun_pos) >= INSTANT_DEATH_DISTANCE_FROM_CENTER)
         {
-          cpVect accel = sun_gravity_accel_for_entity(e, i.sun);
-          cpVect new_vel = entity_vel(gs, e);
-          new_vel = cpvadd(new_vel, cpvmult(accel, dt));
-          cpBodySetVelocity(e->body, (new_vel));
+          from_sun->sun_vel = cpvmult(from_sun->sun_vel, -0.8);
+          from_sun->sun_pos = cpvmult(cpvnormalize(from_sun->sun_pos), INSTANT_DEATH_DISTANCE_FROM_CENTER);
         }
+#endif
       }
     }
 
-    if (e->is_explosion)
+    PROFILE_SCOPE("input processing")
     {
-      e->explosion_progress += dt;
-      e->explosion_pos = cpvadd(e->explosion_pos, cpvmult(e->explosion_vel, dt));
-      do_explosion(gs, e, dt);
-      if (e->explosion_progress >= EXPLOSION_TIME)
-      {
-        entity_destroy(gs, e);
-      }
-    }
 
-    if (e->is_missile)
-    {
-      if (is_burning(e))
+      PLAYERS_ITER(gs->players, player)
       {
-        e->time_burned_for += dt;
-        cpBodyApplyForceAtWorldPoint(e->body, (cpvspin((cpVect){.x = MISSILE_BURN_FORCE, .y = 0.0}, entity_rotation(e))), (entity_pos(e)));
-      }
-      if (e->damage >= MISSILE_DAMAGE_THRESHOLD && e->time_burned_for >= MISSILE_ARM_TIME)
-      {
-        Entity *explosion = new_entity(gs);
-        explosion->is_explosion = true;
-        explosion->explosion_pos = entity_pos(e);
-        explosion->explosion_vel = (cpBodyGetVelocity(e->body));
-        explosion->explosion_push_strength = MISSILE_EXPLOSION_PUSH;
-        explosion->explosion_radius = MISSILE_EXPLOSION_RADIUS;
-        entity_destroy(gs, e);
-      }
-    }
-
-    if (e->is_box)
-    {
-      if (e->is_platonic)
-      {
-        e->damage = 0.0;
-        gs->platonic_positions[(int)e->box_type] = entity_pos(e);
-      }
-      if (e->box_type == BoxExplosive && e->damage >= EXPLOSION_DAMAGE_THRESHOLD)
-      {
-        Entity *explosion = new_entity(gs);
-        explosion->is_explosion = true;
-        explosion->explosion_pos = entity_pos(e);
-        explosion->explosion_vel = grid_vel(box_grid(e));
-        explosion->explosion_push_strength = BOMB_EXPLOSION_PUSH;
-        explosion->explosion_radius = BOMB_EXPLOSION_RADIUS;
-        if (!e->is_platonic)
-          grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
-      }
-      if (e->box_type == BoxMerge)
-      {
-        Entity *from_merge = e;
-        assert(from_merge != NULL);
-
-        grid_to_exclude = box_grid(from_merge);
-        Entity *other_merge = closest_box_to_point_in_radius(gs, entity_pos(from_merge), MERGE_MAX_DIST, merge_filter);
-
-        if (other_merge == NULL && from_merge->wants_disconnect)
-          from_merge->wants_disconnect = false;
-
-        if (!from_merge->wants_disconnect && other_merge != NULL && !other_merge->wants_disconnect)
+        if (player->input.take_over_squad >= 0)
         {
-          assert(box_grid(from_merge) != box_grid(other_merge));
-
-          Entity *from_grid = box_grid(from_merge);
-          Entity *other_grid = box_grid(other_merge);
-
-          // the merges are near eachother, but are they facing eachother...
-          bool from_facing_other = cpvdot(box_facing_vector(from_merge), cpvnormalize(cpvsub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8;
-          bool other_facing_from = cpvdot(box_facing_vector(other_merge), cpvnormalize(cpvsub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8;
-
-          // using this stuff to detect if when the other grid's boxes are snapped, they'll be snapped
-          // to be next to the from merge box
-          cpVect actual_new_pos = grid_snapped_box_pos(from_grid, entity_pos(other_merge));
-          cpVect needed_new_pos = cpvadd(entity_pos(from_merge), cpvmult(box_facing_vector(from_merge), BOX_SIZE));
-          if (from_facing_other && other_facing_from && cpvnear(needed_new_pos, actual_new_pos, 0.01))
+          if (player->input.take_over_squad == SquadNone)
           {
-            // do the merge
-            cpVect facing_vector_needed = cpvmult(box_facing_vector(from_merge), -1.0);
-            cpVect current_facing_vector = box_facing_vector(other_merge);
-            double angle_diff = cpvanglediff(current_facing_vector, facing_vector_needed);
-            if (angle_diff == FLT_MIN)
-              angle_diff = 0.0;
-            assert(!isnan(angle_diff));
-
-            cpBodySetAngle(other_grid->body, cpBodyGetAngle(other_grid->body) + angle_diff);
-
-            cpVect moved_because_angle_change = cpvsub(needed_new_pos, entity_pos(other_merge));
-            cpBodySetPosition(other_grid->body, (cpvadd(entity_pos(other_grid), moved_because_angle_change)));
-
-            // cpVect snap_movement_vect = cpvsub(actual_new_pos, entity_pos(other_merge));
-            cpVect snap_movement_vect = (cpVect){0};
-
-            Entity *cur = get_entity(gs, other_grid->boxes);
-
-            other_grid->boxes = (EntityID){0};
-            while (cur != NULL)
-            {
-              Entity *next = get_entity(gs, cur->next_box);
-              cpVect world = entity_pos(cur);
-              enum CompassRotation new_rotation = facing_vector_to_compass(from_grid, other_grid, box_facing_vector(cur));
-              cur->compass_rotation = new_rotation;
-              cpVect new_cur_pos = grid_snapped_box_pos(from_grid, cpvadd(snap_movement_vect, world));
-              box_create(gs, cur, from_grid, grid_world_to_local(from_grid, new_cur_pos)); // destroys next/prev fields on cur
-              assert(box_grid(cur) == box_grid(from_merge));
-              cur = next;
-            }
-            entity_destroy(gs, other_grid);
-          }
-        }
-      }
-      if (e->damage >= 1.0)
-      {
-        grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
-      }
-    }
-    if (e->is_grid)
-    {
-      Entity *grid = e;
-      // calculate how much energy solar panels provide
-      double energy_to_add = 0.0;
-      BOXES_ITER(gs, cur_box, grid)
-      {
-        if (cur_box->box_type == BoxSolarPanel)
-        {
-          cur_box->sun_amount = 0.0;
-          SUNS_ITER(gs)
-          {
-            double new_sun = clamp01(fabs(cpvdot(box_facing_vector(cur_box), cpvnormalize(cpvsub(entity_pos(i.sun), entity_pos(cur_box))))));
-
-            // less sun the farther away you are!
-            new_sun *= lerp(1.0, 0.0, clamp01(cpvlength(cpvsub(entity_pos(cur_box), entity_pos(i.sun))) / sun_dist_no_gravity(i.sun)));
-            cur_box->sun_amount += new_sun;
-          }
-          energy_to_add += cur_box->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
-        }
-      }
-
-      // apply all of the energy to all connected batteries
-      BOXES_ITER(gs, cur, grid)
-      {
-        if (energy_to_add <= 0.0)
-          break;
-        if (cur->box_type == BoxBattery)
-        {
-          double energy_sucked_up_by_battery = cur->energy_used < energy_to_add ? cur->energy_used : energy_to_add;
-          cur->energy_used -= energy_sucked_up_by_battery;
-          energy_to_add -= energy_sucked_up_by_battery;
-        }
-        assert(energy_to_add >= 0.0);
-      }
-
-      // any energy_to_add existing now can also be used to power thrusters/medbay
-      double non_battery_energy_left_over = energy_to_add;
-
-      // use the energy, stored in the batteries, in various boxes
-      BOXES_ITER(gs, cur_box, grid)
-      {
-        if (cur_box->box_type == BoxThruster)
-        {
-
-          double energy_to_consume = cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
-          if (energy_to_consume > 0.0)
-          {
-            cur_box->thrust = 0.0;
-            double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
-            cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
-            if (cur_box->thrust >= 0.0)
-              cpBodyApplyForceAtWorldPoint(grid->body, (thruster_force(cur_box)), (entity_pos(cur_box)));
-          }
-        }
-        if (cur_box->box_type == BoxGyroscope)
-        {
-          double energy_to_consume = fabs(cur_box->wanted_thrust * GYROSCOPE_ENERGY_USED_PER_SECOND * dt);
-          if (energy_to_consume > 0.0)
-          {
-            cur_box->thrust = 0.0;
-            double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
-            cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
-            if (fabs(cur_box->thrust) >= 0.0)
-              cpBodySetTorque(grid->body, cpBodyGetTorque(grid->body) + cur_box->thrust * GYROSCOPE_TORQUE);
-          }
-        }
-        if (cur_box->box_type == BoxMedbay)
-        {
-          Entity *potential_meatbag_to_heal = get_entity(gs, cur_box->player_who_is_inside_of_me);
-          if (potential_meatbag_to_heal != NULL)
-          {
-            double wanted_energy_use = fmin(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
-            if (wanted_energy_use > 0.0)
-            {
-              double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, wanted_energy_use);
-              potential_meatbag_to_heal->damage -= (1.0 - energy_unconsumed / wanted_energy_use) * wanted_energy_use;
-            }
-          }
-        }
-        if (cur_box->box_type == BoxCloaking)
-        {
-          double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, CLOAKING_ENERGY_USE * dt);
-          if (energy_unconsumed >= CLOAKING_ENERGY_USE * dt)
-          {
-            cur_box->cloaking_power = lerp(cur_box->cloaking_power, 0.0, dt * 3.0);
+            player->squad = SquadNone;
           }
           else
           {
-            cur_box->cloaking_power = lerp(cur_box->cloaking_power, 1.0, dt * 3.0);
-            cpBody *tmp = cpBodyNew(0.0, 0.0);
-            cpBodySetPosition(tmp, (entity_pos(cur_box)));
-            cpBodySetAngle(tmp, entity_rotation(cur_box));
-            // subtract a little from the panel size so that boxes just at the boundary of the panel
-            // aren't (sometimes cloaked)/(sometimes not) from floating point imprecision
-            cpShape *box_shape = cpBoxShapeNew(tmp, CLOAKING_PANEL_SIZE - 0.03, CLOAKING_PANEL_SIZE - 0.03, 0.0);
-            cpSpaceShapeQuery(gs->space, box_shape, cloaking_shield_callback_func, (void *)cur_box);
-            cpShapeFree(box_shape);
-            cpBodyFree(tmp);
-          }
-        }
-        if (cur_box->box_type == BoxMissileLauncher)
-        {
-          LauncherTarget target = missile_launcher_target(gs, cur_box);
-
-          if (cur_box->missile_construction_charge < 1.0)
-          {
-            double want_use_energy = dt * MISSILE_CHARGE_RATE;
-            double energy_charged = want_use_energy - batteries_use_energy(gs, grid, &non_battery_energy_left_over, want_use_energy);
-            cur_box->missile_construction_charge += energy_charged;
-          }
-
-          if (target.target_found && cur_box->missile_construction_charge >= 1.0)
-          {
-            cur_box->missile_construction_charge = 0.0;
-            Entity *new_missile = new_entity(gs);
-            create_missile(gs, new_missile);
-            new_missile->owning_squad = cur_box->owning_squad; // missiles have teams and attack eachother!
-            double missile_spawn_dist = sqrt((BOX_SIZE / 2.0) * (BOX_SIZE / 2.0) * 2.0) + MISSILE_COLLIDER_SIZE.x / 2.0 + 0.1;
-            cpBodySetPosition(new_missile->body, (cpvadd(entity_pos(cur_box), cpvspin((cpVect){.x = missile_spawn_dist, 0.0}, target.facing_angle))));
-            cpBodySetAngle(new_missile->body, target.facing_angle);
-            cpBodySetVelocity(new_missile->body, (box_vel(cur_box)));
-          }
-        }
-        if (cur_box->box_type == BoxScanner)
-        {
-          // set the nearest platonic solid! only on server as only the server sees everything
-          if (gs->server_side_computing)
-          {
-            double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, SCANNER_ENERGY_USE * dt);
-            if (energy_unconsumed >= SCANNER_ENERGY_USE * dt)
+            bool squad_taken = false;
+            PLAYERS_ITER(gs->players, other_player)
             {
-              cur_box->platonic_detection_strength = 0.0;
-              cur_box->platonic_nearest_direction = (cpVect){0};
+              if (other_player->squad == player->input.take_over_squad)
+              {
+                squad_taken = true;
+                break;
+              }
+            }
+            if (!squad_taken)
+              player->squad = player->input.take_over_squad;
+          }
+          player->input.take_over_squad = -1;
+        }
+
+        // squad invites
+        Entity *possibly_to_invite = get_entity(gs, player->input.invite_this_player);
+        if (player->input.invite_this_player.generation > 0)
+          player->input.invite_this_player = (EntityID){0}; // just in case
+        if (player->squad != SquadNone && possibly_to_invite != NULL && possibly_to_invite->is_player)
+        {
+          possibly_to_invite->squad_invited_to = player->squad;
+        }
+        Entity *p = get_entity(gs, player->entity);
+        // player respawning
+        if (p == NULL)
+        {
+          p = new_entity(gs);
+          create_player_entity(gs, p);
+          player->entity = get_id(gs, p);
+          Entity *medbay = get_entity(gs, player->last_used_medbay);
+          entity_ensure_in_orbit(gs, p);
+          if (medbay != NULL)
+          {
+            exit_seat(gs, medbay, p);
+            p->damage = 0.95;
+          }
+        }
+        assert(p->is_player);
+        p->owning_squad = player->squad;
+
+        if (p->squad_invited_to != SquadNone)
+        {
+          if (player->input.accept_cur_squad_invite)
+          {
+            player->squad = p->squad_invited_to;
+            p->squad_invited_to = SquadNone;
+            player->input.accept_cur_squad_invite = false;
+          }
+          if (player->input.reject_cur_squad_invite)
+          {
+            p->squad_invited_to = SquadNone;
+            player->input.reject_cur_squad_invite = false;
+          }
+        }
+
+#ifdef INFINITE_RESOURCES
+        p->damage = 0.0;
+#endif
+        // update gold win condition
+        if (cpvlength(cpvsub((cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
+        {
+          p->goldness += 0.1;
+          p->damage = 0.0;
+          gs->goldpos = (cpVect){.x = hash11((float)time(gs)) * 20.0, .y = hash11((float)time(gs) - 13.6) * 20.0};
+        }
+#if 1
+        cpVect world_hand_pos = get_world_hand_pos(gs, &player->input, p);
+        if (player->input.seat_action)
+        {
+          player->input.seat_action = false; // "handle" the input
+          Entity *seat_maybe_in = get_entity(gs, p->currently_inside_of_box);
+          if (seat_maybe_in == NULL) // not in any seat
+          {
+            cpPointQueryInfo query_info = {0};
+            cpShape *result = cpSpacePointQueryNearest(gs->space, (world_hand_pos), 0.1, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
+            if (result != NULL)
+            {
+              Entity *potential_seat = cp_shape_entity(result);
+              assert(potential_seat->is_box);
+
+              if (potential_seat->box_type == BoxScanner) // learn everything from the scanner
+              {
+                player->box_unlocks |= potential_seat->blueprints_learned;
+              }
+              if (potential_seat->box_type == BoxMerge) // disconnect!
+              {
+                potential_seat->wants_disconnect = true;
+                grid_correct_for_holes(gs, box_grid(potential_seat));
+                assert(potential_seat->exists);
+                assert(potential_seat->is_box);
+                assert(potential_seat->box_type == BoxMerge);
+              }
+              if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
+              {
+                // don't let players get inside of cockpits that somebody else is already inside of
+                if (get_entity(gs, potential_seat->player_who_is_inside_of_me) == NULL)
+                {
+                  p->currently_inside_of_box = get_id(gs, potential_seat);
+                  potential_seat->player_who_is_inside_of_me = get_id(gs, p);
+                  if (potential_seat->box_type == BoxMedbay)
+                    player->last_used_medbay = p->currently_inside_of_box;
+                }
+              }
             }
             else
             {
-              cpVect from_pos = entity_pos(cur_box);
-              cpVect nearest = {0};
-              double nearest_dist = INFINITY;
-              for (int i = 0; i < MAX_BOX_TYPES; i++)
+              Log("No seat to get into for a player at point %f %f\n", world_hand_pos.x, world_hand_pos.y);
+            }
+          }
+          else
+          {
+            exit_seat(gs, seat_maybe_in, p);
+            seat_maybe_in->player_who_is_inside_of_me = (EntityID){0};
+            p->currently_inside_of_box = (EntityID){0};
+          }
+        }
+#endif
+
+        // process movement
+        {
+          // no cheating by making movement bigger than length 1
+          cpVect movement_this_tick = (cpVect){0};
+          double rotation_this_tick = 0.0;
+          if (cpvlength(player->input.movement) > 0.0)
+          {
+            movement_this_tick = cpvmult(cpvnormalize(player->input.movement), clamp(cpvlength(player->input.movement), 0.0, 1.0));
+            player->input.movement = (cpVect){0};
+          }
+          if (fabs(player->input.rotation) > 0.0)
+          {
+            rotation_this_tick = player->input.rotation;
+            if (rotation_this_tick > 1.0)
+              rotation_this_tick = 1.0;
+            if (rotation_this_tick < -1.0)
+              rotation_this_tick = -1.0;
+            player->input.rotation = 0.0;
+          }
+          Entity *seat_inside_of = get_entity(gs, p->currently_inside_of_box);
+
+          // strange rare bug I saw happen, related to explosives, but no idea how to
+          // reproduce. @Robust put a breakpoint here, reproduce, and fix it!
+          if (seat_inside_of != NULL && !seat_inside_of->is_box)
+          {
+            Log("Strange thing happened where player was in non box seat!\n");
+            seat_inside_of = NULL;
+            p->currently_inside_of_box = (EntityID){0};
+          }
+
+          if (seat_inside_of == NULL)
+          {
+            cpShapeSetFilter(p->shape, PLAYER_SHAPE_FILTER);
+            cpBodyApplyForceAtWorldPoint(p->body, (cpvmult(movement_this_tick, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
+            cpBodySetTorque(p->body, rotation_this_tick * PLAYER_JETPACK_TORQUE);
+            p->damage += cpvlength(movement_this_tick) * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
+            p->damage += fabs(rotation_this_tick) * dt * PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND;
+          }
+          else
+          {
+            assert(seat_inside_of->is_box);
+            cpShapeSetFilter(p->shape, CP_SHAPE_FILTER_NONE); // no collisions while in a seat
+            cpBodySetPosition(p->body, (entity_pos(seat_inside_of)));
+            cpBodySetVelocity(p->body, (box_vel(seat_inside_of)));
+
+            // share cloaking with box
+            p->time_was_last_cloaked = seat_inside_of->time_was_last_cloaked;
+            p->last_cloaked_by_squad = seat_inside_of->last_cloaked_by_squad;
+
+            // set thruster thrust from movement
+            if (seat_inside_of->box_type == BoxCockpit)
+            {
+              Entity *g = get_entity(gs, seat_inside_of->shape_parent_entity);
+
+              cpVect target_direction = {0};
+              if (cpvlength(movement_this_tick) > 0.0)
               {
-                cpVect cur_pos = gs->platonic_positions[i];
-                if (cpvlength(cur_pos) > 0.0) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
+                target_direction = cpvnormalize(movement_this_tick);
+              }
+              BOXES_ITER(gs, cur, g)
+              {
+                if (cur->box_type == BoxThruster)
                 {
-                  double length_to_cur = cpvdist(from_pos, cur_pos);
-                  if (length_to_cur < nearest_dist)
-                  {
-                    nearest_dist = length_to_cur;
-                    nearest = cur_pos;
-                  }
+
+                  double wanted_thrust = -cpvdot(target_direction, box_facing_vector(cur));
+                  wanted_thrust = clamp01(wanted_thrust);
+                  cur->wanted_thrust = wanted_thrust;
                 }
-              }
-              if (nearest_dist < INFINITY)
-              {
-                cur_box->platonic_nearest_direction = cpvnormalize(cpvsub(nearest, from_pos));
-                cur_box->platonic_detection_strength = fmax(0.1, 1.0 - fmin(1.0, nearest_dist / 100.0));
-              }
-              else
-              {
-                cur_box->platonic_nearest_direction = (cpVect){0};
-                cur_box->platonic_detection_strength = 0.0;
+                if (cur->box_type == BoxGyroscope)
+                {
+                  cur->wanted_thrust = rotation_this_tick;
+                }
               }
             }
           }
+        }
 
-          // unlock the nearest platonic solid!
-          scanner_has_learned = cur_box->blueprints_learned;
-          Entity *to_learn = closest_box_to_point_in_radius(gs, entity_pos(cur_box), SCANNER_RADIUS, scanner_filter);
-          if (to_learn != NULL)
-            assert(to_learn->is_box);
+#if 1 // building
+        if (player->input.dobuild)
+        {
+          player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
 
-          EntityID new_id = get_id(gs, to_learn);
+          cpPointQueryInfo info = {0};
+          cpVect world_build = world_hand_pos;
 
-          if (!entityids_same(cur_box->currently_scanning, new_id))
+          // @Robust sanitize this input so player can't build on any grid in the world
+          Entity *target_grid = grid_to_build_on(gs, world_hand_pos);
+          cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, (world_build), 0.01, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
+          if (maybe_box_to_destroy != NULL)
           {
-            cur_box->currently_scanning_progress = 0.0;
-            cur_box->currently_scanning = new_id;
+            Entity *cur_box = cp_shape_entity(maybe_box_to_destroy);
+            if (!cur_box->indestructible && !cur_box->is_platonic)
+            {
+              Entity *cur_grid = cp_body_entity(cpShapeGetBody(maybe_box_to_destroy));
+              p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK * ((BATTERY_CAPACITY - cur_box->energy_used) / BATTERY_CAPACITY);
+              grid_remove_box(gs, cur_grid, cur_box);
+            }
           }
-
-          double target_head_rotate_speed = cur_box->platonic_detection_strength > 0.0 ? 3.0 : 0.0;
-          if (to_learn != NULL)
+          else if (box_unlocked(player, player->input.build_type))
           {
-            cur_box->currently_scanning_progress += dt * SCANNER_SCAN_RATE;
-            target_head_rotate_speed *= 30.0 * cur_box->currently_scanning_progress;
+            // creating a box
+            p->damage += DAMAGE_TO_PLAYER_PER_BLOCK;
+            cpVect created_box_position;
+            if (p->damage < 1.0) // player can't create a box that kills them by making it
+            {
+              if (target_grid == NULL)
+              {
+                Entity *new_grid = new_entity(gs);
+                grid_create(gs, new_grid);
+                entity_set_pos(new_grid, world_build);
+                cpBodySetVelocity(new_grid->body, (player_vel(gs, p)));
+                target_grid = new_grid;
+                created_box_position = (cpVect){0};
+              }
+              else
+              {
+                created_box_position = grid_world_to_local(target_grid, world_build);
+              }
+              Entity *new_box = new_entity(gs);
+              box_create(gs, new_box, target_grid, created_box_position);
+              new_box->owning_squad = player->squad;
+              grid_correct_for_holes(gs, target_grid); // no holey ship for you!
+              new_box->box_type = player->input.build_type;
+              new_box->compass_rotation = player->input.build_rotation;
+              if (new_box->box_type == BoxScanner)
+                new_box->blueprints_learned = player->box_unlocks;
+              if (new_box->box_type == BoxBattery)
+                new_box->energy_used = BATTERY_CAPACITY;
+            }
           }
-          else
-            cur_box->currently_scanning_progress = 0.0;
+        }
+#endif
+        if (p->damage >= 1.0)
+        {
+          entity_destroy(gs, p);
+          player->entity = (EntityID){0};
+        }
 
-          if (cur_box->currently_scanning_progress >= 1.0)
+        p->damage = clamp01(p->damage);
+      }
+    }
+
+    PROFILE_SCOPE("process entities")
+    {
+      for (size_t i = 0; i < gs->cur_next_entity; i++)
+      {
+        Entity *e = &gs->entities[i];
+        if (!e->exists)
+          continue;
+
+        PROFILE_SCOPE("instant death ")
+        {
+          cpFloat dist_from_center = cpvlengthsq((entity_pos(e)));
+          if (e->body != NULL && dist_from_center > (INSTANT_DEATH_DISTANCE_FROM_CENTER * INSTANT_DEATH_DISTANCE_FROM_CENTER))
           {
-            cur_box->blueprints_learned |= box_unlock_number(to_learn->box_type);
+            bool platonic_found = false;
+            if (e->is_grid)
+            {
+              BOXES_ITER(gs, cur_box, e)
+              {
+                if (cur_box->is_platonic)
+                {
+                  platonic_found = true;
+                  break;
+                }
+              }
+            }
+            if (platonic_found)
+            {
+              cpBody *body = e->body;
+              cpBodySetVelocity(body, cpvmult(cpBodyGetVelocity(body), -0.5));
+              cpVect rel_to_center = cpvsub(cpBodyGetPosition(body), (cpVect){0});
+              cpBodySetPosition(body, cpvmult(cpvnormalize(rel_to_center), INSTANT_DEATH_DISTANCE_FROM_CENTER));
+            }
+            else
+            {
+              entity_destroy(gs, e);
+            }
+            continue;
           }
+        }
 
-          cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, target_head_rotate_speed, dt * 3.0);
-          cur_box->scanner_head_rotate += cur_box->scanner_head_rotate_speed * dt;
-          cur_box->scanner_head_rotate = fmod(cur_box->scanner_head_rotate, 2.0 * PI);
+        // sun processing for this current entity
+        PROFILE_SCOPE("this entity sun processing")
+        {
+          SUNS_ITER(gs)
+          {
+            cpVect pos_rel_sun = (cpvsub(entity_pos(e), (entity_pos(i.sun))));
+            cpFloat sqdist = cpvlengthsq(pos_rel_sun);
+            if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
+            {
+              sqdist = cpvlengthsq(cpvsub((entity_pos(e)), (entity_pos(i.sun))));
+              if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))
+              {
+                e->damage += 10.0 * dt;
+              }
+            }
+
+            if (e->body != NULL)
+            {
+              cpVect accel = sun_gravity_accel_for_entity(e, i.sun);
+              cpVect new_vel = entity_vel(gs, e);
+              new_vel = cpvadd(new_vel, cpvmult(accel, dt));
+              cpBodySetVelocity(e->body, (new_vel));
+            }
+          }
+        }
+
+        if (e->is_explosion)
+        {
+          PROFILE_SCOPE("Explosion")
+          {
+            e->explosion_progress += dt;
+            e->explosion_pos = cpvadd(e->explosion_pos, cpvmult(e->explosion_vel, dt));
+            do_explosion(gs, e, dt);
+            if (e->explosion_progress >= EXPLOSION_TIME)
+            {
+              entity_destroy(gs, e);
+            }
+          }
+        }
+
+        if (e->is_missile)
+        {
+          PROFILE_SCOPE("Missile")
+          {
+            if (is_burning(e))
+            {
+              e->time_burned_for += dt;
+              cpBodyApplyForceAtWorldPoint(e->body, (cpvspin((cpVect){.x = MISSILE_BURN_FORCE, .y = 0.0}, entity_rotation(e))), (entity_pos(e)));
+            }
+            if (e->damage >= MISSILE_DAMAGE_THRESHOLD && e->time_burned_for >= MISSILE_ARM_TIME)
+            {
+              Entity *explosion = new_entity(gs);
+              explosion->is_explosion = true;
+              explosion->explosion_pos = entity_pos(e);
+              explosion->explosion_vel = (cpBodyGetVelocity(e->body));
+              explosion->explosion_push_strength = MISSILE_EXPLOSION_PUSH;
+              explosion->explosion_radius = MISSILE_EXPLOSION_RADIUS;
+              entity_destroy(gs, e);
+            }
+          }
+        }
+
+        if (e->is_box)
+        {
+          PROFILE_SCOPE("Box processing")
+          {
+            if (e->is_platonic)
+            {
+              e->damage = 0.0;
+              gs->platonic_positions[(int)e->box_type] = entity_pos(e);
+            }
+            if (e->box_type == BoxExplosive && e->damage >= EXPLOSION_DAMAGE_THRESHOLD)
+            {
+              Entity *explosion = new_entity(gs);
+              explosion->is_explosion = true;
+              explosion->explosion_pos = entity_pos(e);
+              explosion->explosion_vel = grid_vel(box_grid(e));
+              explosion->explosion_push_strength = BOMB_EXPLOSION_PUSH;
+              explosion->explosion_radius = BOMB_EXPLOSION_RADIUS;
+              if (!e->is_platonic)
+                grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
+            }
+            if (e->box_type == BoxMerge)
+            {
+              Entity *from_merge = e;
+              assert(from_merge != NULL);
+
+              grid_to_exclude = box_grid(from_merge);
+              Entity *other_merge = closest_box_to_point_in_radius(gs, entity_pos(from_merge), MERGE_MAX_DIST, merge_filter);
+
+              if (other_merge == NULL && from_merge->wants_disconnect)
+                from_merge->wants_disconnect = false;
+
+              if (!from_merge->wants_disconnect && other_merge != NULL && !other_merge->wants_disconnect)
+              {
+                assert(box_grid(from_merge) != box_grid(other_merge));
+
+                Entity *from_grid = box_grid(from_merge);
+                Entity *other_grid = box_grid(other_merge);
+
+                // the merges are near eachother, but are they facing eachother...
+                bool from_facing_other = cpvdot(box_facing_vector(from_merge), cpvnormalize(cpvsub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8;
+                bool other_facing_from = cpvdot(box_facing_vector(other_merge), cpvnormalize(cpvsub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8;
+
+                // using this stuff to detect if when the other grid's boxes are snapped, they'll be snapped
+                // to be next to the from merge box
+                cpVect actual_new_pos = grid_snapped_box_pos(from_grid, entity_pos(other_merge));
+                cpVect needed_new_pos = cpvadd(entity_pos(from_merge), cpvmult(box_facing_vector(from_merge), BOX_SIZE));
+                if (from_facing_other && other_facing_from && cpvnear(needed_new_pos, actual_new_pos, 0.01))
+                {
+                  // do the merge
+                  cpVect facing_vector_needed = cpvmult(box_facing_vector(from_merge), -1.0);
+                  cpVect current_facing_vector = box_facing_vector(other_merge);
+                  double angle_diff = cpvanglediff(current_facing_vector, facing_vector_needed);
+                  if (angle_diff == FLT_MIN)
+                    angle_diff = 0.0;
+                  assert(!isnan(angle_diff));
+
+                  cpBodySetAngle(other_grid->body, cpBodyGetAngle(other_grid->body) + angle_diff);
+
+                  cpVect moved_because_angle_change = cpvsub(needed_new_pos, entity_pos(other_merge));
+                  cpBodySetPosition(other_grid->body, (cpvadd(entity_pos(other_grid), moved_because_angle_change)));
+
+                  // cpVect snap_movement_vect = cpvsub(actual_new_pos, entity_pos(other_merge));
+                  cpVect snap_movement_vect = (cpVect){0};
+
+                  Entity *cur = get_entity(gs, other_grid->boxes);
+
+                  other_grid->boxes = (EntityID){0};
+                  while (cur != NULL)
+                  {
+                    Entity *next = get_entity(gs, cur->next_box);
+                    cpVect world = entity_pos(cur);
+                    enum CompassRotation new_rotation = facing_vector_to_compass(from_grid, other_grid, box_facing_vector(cur));
+                    cur->compass_rotation = new_rotation;
+                    cpVect new_cur_pos = grid_snapped_box_pos(from_grid, cpvadd(snap_movement_vect, world));
+                    box_create(gs, cur, from_grid, grid_world_to_local(from_grid, new_cur_pos)); // destroys next/prev fields on cur
+                    assert(box_grid(cur) == box_grid(from_merge));
+                    cur = next;
+                  }
+                  entity_destroy(gs, other_grid);
+                }
+              }
+            }
+            if (e->damage >= 1.0)
+            {
+              grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
+            }
+          }
+        }
+
+        if (e->is_grid)
+        {
+          PROFILE_SCOPE("Grid processing")
+          {
+            Entity *grid = e;
+            // calculate how much energy solar panels provide
+            double energy_to_add = 0.0;
+            BOXES_ITER(gs, cur_box, grid)
+            {
+              if (cur_box->box_type == BoxSolarPanel)
+              {
+                cur_box->sun_amount = 0.0;
+                SUNS_ITER(gs)
+                {
+                  double new_sun = clamp01(fabs(cpvdot(box_facing_vector(cur_box), cpvnormalize(cpvsub(entity_pos(i.sun), entity_pos(cur_box))))));
+
+                  // less sun the farther away you are!
+                  new_sun *= lerp(1.0, 0.0, clamp01(cpvlength(cpvsub(entity_pos(cur_box), entity_pos(i.sun))) / sun_dist_no_gravity(i.sun)));
+                  cur_box->sun_amount += new_sun;
+                }
+                energy_to_add += cur_box->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
+              }
+            }
+
+            // apply all of the energy to all connected batteries
+            BOXES_ITER(gs, cur, grid)
+            {
+              if (energy_to_add <= 0.0)
+                break;
+              if (cur->box_type == BoxBattery)
+              {
+                double energy_sucked_up_by_battery = cur->energy_used < energy_to_add ? cur->energy_used : energy_to_add;
+                cur->energy_used -= energy_sucked_up_by_battery;
+                energy_to_add -= energy_sucked_up_by_battery;
+              }
+              assert(energy_to_add >= 0.0);
+            }
+
+            // any energy_to_add existing now can also be used to power thrusters/medbay
+            double non_battery_energy_left_over = energy_to_add;
+
+            // use the energy, stored in the batteries, in various boxes
+            BOXES_ITER(gs, cur_box, grid)
+            {
+              if (cur_box->box_type == BoxThruster)
+              {
+
+                double energy_to_consume = cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
+                if (energy_to_consume > 0.0)
+                {
+                  cur_box->thrust = 0.0;
+                  double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
+                  cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
+                  if (cur_box->thrust >= 0.0)
+                    cpBodyApplyForceAtWorldPoint(grid->body, (thruster_force(cur_box)), (entity_pos(cur_box)));
+                }
+              }
+              if (cur_box->box_type == BoxGyroscope)
+              {
+                double energy_to_consume = fabs(cur_box->wanted_thrust * GYROSCOPE_ENERGY_USED_PER_SECOND * dt);
+                if (energy_to_consume > 0.0)
+                {
+                  cur_box->thrust = 0.0;
+                  double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
+                  cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
+                  if (fabs(cur_box->thrust) >= 0.0)
+                    cpBodySetTorque(grid->body, cpBodyGetTorque(grid->body) + cur_box->thrust * GYROSCOPE_TORQUE);
+                }
+              }
+              if (cur_box->box_type == BoxMedbay)
+              {
+                Entity *potential_meatbag_to_heal = get_entity(gs, cur_box->player_who_is_inside_of_me);
+                if (potential_meatbag_to_heal != NULL)
+                {
+                  double wanted_energy_use = fmin(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
+                  if (wanted_energy_use > 0.0)
+                  {
+                    double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, wanted_energy_use);
+                    potential_meatbag_to_heal->damage -= (1.0 - energy_unconsumed / wanted_energy_use) * wanted_energy_use;
+                  }
+                }
+              }
+              if (cur_box->box_type == BoxCloaking)
+              {
+                double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, CLOAKING_ENERGY_USE * dt);
+                if (energy_unconsumed >= CLOAKING_ENERGY_USE * dt)
+                {
+                  cur_box->cloaking_power = lerp(cur_box->cloaking_power, 0.0, dt * 3.0);
+                }
+                else
+                {
+                  cur_box->cloaking_power = lerp(cur_box->cloaking_power, 1.0, dt * 3.0);
+                  cpBody *tmp = cpBodyNew(0.0, 0.0);
+                  cpBodySetPosition(tmp, (entity_pos(cur_box)));
+                  cpBodySetAngle(tmp, entity_rotation(cur_box));
+                  // subtract a little from the panel size so that boxes just at the boundary of the panel
+                  // aren't (sometimes cloaked)/(sometimes not) from floating point imprecision
+                  cpShape *box_shape = cpBoxShapeNew(tmp, CLOAKING_PANEL_SIZE - 0.03, CLOAKING_PANEL_SIZE - 0.03, 0.0);
+                  cpSpaceShapeQuery(gs->space, box_shape, cloaking_shield_callback_func, (void *)cur_box);
+                  cpShapeFree(box_shape);
+                  cpBodyFree(tmp);
+                }
+              }
+              if (cur_box->box_type == BoxMissileLauncher)
+              {
+                LauncherTarget target = missile_launcher_target(gs, cur_box);
+
+                if (cur_box->missile_construction_charge < 1.0)
+                {
+                  double want_use_energy = dt * MISSILE_CHARGE_RATE;
+                  double energy_charged = want_use_energy - batteries_use_energy(gs, grid, &non_battery_energy_left_over, want_use_energy);
+                  cur_box->missile_construction_charge += energy_charged;
+                }
+
+                if (target.target_found && cur_box->missile_construction_charge >= 1.0)
+                {
+                  cur_box->missile_construction_charge = 0.0;
+                  Entity *new_missile = new_entity(gs);
+                  create_missile(gs, new_missile);
+                  new_missile->owning_squad = cur_box->owning_squad; // missiles have teams and attack eachother!
+                  double missile_spawn_dist = sqrt((BOX_SIZE / 2.0) * (BOX_SIZE / 2.0) * 2.0) + MISSILE_COLLIDER_SIZE.x / 2.0 + 0.1;
+                  cpBodySetPosition(new_missile->body, (cpvadd(entity_pos(cur_box), cpvspin((cpVect){.x = missile_spawn_dist, 0.0}, target.facing_angle))));
+                  cpBodySetAngle(new_missile->body, target.facing_angle);
+                  cpBodySetVelocity(new_missile->body, (box_vel(cur_box)));
+                }
+              }
+              if (cur_box->box_type == BoxScanner)
+              {
+                // set the nearest platonic solid! only on server as only the server sees everything
+                if (gs->server_side_computing)
+                {
+                  double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, SCANNER_ENERGY_USE * dt);
+                  if (energy_unconsumed >= SCANNER_ENERGY_USE * dt)
+                  {
+                    cur_box->platonic_detection_strength = 0.0;
+                    cur_box->platonic_nearest_direction = (cpVect){0};
+                  }
+                  else
+                  {
+                    cpVect from_pos = entity_pos(cur_box);
+                    cpVect nearest = {0};
+                    double nearest_dist = INFINITY;
+                    for (int i = 0; i < MAX_BOX_TYPES; i++)
+                    {
+                      cpVect cur_pos = gs->platonic_positions[i];
+                      if (cpvlength(cur_pos) > 0.0) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
+                      {
+                        double length_to_cur = cpvdist(from_pos, cur_pos);
+                        if (length_to_cur < nearest_dist)
+                        {
+                          nearest_dist = length_to_cur;
+                          nearest = cur_pos;
+                        }
+                      }
+                    }
+                    if (nearest_dist < INFINITY)
+                    {
+                      cur_box->platonic_nearest_direction = cpvnormalize(cpvsub(nearest, from_pos));
+                      cur_box->platonic_detection_strength = fmax(0.1, 1.0 - fmin(1.0, nearest_dist / 100.0));
+                    }
+                    else
+                    {
+                      cur_box->platonic_nearest_direction = (cpVect){0};
+                      cur_box->platonic_detection_strength = 0.0;
+                    }
+                  }
+                }
+
+                // unlock the nearest platonic solid!
+                scanner_has_learned = cur_box->blueprints_learned;
+                Entity *to_learn = closest_box_to_point_in_radius(gs, entity_pos(cur_box), SCANNER_RADIUS, scanner_filter);
+                if (to_learn != NULL)
+                  assert(to_learn->is_box);
+
+                EntityID new_id = get_id(gs, to_learn);
+
+                if (!entityids_same(cur_box->currently_scanning, new_id))
+                {
+                  cur_box->currently_scanning_progress = 0.0;
+                  cur_box->currently_scanning = new_id;
+                }
+
+                double target_head_rotate_speed = cur_box->platonic_detection_strength > 0.0 ? 3.0 : 0.0;
+                if (to_learn != NULL)
+                {
+                  cur_box->currently_scanning_progress += dt * SCANNER_SCAN_RATE;
+                  target_head_rotate_speed *= 30.0 * cur_box->currently_scanning_progress;
+                }
+                else
+                  cur_box->currently_scanning_progress = 0.0;
+
+                if (cur_box->currently_scanning_progress >= 1.0)
+                {
+                  cur_box->blueprints_learned |= box_unlock_number(to_learn->box_type);
+                }
+
+                cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, target_head_rotate_speed, dt * 3.0);
+                cur_box->scanner_head_rotate += cur_box->scanner_head_rotate_speed * dt;
+                cur_box->scanner_head_rotate = fmod(cur_box->scanner_head_rotate, 2.0 * PI);
+              }
+            }
+          }
         }
       }
     }
-  }
 
-  cpSpaceStep(gs->space, dt);
+    PROFILE_SCOPE("chipmunk physics processing")
+    {
+      cpSpaceStep(gs->space, dt);
+    }
+  }
 }

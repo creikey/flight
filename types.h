@@ -337,7 +337,9 @@ typedef struct GameState
 
   // @Robust for the integer tick, also store a double for how much time has been processed.
   // Like a whole timestep then a double for subtimestep
-  double time; // @Robust separate tick integer not prone to precision issues. Could be very large as is saved to disk!
+  uint64_t tick;
+  double subframe_time;
+  
 
   cpVect goldpos;
 
@@ -421,9 +423,12 @@ void create_initial_world(GameState *gs);
 void initialize(struct GameState *gs, void *entity_arena, size_t entity_arena_size);
 void destroy(struct GameState *gs);
 void process_fixed_timestep(GameState *gs);
-void process(struct GameState *gs, double dt); // does in place
+// if is subframe, doesn't always increment the tick. When enough
+// subframe time has been processed, increments the tick
+void process(struct GameState *gs, double dt, bool is_subframe); // does in place
 Entity *closest_box_to_point_in_radius(struct GameState *gs, cpVect point, double radius, bool (*filter_func)(Entity *));
 uint64_t tick(struct GameState *gs);
+double time(GameState *gs);
 double sun_dist_no_gravity(Entity *sun);
 
 // all of these return if successful or not
