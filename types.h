@@ -186,7 +186,7 @@ typedef struct EntityID
   unsigned int index;      // index into the entity arena
 } EntityID;
 
-static bool entityids_same(EntityID a, EntityID b)
+static inline bool entityids_same(EntityID a, EntityID b)
 {
   return (a.generation == b.generation) && (a.index == b.index);
 }
@@ -366,7 +366,7 @@ typedef struct GameState
 #define TAU (PI * 2.0f)
 
 // returns in radians
-static double rotangle(enum CompassRotation rot)
+static inline double rotangle(enum CompassRotation rot)
 {
   switch (rot)
   {
