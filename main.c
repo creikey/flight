@@ -33,7 +33,7 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
-#include "ipsettings.h"
+#include "buildsettings.h"
 #include "profiling.h"
 
 // shaders

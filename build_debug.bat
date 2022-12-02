@@ -1,3 +1,3 @@
 call shadergen.bat
-set compileopts=/Fe"flight_debug" /Zi /FS /Fd"flight.pdb" /DSERVER_ADDRESS="\"127.0.0.1\"" /DDEBUG_RENDERING
+set compileopts=/Fe"flight_debug" /Zi /FS /Fd"flight.pdb" /DDEBUG_RENDERING /DDEBUG
 call build_msvc.bat

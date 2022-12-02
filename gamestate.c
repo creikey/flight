@@ -6,7 +6,7 @@
 #define PROFILING_IMPL
 #include "profiling.h"
 
-#include "ipsettings.h" // debug/developer settings
+#include "buildsettings.h" // debug/developer settings
 
 #include <stdio.h>  // assert logging
 #include <string.h> // memset
@@ -1804,7 +1804,6 @@ cpVect thruster_force(Entity *box)
 
 uint64_t tick(GameState *gs)
 {
-  // return (uint64_t)floor(gs->time / ((double)TIMESTEP));
   return gs->tick;
 }
 

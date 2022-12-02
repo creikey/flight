@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ipsettings.h"
+#include "buildsettings.h"
 
 #define MAX_BOX_TYPES 64
 #define ZOOM_MIN 0.25f
@@ -95,9 +95,6 @@
 #endif
 
 #define ARRLEN(x) (sizeof(x) / sizeof((x)[0]))
-
-// must make this header and set the target address, just #define SERVER_ADDRESS "127.0.0.1"
-#include "ipsettings.h" // don't leak IP!
 
 #include "miniaudio.h" // @Robust BAD. using miniaudio mutex construct for server thread synchronization. AWFUL!
 #include "cpVect.h" // offers vector functions and types for the structs

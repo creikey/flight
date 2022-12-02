@@ -200,6 +200,9 @@
     <ClInclude Include="goodpixel.gen.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="buildsettings.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="thirdparty\enet\enet_dll.cbp" />

@@ -132,7 +132,7 @@ void server(void *info_raw)
 
   ENetAddress address;
   ENetHost *enet_host;
-  int sethost = enet_address_set_host_ip(&address, LOCAL_SERVER_ADDRESS);
+  int sethost = enet_address_set_host_ip(&address, "0.0.0.0");
   if (sethost != 0)
   {
     Log("Fishy return value from set host: %d\n", sethost);
