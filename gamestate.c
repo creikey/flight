@@ -2492,21 +2492,28 @@ void process(struct GameState *gs, double dt, bool is_subframe)
           {
             cpVect pos_rel_sun = (cpvsub(entity_pos(e), (entity_pos(i.sun))));
             cpFloat sqdist = cpvlengthsq(pos_rel_sun);
+
             if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
             {
-              sqdist = cpvlengthsq(cpvsub((entity_pos(e)), (entity_pos(i.sun))));
-              if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))
+              PROFILE_SCOPE("Grid processing")
               {
-                e->damage += 10.0 * dt;
+                sqdist = cpvlengthsq(cpvsub((entity_pos(e)), (entity_pos(i.sun))));
+                if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))
+                {
+                  e->damage += 10.0 * dt;
+                }
               }
             }
 
             if (e->body != NULL)
             {
-              cpVect accel = sun_gravity_accel_for_entity(e, i.sun);
-              cpVect new_vel = entity_vel(gs, e);
-              new_vel = cpvadd(new_vel, cpvmult(accel, dt));
-              cpBodySetVelocity(e->body, (new_vel));
+              PROFILE_SCOPE("Body processing")
+              {
+                cpVect accel = sun_gravity_accel_for_entity(e, i.sun);
+                cpVect new_vel = entity_vel(gs, e);
+                new_vel = cpvadd(new_vel, cpvmult(accel, dt));
+                cpBodySetVelocity(e->body, (new_vel));
+              }
             }
           }
         }

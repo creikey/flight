@@ -1,4 +1,5 @@
 //------------------------------------------------------------------------------
+
 //  Take flight
 //------------------------------------------------------------------------------
 
@@ -1558,8 +1559,6 @@ static void frame(void)
         }
       }
     }
-
-    // dbg_rect(before_reprediction);
 
     // gameplay
     ui(false, dt, width, height); // if ui button is pressed before game logic, set the pressed to

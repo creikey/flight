@@ -25,6 +25,7 @@
 // started in a thread from host
 void server(void *info_raw)
 {
+  init_profiling_mythread(1);
   ServerThreadInfo *info = (ServerThreadInfo *)info_raw;
   const char *world_save_name = info->world_save;
 #ifdef PROFILING
@@ -38,7 +39,6 @@ void server(void *info_raw)
   gs.server_side_computing = true;
   Log("Allocated %zu bytes for entities\n", entities_size);
 
-  init_profiling_mythread(1);
 
   create_initial_world(&gs);
 
