@@ -9,7 +9,7 @@
 
 #define SERVER_ADDRESS "127.0.0.1"
 
-#define PROFILING
+// #define PROFILING
 #define DEBUG_RENDERING
 #define DEBUG_WORLD
 #define UNLOCK_ALL
@@ -20,6 +20,8 @@
 
 #ifdef RELEASE
 
+// #define PROFILING
+// #define SERVER_ADDRESS "127.0.0.1"
 #define SERVER_ADDRESS "207.246.80.160"
 
 #else

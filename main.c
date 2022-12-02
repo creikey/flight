@@ -914,7 +914,6 @@ static void ui(bool draw, double dt, double width, double height)
     bool invited =
         myentity() != NULL && myentity()->squad_invited_to != SquadNone;
     double size = 200.0;
-    double yes_no_size = 50.0;
     double x_center = 0.75 * width;
     double x = x_center - size / 2.0;
     // AABB box = (AABB){ .x = x, .y = invite_y, .width = size, .height = size
@@ -1420,7 +1419,6 @@ static void frame(void)
     interact_pressed = mousepressed[SAPP_MOUSEBUTTON_RIGHT].pressed;
 
     // networking
-    static cpVect before_reprediction = {0};
     PROFILE_SCOPE("networking")
     {
       ENetEvent event;
@@ -1460,8 +1458,6 @@ static void frame(void)
                 &decompressed_max_len, NULL);
             if (return_value == LZO_E_OK)
             {
-              if (myentity() != NULL)
-                before_reprediction = entity_pos(myentity());
               PROFILE_SCOPE("Deserializing data")
               {
                 server_to_client_deserialize(&msg, decompressed,
@@ -1563,8 +1559,6 @@ static void frame(void)
     // gameplay
     ui(false, dt, width, height); // if ui button is pressed before game logic, set the pressed to
     // false so it doesn't propagate from the UI modal/button
-    cpVect build_target_pos = {0};
-    double build_target_rotation = 0.0;
     struct BuildPreviewInfo
     {
       cpVect grid_pos;
@@ -1842,8 +1836,6 @@ static void frame(void)
           set_color(colhexcode(0x4685e3));
           draw_circle(entity_pos(myentity()), VISION_RADIUS);
         }
-
-        double halfbox = BOX_SIZE / 2.0;
 
         // mouse frozen, debugging tool
         if (mouse_frozen)

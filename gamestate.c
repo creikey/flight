@@ -2485,6 +2485,7 @@ void process(struct GameState *gs, double dt, bool is_subframe)
         }
 
         // sun processing for this current entity
+        #if 0
         PROFILE_SCOPE("this entity sun processing")
         {
           SUNS_ITER(gs)
@@ -2516,6 +2517,7 @@ void process(struct GameState *gs, double dt, bool is_subframe)
             }
           }
         }
+        #endif
 
         if (e->is_explosion)
         {
