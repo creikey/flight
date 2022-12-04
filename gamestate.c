@@ -75,7 +75,7 @@ bool cloaking_active(GameState *gs, Entity *e)
 {
   // cloaking doesn't work for first 1/2 second of game because when initializing
   // everything needs to be uncloaked
-  return time(gs) >= 0.5 && (time(gs) - e->time_was_last_cloaked) <= TIMESTEP * 2.0;
+  return elapsed_time(gs) >= 0.5 && (elapsed_time(gs) - e->time_was_last_cloaked) <= TIMESTEP * 2.0;
 }
 
 bool is_cloaked(GameState *gs, Entity *e, Entity *this_players_perspective)
@@ -1684,7 +1684,7 @@ static void cloaking_shield_callback_func(cpShape *shape, cpContactPointSet *poi
   GameState *gs = entitys_gamestate(from_cloaking_box);
   Entity *to_cloak = cp_shape_entity(shape);
 
-  to_cloak->time_was_last_cloaked = time(gs);
+  to_cloak->time_was_last_cloaked = elapsed_time(gs);
   to_cloak->last_cloaked_by_squad = from_cloaking_box->owning_squad;
 }
 
@@ -1824,7 +1824,7 @@ uint64_t tick(GameState *gs)
   return gs->tick;
 }
 
-double time(GameState *gs)
+double elapsed_time(GameState *gs)
 {
   return ((double)gs->tick * TIMESTEP) + gs->subframe_time;
 }
@@ -2247,7 +2247,7 @@ void process(struct GameState *gs, double dt)
         {
           p->goldness += 0.1;
           p->damage = 0.0;
-          gs->goldpos = (cpVect){.x = hash11((float)time(gs)) * 20.0, .y = hash11((float)time(gs) - 13.6) * 20.0};
+          gs->goldpos = (cpVect){.x = hash11((float)elapsed_time(gs)) * 20.0, .y = hash11((float)elapsed_time(gs) - 13.6) * 20.0};
         }
 #if 1
         cpVect world_hand_pos = get_world_hand_pos(gs, &player->input, p);

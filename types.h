@@ -426,7 +426,7 @@ void process_fixed_timestep(GameState *gs);
 void process(struct GameState *gs, double dt); // does in place
 Entity *closest_box_to_point_in_radius(struct GameState *gs, cpVect point, double radius, bool (*filter_func)(Entity *));
 uint64_t tick(struct GameState *gs);
-double time(GameState *gs);
+double elapsed_time(GameState *gs);
 double sun_dist_no_gravity(Entity *sun);
 
 // all of these return if successful or not

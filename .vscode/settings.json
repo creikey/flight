@@ -54,6 +54,11 @@
         "stdint.h": "c",
         "ipsettings.h": "c",
         "cpvect.h": "c",
-        "miniaudio.h": "c"
+        "miniaudio.h": "c",
+        "bit": "c",
+        "condition_variable": "c",
+        "ctime": "c",
+        "limits": "c",
+        "xlocinfo": "c"
     }
 }
