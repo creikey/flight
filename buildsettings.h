@@ -15,6 +15,7 @@
 #define UNLOCK_ALL
 #define INFINITE_RESOURCES
 #define NO_GRAVITY
+#define NO_SUNS
 
 #else
 

@@ -521,10 +521,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
     // could be a gap between boxes in the grid, separate into multiple grids
 
     // goal: create list of "real grids" from this grid that have boxes which are
-    // ONLY connected horizontally and vertically. whichever one of these "real grids"
-    // has the most blocks stays the current grid, so
-    // if a player is inhabiting this ship it stays that ship.
-    // The other "real grids" are allocated as new grids
+    // ONLY connected horizontally and vertically.
 
 #define MAX_SEPARATE_GRIDS 8
   EntityID separate_grids[MAX_SEPARATE_GRIDS] = {0};
@@ -533,7 +530,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
   int processed_boxes = 0;
 
   int biggest_separate_grid_index = 0;
-  int biggest_separate_grid_length = 0;
+  uint32_t biggest_separate_grid_length = 0;
 
   // process all boxes into separate, but correctly connected, grids
   while (processed_boxes < num_boxes)
@@ -543,6 +540,8 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
     assert(unprocessed != NULL);
     assert(unprocessed->is_box);
     box_remove_from_boxes(gs, unprocessed); // no longer in the boxes list of the grid
+
+    uint32_t biggest_box_index = 0;
 
     // flood fill from this unprocessed box, adding each result to cur_separate_grid_index,
     // removing each block from the grid
@@ -564,6 +563,11 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
           separate_grids[cur_separate_grid_index] = get_id(gs, N);
           cur_separate_grid_size++;
           processed_boxes++;
+
+          if (get_id(gs, N).index > biggest_box_index)
+          {
+            biggest_box_index = get_id(gs, N).index;
+          }
 
           cpVect cur_local_pos = entity_shape_pos(N);
           const cpVect dirs[] = {
@@ -619,9 +623,9 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       }
     }
 
-    if (cur_separate_grid_size > biggest_separate_grid_length)
+    if (biggest_box_index > biggest_separate_grid_length)
     {
-      biggest_separate_grid_length = cur_separate_grid_size;
+      biggest_separate_grid_length = biggest_box_index;
       biggest_separate_grid_index = cur_separate_grid_index;
     }
     cur_separate_grid_index++;
@@ -659,8 +663,14 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       cur = next;
     }
 
-    cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, (grid_com(new_grid))));
-    cpBodySetAngularVelocity(new_grid->body, entity_angular_velocity(grid));
+    // @Robust do the momentum stuff properly here so no matter which grid stays as the current grid,
+    // the *SAME RESULT* happens. VERY IMPORTANT for client side prediction to match what the server says.
+    // Tried to use something consistent on the server and client like current entity index but DID NOT WORK
+    if (sepgrid_i != biggest_separate_grid_index)
+    {
+      cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, (grid_com(new_grid))));
+      cpBodySetAngularVelocity(new_grid->body, entity_angular_velocity(grid) / fmax(1.0, cpvdist(entity_pos(new_grid), entity_pos(grid))));
+    }
   }
 }
 
@@ -746,19 +756,16 @@ void destroy(GameState *gs)
 {
   // can't zero out gs data because the entity memory arena is reused
   // on deserialization
-  for (size_t i = 0; i < gs->max_entities; i++)
-  {
-    if (gs->entities[i].exists)
-      entity_destroy(gs, &gs->entities[i]);
-  }
-  cpSpaceFree(gs->space);
-  gs->space = NULL;
-
   for (size_t i = 0; i < gs->cur_next_entity; i++)
   {
     if (gs->entities[i].exists)
+    {
+      entity_destroy(gs, &gs->entities[i]);
       gs->entities[i] = (Entity){0};
+    }
   }
+  cpSpaceFree(gs->space);
+  gs->space = NULL;
   gs->cur_next_entity = 0;
 }
 // center of mass, not the literal position
@@ -1325,12 +1332,15 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
   GameState *gs = s->cur_gs;
 
   // completely reset and destroy all gamestate data
-  if (!ser->serializing)
+  PROFILE_SCOPE("Destroy old gamestate")
   {
-    // avoid a memset here very expensive. que rico!
-    destroy(gs);
-    initialize(gs, gs->entities, gs->max_entities * sizeof(*gs->entities));
-    gs->cur_next_entity = 0; // updated on deserialization
+    if (!ser->serializing)
+    {
+      // avoid a memset here very expensive. que rico!
+      destroy(gs);
+      initialize(gs, gs->entities, gs->max_entities * sizeof(*gs->entities));
+      gs->cur_next_entity = 0; // updated on deserialization
+    }
   }
 
   int cur_next_entity = 0;
@@ -1373,104 +1383,114 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 
   if (ser->serializing)
   {
-    bool entities_done = false;
-    for (size_t i = 0; i < gs->cur_next_entity; i++)
+    PROFILE_SCOPE("Serialize entities")
     {
-      Entity *e = &gs->entities[i];
+      bool entities_done = false;
+      for (size_t i = 0; i < gs->cur_next_entity; i++)
+      {
+        Entity *e = &gs->entities[i];
 #define DONT_SEND_BECAUSE_CLOAKED(entity) (!ser->save_or_load_from_disk && ser->for_player != NULL && is_cloaked(gs, entity, ser->for_player))
 #define SER_ENTITY()       \
   SER_VAR(&entities_done); \
   SER_VAR(&i);             \
   SER_MAYBE_RETURN(ser_entity(ser, gs, e))
-      if (e->exists && !(ser->save_or_load_from_disk && e->no_save_to_disk) && !DONT_SEND_BECAUSE_CLOAKED(e))
-      {
-        if (!e->is_box && !e->is_grid)
+        if (e->exists && !(ser->save_or_load_from_disk && e->no_save_to_disk) && !DONT_SEND_BECAUSE_CLOAKED(e))
         {
-          SER_ENTITY();
-        }
-        if (e->is_grid)
-        {
-          bool serialized_grid_yet = false;
-          // serialize boxes always after bodies, so that by the time the boxes
-          // are loaded in the parent body is loaded in and can be referenced.
-          BOXES_ITER(gs, cur_box, e)
+          if (!e->is_box && !e->is_grid)
           {
-            bool this_box_in_range = ser->save_or_load_from_disk;
-            this_box_in_range |= ser->for_player == NULL;
-            this_box_in_range |= (ser->for_player != NULL && cpvdistsq(entity_pos(ser->for_player), entity_pos(cur_box)) < VISION_RADIUS * VISION_RADIUS); // only in vision radius
-            if (DONT_SEND_BECAUSE_CLOAKED(cur_box))
-              this_box_in_range = false;
-            if (cur_box->always_visible)
-              this_box_in_range = true;
-            if (this_box_in_range)
+            SER_ENTITY();
+          }
+          if (e->is_grid)
+          {
+            bool serialized_grid_yet = false;
+            // serialize boxes always after bodies, so that by the time the boxes
+            // are loaded in the parent body is loaded in and can be referenced.
+            BOXES_ITER(gs, cur_box, e)
             {
-              if (!serialized_grid_yet)
+              bool this_box_in_range = ser->save_or_load_from_disk;
+              this_box_in_range |= ser->for_player == NULL;
+              this_box_in_range |= (ser->for_player != NULL && cpvdistsq(entity_pos(ser->for_player), entity_pos(cur_box)) < VISION_RADIUS * VISION_RADIUS); // only in vision radius
+              if (DONT_SEND_BECAUSE_CLOAKED(cur_box))
+                this_box_in_range = false;
+              if (cur_box->always_visible)
+                this_box_in_range = true;
+              if (this_box_in_range)
               {
-                serialized_grid_yet = true;
-                SER_ENTITY();
-              }
+                if (!serialized_grid_yet)
+                {
+                  serialized_grid_yet = true;
+                  SER_ENTITY();
+                }
 
-              // serialize this box
-              EntityID cur_id = get_id(gs, cur_box);
-              SER_ASSERT(cur_id.index < gs->max_entities);
-              SER_VAR(&entities_done);
-              size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. @Robust add debug info in serialization for what size the expected type is, maybe string nameof the type
-              SER_VAR_NAME(&the_index, "&i");
-              SER_MAYBE_RETURN(ser_entity(ser, gs, cur_box));
+                // serialize this box
+                EntityID cur_id = get_id(gs, cur_box);
+                SER_ASSERT(cur_id.index < gs->max_entities);
+                SER_VAR(&entities_done);
+                size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. @Robust add debug info in serialization for what size the expected type is, maybe string nameof the type
+                SER_VAR_NAME(&the_index, "&i");
+                SER_MAYBE_RETURN(ser_entity(ser, gs, cur_box));
+              }
             }
           }
         }
-      }
 #undef SER_ENTITY
+      }
+      entities_done = true;
+      SER_VAR(&entities_done);
     }
-    entities_done = true;
-    SER_VAR(&entities_done);
   }
   else
   {
-    Entity *last_grid = NULL;
-    while (true)
+    PROFILE_SCOPE("Deserialize entities")
     {
-      bool entities_done = false;
-      SER_VAR(&entities_done);
-      if (entities_done)
-        break;
-      size_t next_index;
-      SER_VAR_NAME(&next_index, "&i");
-      SER_ASSERT(next_index < gs->max_entities);
-      SER_ASSERT(next_index >= 0);
-      Entity *e = &gs->entities[next_index];
-      e->exists = true;
-      // unsigned int possible_next_index = (unsigned int)(next_index + 2); // plus two because player entity refers to itself on deserialization
-      unsigned int possible_next_index = (unsigned int)(next_index + 1);
-      gs->cur_next_entity = gs->cur_next_entity < possible_next_index ? possible_next_index : gs->cur_next_entity;
-      SER_MAYBE_RETURN(ser_entity(ser, gs, e));
-
-      if (e->is_box)
+      Entity *last_grid = NULL;
+      while (true)
       {
-        SER_ASSERT(last_grid != NULL);
-        SER_ASSERT(get_entity(gs, e->shape_parent_entity) != NULL);
-        SER_ASSERT(last_grid == get_entity(gs, e->shape_parent_entity));
-        e->prev_box = (EntityID){0};
-        e->next_box = (EntityID){0};
-        box_add_to_boxes(gs, last_grid, e);
+        bool entities_done = false;
+        SER_VAR(&entities_done);
+        if (entities_done)
+          break;
+        size_t next_index;
+        SER_VAR_NAME(&next_index, "&i");
+        SER_ASSERT(next_index < gs->max_entities);
+        SER_ASSERT(next_index >= 0);
+        Entity *e = &gs->entities[next_index];
+        e->exists = true;
+        // unsigned int possible_next_index = (unsigned int)(next_index + 2); // plus two because player entity refers to itself on deserialization
+        unsigned int possible_next_index = (unsigned int)(next_index + 1);
+        gs->cur_next_entity = gs->cur_next_entity < possible_next_index ? possible_next_index : gs->cur_next_entity;
+        SER_MAYBE_RETURN(ser_entity(ser, gs, e));
+
+        if (e->is_box)
+        {
+          SER_ASSERT(last_grid != NULL);
+          SER_ASSERT(get_entity(gs, e->shape_parent_entity) != NULL);
+          SER_ASSERT(last_grid == get_entity(gs, e->shape_parent_entity));
+          e->prev_box = (EntityID){0};
+          e->next_box = (EntityID){0};
+          box_add_to_boxes(gs, last_grid, e);
+        }
+
+        if (e->is_grid)
+        {
+          e->boxes = (EntityID){0};
+          last_grid = e;
+        }
       }
 
-      if (e->is_grid)
+      PROFILE_SCOPE("Add to free list")
       {
-        e->boxes = (EntityID){0};
-        last_grid = e;
-      }
-    }
-    for (size_t i = 0; i < gs->cur_next_entity; i++)
-    {
-      Entity *e = &gs->entities[i];
-      if (!e->exists)
-      {
-        if (e->generation == 0)
-          e->generation = 1; // 0 generation reference is invalid, means null
-        e->next_free_entity = gs->free_list;
-        gs->free_list = get_id(gs, e);
+        for (size_t i = 0; i < gs->cur_next_entity; i++)
+        {
+          Entity *e = &gs->entities[i];
+          if (!e->exists)
+          {
+            if (e->generation == 0)
+              e->generation = 1; // 0 generation reference is invalid, means null
+            e->next_free_entity = gs->free_list;
+            gs->free_list = get_id(gs, e);
+          }
+        }
       }
     }
   }
@@ -1767,9 +1787,6 @@ enum CompassRotation facing_vector_to_compass(Entity *grid_to_transplant_to, Ent
 {
   assert(grid_to_transplant_to->body != NULL);
   assert(grid_to_transplant_to->is_grid);
-
-  cpVect local_to_from = grid_world_to_local(grid_facing_vector_from, cpvadd(entity_pos(grid_facing_vector_from), facing_vector));
-  Log("local %f %f\n", local_to_from.x, local_to_from.y);
 
   cpVect from_target = cpvadd(entity_pos(grid_to_transplant_to), facing_vector);
   cpVect local_target = grid_world_to_local(grid_to_transplant_to, from_target);
@@ -2118,30 +2135,13 @@ void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
   cpBodySetVelocity(p->body, cpBodyGetVelocity(box_grid(seat_in)->body));
 }
 
-void process(struct GameState *gs, double dt, bool is_subframe)
+void process(struct GameState *gs, double dt)
 {
   PROFILE_SCOPE("Gameplay processing")
   {
     assert(gs->space != NULL);
 
-    PROFILE_SCOPE("subframe stuff")
-    {
-
-      if (is_subframe)
-      {
-        gs->subframe_time += dt;
-        while (gs->subframe_time > TIMESTEP)
-        {
-          gs->subframe_time -= TIMESTEP;
-          gs->tick++;
-        }
-      }
-      else
-      {
-        assert(gs->subframe_time == 0.0);
-        gs->tick++;
-      }
-    }
+    gs->tick++;
 
     PROFILE_SCOPE("sun gravity")
     {
@@ -2452,7 +2452,7 @@ void process(struct GameState *gs, double dt, bool is_subframe)
         if (!e->exists)
           continue;
 
-        PROFILE_SCOPE("instant death ")
+        // PROFILE_SCOPE("instant death")
         {
           cpFloat dist_from_center = cpvlengthsq((entity_pos(e)));
           if (e->body != NULL && dist_from_center > (INSTANT_DEATH_DISTANCE_FROM_CENTER * INSTANT_DEATH_DISTANCE_FROM_CENTER))
@@ -2484,8 +2484,8 @@ void process(struct GameState *gs, double dt, bool is_subframe)
           }
         }
 
-        // sun processing for this current entity
-        #if 0
+// sun processing for this current entity
+#ifndef NO_SUNS
         PROFILE_SCOPE("this entity sun processing")
         {
           SUNS_ITER(gs)
@@ -2517,7 +2517,7 @@ void process(struct GameState *gs, double dt, bool is_subframe)
             }
           }
         }
-        #endif
+#endif
 
         if (e->is_explosion)
         {
@@ -2557,7 +2557,7 @@ void process(struct GameState *gs, double dt, bool is_subframe)
 
         if (e->is_box)
         {
-          PROFILE_SCOPE("Box processing")
+          // PROFILE_SCOPE("Box processing")
           {
             if (e->is_platonic)
             {
@@ -2646,7 +2646,7 @@ void process(struct GameState *gs, double dt, bool is_subframe)
 
         if (e->is_grid)
         {
-          PROFILE_SCOPE("Grid processing")
+          // PROFILE_SCOPE("Grid processing")
           {
             Entity *grid = e;
             // calculate how much energy solar panels provide

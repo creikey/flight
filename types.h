@@ -76,6 +76,7 @@
 #define VOIP_DISTANCE_WHEN_CANT_HEAR (VISION_RADIUS * 0.8f)
 
 // multiplayer
+#define TICKS_BEHIND_DO_SNAP 6 // when this many ticks behind, instead of dilating time SNAP to the healthy ticks ahead
 #define MAX_MS_SPENT_REPREDICTING 30.0f
 #define TIME_BETWEEN_SEND_GAMESTATE (1.0f / 20.0f)
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -422,7 +423,7 @@ void destroy(struct GameState *gs);
 void process_fixed_timestep(GameState *gs);
 // if is subframe, doesn't always increment the tick. When enough
 // subframe time has been processed, increments the tick
-void process(struct GameState *gs, double dt, bool is_subframe); // does in place
+void process(struct GameState *gs, double dt); // does in place
 Entity *closest_box_to_point_in_radius(struct GameState *gs, cpVect point, double radius, bool (*filter_func)(Entity *));
 uint64_t tick(struct GameState *gs);
 double time(GameState *gs);

@@ -325,7 +325,7 @@ void server(void *info_raw)
             }
           }
 
-          process(&gs, TIMESTEP, false);
+          process(&gs, TIMESTEP);
           total_time -= TIMESTEP;
         }
       }

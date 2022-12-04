@@ -58,6 +58,8 @@ static bool fullscreened = false;
 static bool picking_new_boxtype = false;
 
 static bool build_pressed = false;
+static double dilating_time_factor = 1.0;
+static double time_to_process = 0.0;
 static bool interact_pressed = false;
 #define MAX_MOUSEBUTTON (SAPP_MOUSEBUTTON_MIDDLE + 1)
 static bool mousedown[MAX_MOUSEBUTTON] = {0};
@@ -86,8 +88,6 @@ static ENetPeer *peer;
 static double zoom_target = 300.0;
 static double zoom = 300.0;
 static enum Squad take_over_squad = (enum Squad) - 1; // -1 means not taking over any squad
-static double target_prediction_time_factor = 1.0;
-static double current_time_ahead_of_server = 0.0;
 
 // images
 static sg_image image_itemframe;
@@ -1330,6 +1330,19 @@ static void ui(bool draw, double dt, double width, double height)
     sgp_pop_transform();
 }
 
+// returns zero vector if no player
+static cpVect my_player_pos()
+{
+  if (myentity() != NULL)
+  {
+    return entity_pos(myentity());
+  }
+  else
+  {
+    return (cpVect){0};
+  }
+}
+
 static void draw_dots(cpVect camera_pos, double gap)
 {
   set_color_values(1.0, 1.0, 1.0, 1.0);
@@ -1368,6 +1381,23 @@ static void draw_dots(cpVect camera_pos, double gap)
   }
 }
 
+void apply_this_tick_of_input_to_player(uint64_t tick_to_search_for)
+{
+  InputFrame *to_apply = NULL;
+  QUEUE_ITER(&input_queue, cur_header)
+  {
+    InputFrame *cur = (InputFrame *)cur_header->data;
+    if (cur->tick == tick(&gs))
+    {
+      to_apply = cur;
+      break;
+    }
+  }
+  if (to_apply != NULL && myplayer() != NULL)
+  {
+    myplayer()->input = *to_apply;
+  }
+}
 static cpVect get_global_hand_pos(cpVect world_mouse_pos, bool *hand_at_arms_length)
 {
   if (myentity() == NULL)
@@ -1395,7 +1425,7 @@ static void frame(void)
     double width = (float)sapp_width(), height = (float)sapp_height();
     double ratio = width / height;
     double exec_time = sapp_frame_count() * sapp_frame_duration();
-    double dt = (float)sapp_frame_duration();
+    double dt = sapp_frame_duration();
 
     // pressed input management
     {
@@ -1422,6 +1452,9 @@ static void frame(void)
     PROFILE_SCOPE("networking")
     {
       ENetEvent event;
+      uint64_t predicted_to_tick = tick(&gs); // modified on deserialization of game state
+      cpVect where_i_thought_id_be = my_player_pos();
+      bool applied_gamestate_packet = false;
       while (true)
       {
         int enet_status = enet_host_service(client, &event, 0);
@@ -1448,7 +1481,6 @@ static void frame(void)
             assert(LZO1X_MEM_DECOMPRESS == 0);
 
             ma_mutex_lock(&play_packets_mutex);
-            double predicted_to_time = time(&gs);
             ServerToClient msg = (ServerToClient){
                 .cur_gs = &gs,
                 .audio_playback_buffer = &packets_to_play,
@@ -1462,6 +1494,7 @@ static void frame(void)
               {
                 server_to_client_deserialize(&msg, decompressed,
                                              decompressed_max_len, false);
+                applied_gamestate_packet = true;
               }
               my_player_index = msg.your_player;
             }
@@ -1475,64 +1508,6 @@ static void frame(void)
             free(decompressed);
             enet_packet_destroy(event.packet);
 
-            PROFILE_SCOPE("Repredicting inputs")
-            {
-
-              double server_current_time = time(&gs);
-              double difference = predicted_to_time - server_current_time;
-              double target_prediction_time =
-                  (((double)peer->roundTripTime) / 1000.0) + TIMESTEP * 6.0;
-
-              // keeps it stable even though causes jumps occasionally
-              difference = fmax(difference, target_prediction_time);
-
-              double eps = TIMESTEP * 0.1;
-              if (predicted_to_time - time(&gs) < target_prediction_time - eps)
-              {
-                target_prediction_time_factor = 1.1;
-              }
-              else if (predicted_to_time - time(&gs) >
-                       target_prediction_time + eps * 2.0)
-              {
-                target_prediction_time_factor = 0.9;
-              }
-              else
-              {
-                target_prediction_time_factor = 1.0;
-              }
-
-              // re-predict the inputs
-              double time_to_repredict = (float)difference;
-              Log("Repredicting %f\n", time_to_repredict);
-
-              uint64_t start_prediction_time = stm_now();
-              if (time_to_repredict > 0.0)
-              {
-                while (time_to_repredict > TIMESTEP)
-                {
-                  if (stm_ms(stm_diff(stm_now(), start_prediction_time)) > MAX_MS_SPENT_REPREDICTING)
-                  {
-                    Log("Reprediction took longer than %f milliseconds, could only predict %f\n", MAX_MS_SPENT_REPREDICTING, time_to_repredict);
-                    break;
-                  }
-                  QUEUE_ITER(&input_queue, cur_header)
-                  {
-                    InputFrame *cur = (InputFrame *)cur_header->data;
-                    if (cur->tick == tick(&gs))
-                    {
-                      myplayer()->input = *cur;
-                      break;
-                    }
-                  }
-                  process(&gs, TIMESTEP, false);
-                  time_to_repredict -= TIMESTEP;
-                }
-                process(&gs, time_to_repredict, true);
-                time_to_repredict = 0.0;
-              }
-
-              current_time_ahead_of_server = time(&gs) - server_current_time;
-            }
             break;
           }
 
@@ -1552,6 +1527,64 @@ static void frame(void)
         {
           fprintf(stderr, "Error receiving enet events: %d\n", enet_status);
           break;
+        }
+      }
+
+      // only repredict inputs on the most recent server authoritative packet
+      PROFILE_SCOPE("Repredicting inputs")
+      {
+        if (applied_gamestate_packet)
+        {
+          uint64_t server_current_tick = tick(&gs);
+
+          uint64_t ticks_should_repredict = predicted_to_tick - server_current_tick;
+
+          uint64_t healthy_num_ticks_ahead = (uint64_t)ceil((((double)peer->roundTripTime) / 1000.0) / TIMESTEP) + 6;
+
+          // keeps it stable even though causes jumps occasionally
+          uint64_t ticks_to_repredict = ticks_should_repredict;
+
+          if (ticks_should_repredict < healthy_num_ticks_ahead - 1)
+          {
+            dilating_time_factor = 1.1;
+          }
+          else if (ticks_should_repredict > healthy_num_ticks_ahead + 1)
+          {
+            dilating_time_factor = 0.1;
+          }
+          else
+          {
+            dilating_time_factor = 1.0;
+          }
+
+          // snap in dire cases
+          if (ticks_should_repredict < healthy_num_ticks_ahead - TICKS_BEHIND_DO_SNAP)
+          {
+            Log("Snapping\n");
+            ticks_to_repredict = healthy_num_ticks_ahead;
+          }
+
+          uint64_t start_prediction_time = stm_now();
+          while (ticks_to_repredict > 0)
+          {
+            if (stm_ms(stm_diff(stm_now(), start_prediction_time)) > MAX_MS_SPENT_REPREDICTING)
+            {
+              Log("Reprediction took longer than %f milliseconds, needs to repredict %llu more ticks\n", MAX_MS_SPENT_REPREDICTING, ticks_to_repredict);
+              break;
+            }
+            apply_this_tick_of_input_to_player(tick(&gs));
+            process(&gs, TIMESTEP);
+            ticks_to_repredict -= 1;
+          }
+
+          cpVect where_i_am = my_player_pos();
+
+          double reprediction_error = cpvdist(where_i_am, where_i_thought_id_be);
+          InputFrame *biggest_frame = (InputFrame *)queue_most_recent_element(&input_queue);
+          if (reprediction_error >= 0.1)
+          {
+            Log("Big reprediction error %llu\n", biggest_frame->tick);
+          }
         }
       }
     }
@@ -1647,38 +1680,53 @@ static void frame(void)
           cur_input_frame.build_rotation = cur_editing_rotation;
         }
 
-        // "commit" the input. each input must be on a successive tick.
-        if (tick(&gs) > last_input_committed_tick)
-        {
-          cur_input_frame.tick = tick(&gs);
-          last_input_committed_tick = tick(&gs);
+        // in client side prediction, only process the latest input in the queue, not
+        // the one currently constructing.
 
-          InputFrame *to_push_to = queue_push_element(&input_queue);
-          if (to_push_to == NULL)
+        time_to_process += dt * dilating_time_factor;
+
+        cpVect before = my_player_pos();
+        do
+        {
+          // "commit" the input. each input must be on a successive tick.
+          if (tick(&gs) > last_input_committed_tick)
           {
-            InputFrame *to_discard = queue_pop_element(&input_queue);
-            (void)to_discard;
-            to_push_to = queue_push_element(&input_queue);
-            assert(to_push_to != NULL);
+            cur_input_frame.tick = tick(&gs);
+            last_input_committed_tick = tick(&gs);
+
+            InputFrame *to_push_to = queue_push_element(&input_queue);
+            if (to_push_to == NULL)
+            {
+              InputFrame *to_discard = queue_pop_element(&input_queue);
+              (void)to_discard;
+              to_push_to = queue_push_element(&input_queue);
+              assert(to_push_to != NULL);
+            }
+
+            *to_push_to = cur_input_frame;
+
+            if (myplayer() != NULL)
+              myplayer()->input =
+                  cur_input_frame; // for the client side prediction!
+
+            cur_input_frame = (InputFrame){0};
+            cur_input_frame.take_over_squad = -1; // @Robust make this zero initialized
           }
 
-          *to_push_to = cur_input_frame;
+          if (time_to_process >= TIMESTEP)
+          {
+            uint64_t tick_to_predict = tick(&gs);
+            apply_this_tick_of_input_to_player(tick_to_predict);
+            process(&gs, TIMESTEP);
+            time_to_process -= TIMESTEP;
+          }
+        } while (time_to_process >= TIMESTEP);
+        cpVect after = my_player_pos();
 
-          if (myplayer() != NULL)
-            myplayer()->input =
-                cur_input_frame; // for the client side prediction!
-
-          cur_input_frame = (InputFrame){0};
-          cur_input_frame.take_over_squad =
-              -1; // @Robust make this zero initialized
-        }
-
-        // in client side prediction, only process the latest in the queue, not
-        // the one currently constructing.
-        static double prediction_time_factor = 1.0;
-        prediction_time_factor = lerp(prediction_time_factor,
-                                      target_prediction_time_factor, dt * 3.0);
-        process(&gs, dt * prediction_time_factor, true);
+        // use theses variables to suss out reprediction errors, enables you to 
+        // breakpoint on when they happen
+        (void)before;
+        (void)after;
 
         static int64_t last_sent_input_time = 0;
         if (stm_sec(stm_diff(stm_now(), last_sent_input_time)) >
