@@ -1537,12 +1537,11 @@ static void frame(void)
         {
           uint64_t server_current_tick = tick(&gs);
 
-          uint64_t ticks_should_repredict = predicted_to_tick - server_current_tick;
+          int ticks_should_repredict = (int)predicted_to_tick - (int)server_current_tick;
 
-          uint64_t healthy_num_ticks_ahead = (uint64_t)ceil((((double)peer->roundTripTime) / 1000.0) / TIMESTEP) + 6;
+          int healthy_num_ticks_ahead = (int)ceil((((double)peer->roundTripTime) / 1000.0) / TIMESTEP) + 6;
 
-          // keeps it stable even though causes jumps occasionally
-          uint64_t ticks_to_repredict = ticks_should_repredict;
+          int ticks_to_repredict = ticks_should_repredict;
 
           if (ticks_should_repredict < healthy_num_ticks_ahead - 1)
           {
@@ -1550,15 +1549,16 @@ static void frame(void)
           }
           else if (ticks_should_repredict > healthy_num_ticks_ahead + 1)
           {
-            dilating_time_factor = 0.1;
+            dilating_time_factor = 0.9;
           }
           else
           {
             dilating_time_factor = 1.0;
           }
 
+
           // snap in dire cases
-          if (ticks_should_repredict < healthy_num_ticks_ahead - TICKS_BEHIND_DO_SNAP)
+          if (healthy_num_ticks_ahead >= TICKS_BEHIND_DO_SNAP && ticks_should_repredict < healthy_num_ticks_ahead - TICKS_BEHIND_DO_SNAP)
           {
             Log("Snapping\n");
             ticks_to_repredict = healthy_num_ticks_ahead;
@@ -1569,7 +1569,7 @@ static void frame(void)
           {
             if (stm_ms(stm_diff(stm_now(), start_prediction_time)) > MAX_MS_SPENT_REPREDICTING)
             {
-              Log("Reprediction took longer than %f milliseconds, needs to repredict %llu more ticks\n", MAX_MS_SPENT_REPREDICTING, ticks_to_repredict);
+              Log("Reprediction took longer than %f milliseconds, needs to repredict %d more ticks\n", MAX_MS_SPENT_REPREDICTING, ticks_to_repredict);
               break;
             }
             apply_this_tick_of_input_to_player(tick(&gs));
@@ -1581,7 +1581,7 @@ static void frame(void)
 
           double reprediction_error = cpvdist(where_i_am, where_i_thought_id_be);
           InputFrame *biggest_frame = (InputFrame *)queue_most_recent_element(&input_queue);
-          if (reprediction_error >= 0.1)
+          if (reprediction_error >= 0.1 && biggest_frame != NULL)
           {
             Log("Big reprediction error %llu\n", biggest_frame->tick);
           }

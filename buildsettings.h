@@ -8,14 +8,15 @@
 #ifdef DEBUG
 
 #define SERVER_ADDRESS "127.0.0.1"
+// #define SERVER_ADDRESS "207.246.80.160"
 
-// #define PROFILING
+//#define PROFILING
 #define DEBUG_RENDERING
-#define DEBUG_WORLD
-#define UNLOCK_ALL
-#define INFINITE_RESOURCES
-#define NO_GRAVITY
-#define NO_SUNS
+//#define DEBUG_WORLD
+//#define UNLOCK_ALL
+//#define INFINITE_RESOURCES
+//#define NO_GRAVITY
+//#define NO_SUNS
 
 #else
 
