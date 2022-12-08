@@ -1,9 +1,10 @@
 #pragma once
 
 #ifdef SERVER_ADDRESS
-#error Don't define server address from the build system, use the build settings header
+#error Dont define server address from the build system, use the build settings header
 #endif
 
+#define SERVER_PORT 2551
 
 #ifdef DEBUG
 
