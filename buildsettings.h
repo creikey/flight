@@ -5,6 +5,8 @@
 #endif
 
 #define SERVER_PORT 2551
+// must be unsigned integer
+#define GIT_RELEASE_TAG 22
 
 #ifdef DEBUG
 
@@ -12,17 +14,19 @@
 #define ASSERT_DO_POPUP_AND_CRASH
 // #define SERVER_ADDRESS "207.246.80.160"
 
-//#define PROFILING
+// #define PROFILING
 #define DEBUG_RENDERING
-//#define DEBUG_WORLD
-//#define UNLOCK_ALL
-//#define INFINITE_RESOURCES
-//#define NO_GRAVITY
-//#define NO_SUNS
+// #define DEBUG_WORLD
+// #define UNLOCK_ALL
+// #define INFINITE_RESOURCES
+// #define NO_GRAVITY
+// #define NO_SUNS
 
 #else
 
 #ifdef RELEASE
+
+// DANGER modifying these, make sure to change them back before releasing
 
 // #define PROFILING
 // #define SERVER_ADDRESS "127.0.0.1"

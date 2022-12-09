@@ -6,4 +6,4 @@ echo "Now test flight-nonumber and make sure it works. Once everything is confir
 echo "1. Increment the GIT_RELEASE_TAG in buildsettings.h"
 echo "2. Add everything to git and commit"
 echo "3. Tag the new commit the _exact same_ as the previously mentioned GIT_RELEASE_TAG"
-echo "4. Push everything, then update all the servers (@TODO make this a script)"
+echo "4. Push everything, then update all the servers (@TODO make this a script that works for multiple servers)"

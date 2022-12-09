@@ -60,6 +60,29 @@ enum
 
 FILE *log_file = NULL;
 
+void quit_with_popup(const char *message_utf8, const char *title_utf8)
+{
+#ifdef WIN32
+  size_t message_out_len = 0;
+  size_t title_out_len = 0;
+  wchar_t *message_wchar = fromUTF8(message_utf8, strlen(message_utf8), &message_out_len);
+  wchar_t *title_wchar = fromUTF8(title_utf8, strlen(title_utf8), &title_out_len);
+  int msgboxID = MessageBox(
+      NULL,
+      message_wchar,
+      title_wchar,
+      MB_ICONEXCLAMATION | MB_OK);
+  (void)msgboxID;
+
+  free(message_wchar);
+  free(title_wchar);
+
+  PostQuitMessage(1);
+  (void)message_out_len;
+  (void)title_out_len;
+#endif
+}
+
 void __flight_assert(bool cond, const char *file, int line, const char *cond_string)
 {
   if (!cond)
@@ -74,19 +97,9 @@ void __flight_assert(bool cond, const char *file, int line, const char *cond_str
       fprintf(log_file, "%s", message_buffer);
     }
 #ifdef ASSERT_DO_POPUP_AND_CRASH
-    size_t out_len = 0;
-    wchar_t *output = fromUTF8(message_buffer, strlen(message_buffer), &out_len);
-    wchar_t dialogbox_message[MESSAGE_BUFFER_SIZE] = {0};
-    _snwprintf_s(dialogbox_message, MESSAGE_BUFFER_SIZE, MESSAGE_BUFFER_SIZE, L"Critical error! Please report this in #bug-reports with a screenshot, description of what you were doing, and the file 'atris.log' located next to the executable\n%s\nClosing now.\n", output);
-    int msgboxID = MessageBox(
-        NULL,
-        dialogbox_message,
-        L"Assertion Failed",
-        MB_ICONEXCLAMATION | MB_OK);
-    (void)msgboxID;
-
-    free(output);
-    PostQuitMessage(1);
+    char dialogbox_message[MESSAGE_BUFFER_SIZE] = {0};
+    snprintf(dialogbox_message, MESSAGE_BUFFER_SIZE, "Critical error! Please report this in #bug-reports with a screenshot, description of what you were doing, and the file 'atris.log' located next to the executable\n%s\nClosing now.\n", message_buffer);
+    quit_with_popup(dialogbox_message, "Assertion Failed");
 #endif
   }
 }
@@ -982,6 +995,7 @@ typedef struct SerState
 
   // output
   uint32_t version;
+  uint32_t git_release_tag;
 } SerState;
 
 typedef struct SerMaybeFailure
@@ -1412,6 +1426,15 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
   SER_VAR(&ser->version);
   SER_ASSERT(ser->version >= 0);
   SER_ASSERT(ser->version < VMax);
+  SER_VAR(&ser->git_release_tag);
+
+  if (ser->git_release_tag > GIT_RELEASE_TAG)
+  {
+    char msg[2048] = {0};
+    snprintf(msg, 2048, "Current game build %d is old, download the server's build %d! The most recent one in discord!\n", GIT_RELEASE_TAG, ser->git_release_tag);
+    quit_with_popup(msg, "Old Game Build");
+    SER_ASSERT(ser->git_release_tag <= GIT_RELEASE_TAG);
+  }
 
   if (!ser->save_or_load_from_disk)
     SER_MAYBE_RETURN(ser_opus_packets(ser, s->audio_playback_buffer));
