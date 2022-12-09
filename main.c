@@ -253,7 +253,6 @@ static enum BoxType currently_building()
   return toolbar[cur_toolbar_slot];
 }
 
-
 struct BoxInfo boxinfo(enum BoxType type)
 {
   for (int i = 0; i < ARRLEN(boxes); i++)
@@ -519,29 +518,30 @@ static void init(void)
     result = ma_device_init(NULL, &microphone_config, &microphone_device);
     if (result != MA_SUCCESS)
     {
-      Log("Failed to initialize capture device.\n");
-      exit(-1);
+      quit_with_popup("Failed to initialize microphone\n", "Failed to initialize audio");
+      Log("Cap device fail\n");
+      return;
     }
 
     result = ma_device_init(NULL, &speaker_config, &speaker_device);
     if (result != MA_SUCCESS)
     {
       ma_device_uninit(&microphone_device);
+      quit_with_popup("Failed to initialize speaker/headphones\n", "Failed to initialize audio");
       Log("Failed to init speaker\n");
-      exit(-1);
+      return;
     }
 
-    if (ma_mutex_init(&send_packets_mutex) != MA_SUCCESS)
-      Log("Failed to init send mutex\n");
-    if (ma_mutex_init(&play_packets_mutex) != MA_SUCCESS)
-      Log("Failed to init play mutex\n");
+    flight_assert(ma_mutex_init(&send_packets_mutex) == MA_SUCCESS);
+    flight_assert(ma_mutex_init(&play_packets_mutex) == MA_SUCCESS);
 
     result = ma_device_start(&microphone_device);
     if (result != MA_SUCCESS)
     {
       ma_device_uninit(&microphone_device);
-      Log("Failed to start device.\n");
-      exit(-1);
+      Log("Failed to start mic.\n");
+      quit_with_popup("Failed to start microphone device\n", "Failed to start audio");
+      return;
     }
 
     result = ma_device_start(&speaker_device);
@@ -550,7 +550,8 @@ static void init(void)
       ma_device_uninit(&microphone_device);
       ma_device_uninit(&speaker_device);
       Log("Failed to start speaker\n");
-      exit(-1);
+      quit_with_popup("Failed to start speaker device\n", "Failed to start audio");
+      return;
     }
 
     Log("Initialized audio\n");
@@ -580,118 +581,114 @@ static void init(void)
     exit(-1);
   }
 
-  // shaders
+  // initialize shaders
   {
-    // initialize shader
+    sgp_pipeline_desc pip_desc = {
+        .shader = *hueshift_program_shader_desc(sg_query_backend()),
+        .blend_mode = SGP_BLENDMODE_BLEND,
+    };
+    hueshift_pipeline = sgp_make_pipeline(&pip_desc);
+    if (sg_query_pipeline_state(hueshift_pipeline) != SG_RESOURCESTATE_VALID)
     {
+      fprintf(stderr, "failed to make hueshift pipeline\n");
+      exit(-1);
+    }
+
+    {
+      sgp_pipeline_desc pip_desc = {
+          .shader = *goodpixel_program_shader_desc(sg_query_backend()),
+          .blend_mode = SGP_BLENDMODE_BLEND,
+      };
+
+      goodpixel_pipeline = sgp_make_pipeline(&pip_desc);
+      if (sg_query_pipeline_state(goodpixel_pipeline) != SG_RESOURCESTATE_VALID)
       {
-        sgp_pipeline_desc pip_desc = {
-            .shader = *hueshift_program_shader_desc(sg_query_backend()),
-            .blend_mode = SGP_BLENDMODE_BLEND,
-        };
-        hueshift_pipeline = sgp_make_pipeline(&pip_desc);
-        if (sg_query_pipeline_state(hueshift_pipeline) != SG_RESOURCESTATE_VALID)
-        {
-          fprintf(stderr, "failed to make hueshift pipeline\n");
-          exit(-1);
-        }
+        fprintf(stderr, "failed to make goodpixel pipeline\n");
+        exit(-1);
       }
+    }
+  }
 
-      {
-        sgp_pipeline_desc pip_desc = {
-            .shader = *goodpixel_program_shader_desc(sg_query_backend()),
-            .blend_mode = SGP_BLENDMODE_BLEND,
-        };
+  // images loading
+  {
+    for (int i = 0; i < ARRLEN(boxes); i++)
+    {
+      boxes[i].image = load_image(boxes[i].image_path);
+    }
+    image_thrusterburn = load_image("loaded/thrusterburn.png");
+    image_itemframe = load_image("loaded/itemframe.png");
+    image_itemframe_selected = load_image("loaded/itemframe_selected.png");
+    image_player = load_image("loaded/player.png");
+    image_cockpit_used = load_image("loaded/cockpit_used.png");
+    image_stars = load_image("loaded/stars.png");
+    image_stars2 = load_image("loaded/stars2.png");
+    image_sun = load_image("loaded/sun.png");
+    image_medbay_used = load_image("loaded/medbay_used.png");
+    image_mystery = load_image("loaded/mystery.png");
+    image_explosion = load_image("loaded/explosion.png");
+    image_low_health = load_image("loaded/low_health.png");
+    image_mic_muted = load_image("loaded/mic_muted.png");
+    image_mic_unmuted = load_image("loaded/mic_unmuted.png");
+    image_flag_available = load_image("loaded/flag_available.png");
+    image_flag_taken = load_image("loaded/flag_ripped.png");
+    image_squad_invite = load_image("loaded/squad_invite.png");
+    image_check = load_image("loaded/check.png");
+    image_no = load_image("loaded/no.png");
+    image_solarpanel_charging = load_image("loaded/solarpanel_charging.png");
+    image_scanner_head = load_image("loaded/scanner_head.png");
+    image_itemswitch = load_image("loaded/itemswitch.png");
+    image_cloaking_panel = load_image("loaded/cloaking_panel.png");
+    image_missile_burning = load_image("loaded/missile_burning.png");
+    image_missile = load_image("loaded/missile.png");
+  }
 
-        goodpixel_pipeline = sgp_make_pipeline(&pip_desc);
-        if (sg_query_pipeline_state(goodpixel_pipeline) != SG_RESOURCESTATE_VALID)
-        {
-          fprintf(stderr, "failed to make goodpixel pipeline\n");
-          exit(-1);
-        }
-      }
+  // socket initialization
+  {
+    if (enet_initialize() != 0)
+    {
+      fprintf(stderr, "An error occurred while initializing ENet.\n");
+      exit(-1);
+    }
+    client = enet_host_create(NULL /* create a client host */,
+                              1 /* only allow 1 outgoing connection */,
+                              2 /* allow up 2 channels to be used, 0 and 1 */,
+                              0 /* assume any amount of incoming bandwidth */,
+                              0 /* assume any amount of outgoing bandwidth */);
+    if (client == NULL)
+    {
+      fprintf(
+          stderr,
+          "An error occurred while trying to create an ENet client host.\n");
+      exit(-1);
+    }
+    ENetAddress address;
+    ENetEvent event;
 
-      // images loading
-      {
-        for (int i = 0; i < ARRLEN(boxes); i++)
-        {
-          boxes[i].image = load_image(boxes[i].image_path);
-        }
-        image_thrusterburn = load_image("loaded/thrusterburn.png");
-        image_itemframe = load_image("loaded/itemframe.png");
-        image_itemframe_selected = load_image("loaded/itemframe_selected.png");
-        image_player = load_image("loaded/player.png");
-        image_cockpit_used = load_image("loaded/cockpit_used.png");
-        image_stars = load_image("loaded/stars.png");
-        image_stars2 = load_image("loaded/stars2.png");
-        image_sun = load_image("loaded/sun.png");
-        image_medbay_used = load_image("loaded/medbay_used.png");
-        image_mystery = load_image("loaded/mystery.png");
-        image_explosion = load_image("loaded/explosion.png");
-        image_low_health = load_image("loaded/low_health.png");
-        image_mic_muted = load_image("loaded/mic_muted.png");
-        image_mic_unmuted = load_image("loaded/mic_unmuted.png");
-        image_flag_available = load_image("loaded/flag_available.png");
-        image_flag_taken = load_image("loaded/flag_ripped.png");
-        image_squad_invite = load_image("loaded/squad_invite.png");
-        image_check = load_image("loaded/check.png");
-        image_no = load_image("loaded/no.png");
-        image_solarpanel_charging = load_image("loaded/solarpanel_charging.png");
-        image_scanner_head = load_image("loaded/scanner_head.png");
-        image_itemswitch = load_image("loaded/itemswitch.png");
-        image_cloaking_panel = load_image("loaded/cloaking_panel.png");
-        image_missile_burning = load_image("loaded/missile_burning.png");
-        image_missile = load_image("loaded/missile.png");
-      }
-
-      // socket initialization
-      {
-        if (enet_initialize() != 0)
-        {
-          fprintf(stderr, "An error occurred while initializing ENet.\n");
-          exit(-1);
-        }
-        client = enet_host_create(NULL /* create a client host */,
-                                  1 /* only allow 1 outgoing connection */,
-                                  2 /* allow up 2 channels to be used, 0 and 1 */,
-                                  0 /* assume any amount of incoming bandwidth */,
-                                  0 /* assume any amount of outgoing bandwidth */);
-        if (client == NULL)
-        {
-          fprintf(
-              stderr,
-              "An error occurred while trying to create an ENet client host.\n");
-          exit(-1);
-        }
-        ENetAddress address;
-        ENetEvent event;
-
-        enet_address_set_host(&address, SERVER_ADDRESS);
-        Log("Connecting to %s:%d\n", SERVER_ADDRESS, SERVER_PORT);
-        address.port = SERVER_PORT;
-        peer = enet_host_connect(client, &address, 2, 0);
-        if (peer == NULL)
-        {
-          fprintf(stderr,
-                  "No available peers for initiating an ENet connection.\n");
-          exit(-1);
-        }
-        // the timeout is the third parameter here
-        if (enet_host_service(client, &event, 5000) > 0 &&
-            event.type == ENET_EVENT_TYPE_CONNECT)
-        {
-          Log("Connected\n");
-        }
-        else
-        {
-          /* Either the 5 seconds are up or a disconnect event was */
-          /* received. Reset the peer in the event the 5 seconds   */
-          /* had run out without any significant event.            */
-          enet_peer_reset(peer);
-          fprintf(stderr, "Connection to server failed.");
-          exit(-1);
-        }
-      }
+    enet_address_set_host(&address, SERVER_ADDRESS);
+    Log("Connecting to %s:%d\n", SERVER_ADDRESS, SERVER_PORT);
+    address.port = SERVER_PORT;
+    peer = enet_host_connect(client, &address, 2, 0);
+    if (peer == NULL)
+    {
+      fprintf(stderr,
+              "No available peers for initiating an ENet connection.\n");
+      exit(-1);
+    }
+    // the timeout is the third parameter here
+    if (enet_host_service(client, &event, 5000) > 0 &&
+        event.type == ENET_EVENT_TYPE_CONNECT)
+    {
+      Log("Connected\n");
+    }
+    else
+    {
+      /* Either the 5 seconds are up or a disconnect event was */
+      /* received. Reset the peer in the event the 5 seconds   */
+      /* had run out without any significant event.            */
+      enet_peer_reset(peer);
+      Log("Failed to connecvt to server\n");
+      quit_with_popup("Failed to connect to server. Is your wifi down? It took too long.", "Connection Failure");
+      Log("Connection to server failed.\n");
     }
   }
 }

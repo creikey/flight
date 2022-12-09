@@ -436,6 +436,8 @@ uint64_t tick(struct GameState *gs);
 double elapsed_time(GameState *gs);
 double sun_dist_no_gravity(Entity *sun);
 
+void quit_with_popup(const char *message_utf8, const char *title_utf8);
+
 // all of these return if successful or not
 bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk);
 bool server_to_client_deserialize(struct ServerToClient *msg, unsigned char *bytes, size_t max_len, bool from_disk);

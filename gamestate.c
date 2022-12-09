@@ -19,7 +19,7 @@
 // - chipmunk
 
 #ifdef ASSERT_DO_POPUP_AND_CRASH
-#ifdef WIN32
+#ifdef _WIN32
 #include <windows.h>
 
 wchar_t *
@@ -64,7 +64,7 @@ FILE *log_file = NULL;
 
 void quit_with_popup(const char *message_utf8, const char *title_utf8)
 {
-#ifdef WIN32
+#ifdef _WIN32
   size_t message_out_len = 0;
   size_t title_out_len = 0;
   wchar_t *message_wchar = fromUTF8(message_utf8, strlen(message_utf8), &message_out_len);
@@ -581,7 +581,7 @@ cpVect box_compass_vector(Entity *box)
 #include <time.h>
 void fill_time_string(char *to_fill, size_t max_length)
 {
-#ifdef WIN32
+#ifdef _WIN32
   time_t rawtime;
   struct tm timeinfo = {0};
 
