@@ -20,9 +20,12 @@
 
 #ifdef ASSERT_DO_POPUP_AND_CRASH
 #ifdef _WIN32
+#ifndef UNICODE
+#define UNICODE // I think?
+#endif
 #include <windows.h>
 
-wchar_t *
+LPWSTR
 fromUTF8(
     const char *src,
     size_t src_length, /* = 0 */
@@ -39,7 +42,7 @@ fromUTF8(
     src_length = strlen(src);
   }
   int length = MultiByteToWideChar(CP_UTF8, 0, src, (int)src_length, 0, 0);
-  wchar_t *output_buffer = (wchar_t *)malloc((length + 1) * sizeof(wchar_t));
+  LPWSTR output_buffer = (LPWSTR)malloc((length + 1) * sizeof(wchar_t));
   if (output_buffer)
   {
     MultiByteToWideChar(CP_UTF8, 0, src, (int)src_length, output_buffer, (int)length);
@@ -67,8 +70,8 @@ void quit_with_popup(const char *message_utf8, const char *title_utf8)
 #ifdef _WIN32
   size_t message_out_len = 0;
   size_t title_out_len = 0;
-  wchar_t *message_wchar = fromUTF8(message_utf8, strlen(message_utf8), &message_out_len);
-  wchar_t *title_wchar = fromUTF8(title_utf8, strlen(title_utf8), &title_out_len);
+  LPWSTR message_wchar = fromUTF8(message_utf8, strlen(message_utf8), &message_out_len);
+  LPWSTR title_wchar = fromUTF8(title_utf8, strlen(title_utf8), &title_out_len);
   int msgboxID = MessageBox(
       NULL,
       message_wchar,
