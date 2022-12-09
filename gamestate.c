@@ -19,6 +19,7 @@
 // - chipmunk
 
 #ifdef ASSERT_DO_POPUP_AND_CRASH
+#ifdef WIN32
 #include <windows.h>
 
 wchar_t *
@@ -50,7 +51,8 @@ fromUTF8(
   }
   return output_buffer;
 }
-#endif
+#endif // win32
+#endif // ASSERT_DO_POPUP_AND_CRASH
 
 enum
 {
