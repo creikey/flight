@@ -1,5 +1,4 @@
 //------------------------------------------------------------------------------
-
 //  Take flight
 //------------------------------------------------------------------------------
 
@@ -10,16 +9,14 @@
 
 #define TOOLBAR_SLOTS 9
 
-#pragma warning(disable : 33010) // this warning is so broken, doesn't
-                                 // understand assert()
+#pragma warning(disable : 33010) // this warning is so broken, doesn't understand flight_assert()
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "sokol_gp.h"
 #include "sokol_time.h"
 #pragma warning(default : 33010)
-#pragma warning(disable : 6262) // warning about using a lot of stack, lol
-                                // that's how stb image is
+#pragma warning(disable : 6262) // warning about using a lot of stack, lol that's how stb image is
 #define STB_IMAGE_IMPLEMENTATION
 #include <inttypes.h>
 #include <string.h> // errno error message on file open
@@ -251,10 +248,11 @@ struct SquadMeta squad_meta(enum Squad squad)
 
 static enum BoxType currently_building()
 {
-  assert(cur_toolbar_slot >= 0);
-  assert(cur_toolbar_slot < TOOLBAR_SLOTS);
+  flight_assert(cur_toolbar_slot >= 0);
+  flight_assert(cur_toolbar_slot < TOOLBAR_SLOTS);
   return toolbar[cur_toolbar_slot];
 }
+
 
 struct BoxInfo boxinfo(enum BoxType type)
 {
@@ -303,7 +301,7 @@ static sg_image load_image(const char *path)
 void microphone_data_callback(ma_device *pDevice, void *pOutput,
                               const void *pInput, ma_uint32 frameCount)
 {
-  assert(frameCount == VOIP_EXPECTED_FRAME_COUNT);
+  flight_assert(frameCount == VOIP_EXPECTED_FRAME_COUNT);
 #if 0 // print audio data
   Log("Mic data: ");
   for (ma_uint32 i = 0; i < VOIP_EXPECTED_FRAME_COUNT; i++)
@@ -321,7 +319,7 @@ void microphone_data_callback(ma_device *pDevice, void *pOutput,
       queue_clear(&packets_to_send);
       packet = queue_push_element(&packets_to_send);
     }
-    assert(packet != NULL);
+    flight_assert(packet != NULL);
     {
       opus_int16 muted_audio[VOIP_EXPECTED_FRAME_COUNT] = {0};
       const opus_int16 *audio_buffer = (const opus_int16 *)pInput;
@@ -340,7 +338,7 @@ void microphone_data_callback(ma_device *pDevice, void *pOutput,
 void speaker_data_callback(ma_device *pDevice, void *pOutput,
                            const void *pInput, ma_uint32 frameCount)
 {
-  assert(frameCount == VOIP_EXPECTED_FRAME_COUNT);
+  flight_assert(frameCount == VOIP_EXPECTED_FRAME_COUNT);
   ma_mutex_lock(&play_packets_mutex);
   OpusPacket *cur_packet = (OpusPacket *)queue_pop_element(&packets_to_play);
   if (cur_packet != NULL)
@@ -371,7 +369,7 @@ static Entity *myentity()
     return NULL;
   Entity *to_return = get_entity(&gs, myplayer()->entity);
   if (to_return != NULL)
-    assert(to_return->is_player);
+    flight_assert(to_return->is_player);
   return to_return;
 }
 
@@ -480,6 +478,8 @@ void draw_textured_rect(double x, double y, double w, double h)
 
 static void init(void)
 {
+  fopen_s(&log_file, "astris_log.txt", "a");
+  Log("Another day, another game of astris!\n");
   queue_init(&packets_to_play, sizeof(OpusPacket), packets_to_play_data,
              ARRLEN(packets_to_play_data));
   queue_init(&packets_to_send, sizeof(OpusPacket), packets_to_send_data,
@@ -494,9 +494,9 @@ static void init(void)
       int error;
       enc = opus_encoder_create(VOIP_SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP,
                                 &error);
-      assert(error == OPUS_OK);
+      flight_assert(error == OPUS_OK);
       dec = opus_decoder_create(VOIP_SAMPLE_RATE, 1, &error);
-      assert(error == OPUS_OK);
+      flight_assert(error == OPUS_OK);
     }
 
     ma_device_config microphone_config =
@@ -558,7 +558,7 @@ static void init(void)
 
   // @BeforeShip make all fprintf into logging to file, warning dialog grids on
   // failure instead of exit(-1), replace the macros in sokol with this as well,
-  // like assert
+  // like flight_assert
 
   Entity *entity_data = malloc(sizeof *entity_data * MAX_ENTITIES);
   initialize(&gs, entity_data, sizeof *entity_data * MAX_ENTITIES);
@@ -1423,7 +1423,6 @@ static void frame(void)
   PROFILE_SCOPE("frame")
   {
     double width = (float)sapp_width(), height = (float)sapp_height();
-    double ratio = width / height;
     double exec_time = sapp_frame_count() * sapp_frame_duration();
     double dt = sapp_frame_duration();
 
@@ -1478,7 +1477,7 @@ static void frame(void)
             unsigned char *decompressed = malloc(
                 sizeof *decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
             size_t decompressed_max_len = MAX_SERVER_TO_CLIENT;
-            assert(LZO1X_MEM_DECOMPRESS == 0);
+            flight_assert(LZO1X_MEM_DECOMPRESS == 0);
 
             ma_mutex_lock(&play_packets_mutex);
             ServerToClient msg = (ServerToClient){
@@ -1555,7 +1554,6 @@ static void frame(void)
           {
             dilating_time_factor = 1.0;
           }
-
 
           // snap in dire cases
           if (healthy_num_ticks_ahead >= TICKS_BEHIND_DO_SNAP && ticks_should_repredict < healthy_num_ticks_ahead - TICKS_BEHIND_DO_SNAP)
@@ -1700,7 +1698,7 @@ static void frame(void)
               InputFrame *to_discard = queue_pop_element(&input_queue);
               (void)to_discard;
               to_push_to = queue_push_element(&input_queue);
-              assert(to_push_to != NULL);
+              flight_assert(to_push_to != NULL);
             }
 
             *to_push_to = cur_input_frame;
@@ -1723,7 +1721,7 @@ static void frame(void)
         } while (time_to_process >= TIMESTEP);
         cpVect after = my_player_pos();
 
-        // use theses variables to suss out reprediction errors, enables you to 
+        // use theses variables to suss out reprediction errors, enables you to
         // breakpoint on when they happen
         (void)before;
         (void)after;
@@ -2187,6 +2185,7 @@ static void frame(void)
 
 void cleanup(void)
 {
+  fclose(log_file);
   sg_destroy_pipeline(hueshift_pipeline);
 
   ma_mutex_lock(&server_info.info_mutex);

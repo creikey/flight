@@ -8,7 +8,7 @@
 
 #include "buildsettings.h" // debug/developer settings
 
-#include <stdio.h>  // assert logging
+#include <stdio.h>  // flight_assert logging
 #include <string.h> // memset
 
 // do not use any global variables to process gamestate
@@ -18,23 +18,82 @@
 // - debug.c for debug drawing
 // - chipmunk
 
+#ifdef ASSERT_DO_POPUP_AND_CRASH
+#include <windows.h>
+
+wchar_t *
+fromUTF8(
+    const char *src,
+    size_t src_length, /* = 0 */
+    size_t *out_length /* = NULL */
+)
+{
+  if (!src)
+  {
+    return NULL;
+  }
+
+  if (src_length == 0)
+  {
+    src_length = strlen(src);
+  }
+  int length = MultiByteToWideChar(CP_UTF8, 0, src, (int)src_length, 0, 0);
+  wchar_t *output_buffer = (wchar_t *)malloc((length + 1) * sizeof(wchar_t));
+  if (output_buffer)
+  {
+    MultiByteToWideChar(CP_UTF8, 0, src, (int)src_length, output_buffer, (int)length);
+    output_buffer[length] = L'\0';
+  }
+  if (out_length)
+  {
+    *out_length = length;
+  }
+  return output_buffer;
+}
+#endif
+
 enum
 {
   PLAYERS = 1 << 0,
   BOXES = 1 << 1,
 };
 
+FILE *log_file = NULL;
+
 void __flight_assert(bool cond, const char *file, int line, const char *cond_string)
 {
   if (!cond)
   {
-    fprintf(stderr, "%s:%d | Assertion %s failed\n", file, line, cond_string);
+#define MESSAGE_BUFFER_SIZE 2048
+    char message_buffer[MESSAGE_BUFFER_SIZE] = {0};
+    Log("Assertion failure\n"); // so that I have the time in the logs for when the assertion failed. Too lazy to fill a time string here
+    snprintf(message_buffer, MESSAGE_BUFFER_SIZE, "%s:%d | Assertion %s failed\n", file, line, cond_string);
+    fprintf(stderr, "%s", message_buffer);
+    if (log_file != NULL)
+    {
+      fprintf(log_file, "%s", message_buffer);
+    }
+#ifdef ASSERT_DO_POPUP_AND_CRASH
+    size_t out_len = 0;
+    wchar_t *output = fromUTF8(message_buffer, strlen(message_buffer), &out_len);
+    wchar_t dialogbox_message[MESSAGE_BUFFER_SIZE] = {0};
+    _snwprintf_s(dialogbox_message, MESSAGE_BUFFER_SIZE, MESSAGE_BUFFER_SIZE, L"Critical error! Please report this in #bug-reports with a screenshot, description of what you were doing, and the file 'atris.log' located next to the executable\n%s\nClosing now.\n", output);
+    int msgboxID = MessageBox(
+        NULL,
+        dialogbox_message,
+        L"Assertion Failed",
+        MB_ICONEXCLAMATION | MB_OK);
+    (void)msgboxID;
+
+    free(output);
+    PostQuitMessage(1);
+#endif
   }
 }
 
 bool is_burning(Entity *missile)
 {
-  assert(missile->is_missile);
+  flight_assert(missile->is_missile);
   return missile->time_burned_for < MISSILE_BURN_TIME;
 }
 
@@ -80,8 +139,8 @@ bool cloaking_active(GameState *gs, Entity *e)
 
 bool is_cloaked(GameState *gs, Entity *e, Entity *this_players_perspective)
 {
-  assert(this_players_perspective != NULL);
-  assert(this_players_perspective->is_player);
+  flight_assert(this_players_perspective != NULL);
+  flight_assert(this_players_perspective->is_player);
   bool cloaked = cloaking_active(gs, e);
   if (e->is_player)
   {
@@ -95,7 +154,7 @@ bool is_cloaked(GameState *gs, Entity *e, Entity *this_players_perspective)
 
 static BOX_UNLOCKS_TYPE box_unlock_number(enum BoxType box)
 {
-  assert((BOX_UNLOCKS_TYPE)box < 64);
+  flight_assert((BOX_UNLOCKS_TYPE)box < 64);
   return (BOX_UNLOCKS_TYPE)((BOX_UNLOCKS_TYPE)1 << ((BOX_UNLOCKS_TYPE)box));
 }
 
@@ -106,14 +165,14 @@ static bool learned_boxes_has_box(BOX_UNLOCKS_TYPE learned, enum BoxType box)
 
 void unlock_box(Player *player, enum BoxType box)
 {
-  assert(box < MAX_BOX_TYPES);
-  assert(box != BoxInvalid);
+  flight_assert(box < MAX_BOX_TYPES);
+  flight_assert(box != BoxInvalid);
   player->box_unlocks |= box_unlock_number(box);
 }
 
 bool box_unlocked(Player *player, enum BoxType box)
 {
-  assert(box < MAX_BOX_TYPES);
+  flight_assert(box < MAX_BOX_TYPES);
   if (box == BoxInvalid)
     return false;
   return learned_boxes_has_box(player->box_unlocks, box);
@@ -125,8 +184,8 @@ EntityID get_id(GameState *gs, Entity *e)
     return (EntityID){0};
 
   size_t index = (e - gs->entities);
-  assert(index >= 0);
-  assert(index < gs->cur_next_entity);
+  flight_assert(index >= 0);
+  flight_assert(index < gs->cur_next_entity);
 
   return (EntityID){
       .generation = e->generation,
@@ -151,7 +210,7 @@ static GameState *cp_space_gs(cpSpace *space)
 
 static GameState *entitys_gamestate(Entity *e)
 {
-  assert(e->body != NULL || e->shape != NULL);
+  flight_assert(e->body != NULL || e->shape != NULL);
   if (e->shape != NULL)
   {
     return cp_space_gs(cpShapeGetSpace(e->shape));
@@ -165,7 +224,7 @@ static GameState *entitys_gamestate(Entity *e)
 
 int grid_num_boxes(GameState *gs, Entity *e)
 {
-  assert(e->is_grid);
+  flight_assert(e->is_grid);
   int to_return = 0;
 
   BOXES_ITER(gs, cur, e)
@@ -176,7 +235,7 @@ int grid_num_boxes(GameState *gs, Entity *e)
 
 void box_remove_from_boxes(GameState *gs, Entity *box)
 {
-  assert(box->is_box);
+  flight_assert(box->is_box);
   Entity *prev_box = get_entity(gs, box->prev_box);
   Entity *next_box = get_entity(gs, box->next_box);
   if (prev_box != NULL)
@@ -188,7 +247,7 @@ void box_remove_from_boxes(GameState *gs, Entity *box)
   }
   if (next_box != NULL)
   {
-    assert(next_box->is_box);
+    flight_assert(next_box->is_box);
     next_box->prev_box = get_id(gs, prev_box);
   }
   box->next_box = (EntityID){0};
@@ -198,7 +257,7 @@ void box_remove_from_boxes(GameState *gs, Entity *box)
 cpVect player_vel(GameState *gs, Entity *e);
 cpVect entity_vel(GameState *gs, Entity *e)
 {
-  assert(e->is_box || e->is_player || e->body != NULL || e->is_explosion);
+  flight_assert(e->is_box || e->is_player || e->body != NULL || e->is_explosion);
   if (e->is_box)
     return box_vel(e);
   if (e->is_player)
@@ -207,7 +266,7 @@ cpVect entity_vel(GameState *gs, Entity *e)
     return (cpBodyGetVelocity(e->body));
   if (e->is_explosion)
     return e->explosion_vel;
-  assert(false);
+  flight_assert(false);
   return (cpVect){0};
 }
 
@@ -219,7 +278,7 @@ static void on_missile_shape(cpShape *shape, cpContactPointSet *points, void *da
   Entity *launcher = (Entity *)data;
   Entity *other = cp_shape_entity(shape);
   GameState *gs = entitys_gamestate(launcher);
-  assert(other->is_box || other->is_player || other->is_missile);
+  flight_assert(other->is_box || other->is_player || other->is_missile);
 
   cpVect to = cpvsub(entity_pos(other), entity_pos(launcher));
   bool should_attack = true;
@@ -281,7 +340,7 @@ static void destroy_body(GameState *gs, cpBody **body)
 
 void entity_destroy(GameState *gs, Entity *e)
 {
-  assert(e->exists);
+  flight_assert(e->exists);
 
   if (e->is_grid)
   {
@@ -303,7 +362,7 @@ void entity_destroy(GameState *gs, Entity *e)
 
   Entity *front_of_free_list = get_entity(gs, gs->free_list);
   if (front_of_free_list != NULL)
-    assert(!front_of_free_list->exists);
+    flight_assert(!front_of_free_list->exists);
   int gen = e->generation;
   *e = (Entity){0};
   e->generation = gen;
@@ -322,14 +381,14 @@ Entity *new_entity(GameState *gs)
   Entity *possible_free_list = get_entity_even_if_dead(gs, gs->free_list);
   if (possible_free_list != NULL)
   {
-    assert(possible_free_list->generation == gs->free_list.generation);
+    flight_assert(possible_free_list->generation == gs->free_list.generation);
     to_return = possible_free_list;
-    assert(!to_return->exists);
+    flight_assert(!to_return->exists);
     gs->free_list = to_return->next_free_entity;
   }
   else
   {
-    assert(gs->cur_next_entity < gs->max_entities); // too many entities if fails
+    flight_assert(gs->cur_next_entity < gs->max_entities); // too many entities if fails
     to_return = &gs->entities[gs->cur_next_entity];
     gs->cur_next_entity++;
   }
@@ -342,7 +401,7 @@ Entity *new_entity(GameState *gs)
 // pos, mass, radius
 EntityID create_sun(GameState *gs, Entity *new_sun, cpVect pos, cpVect vel, double mass, double radius)
 {
-  assert(new_sun != NULL);
+  flight_assert(new_sun != NULL);
   new_sun->is_sun = true;
   new_sun->sun_pos = pos;
   new_sun->sun_vel = vel;
@@ -354,7 +413,7 @@ EntityID create_sun(GameState *gs, Entity *new_sun, cpVect pos, cpVect vel, doub
 
 void create_body(GameState *gs, Entity *e)
 {
-  assert(gs->space != NULL);
+  flight_assert(gs->space != NULL);
 
   if (e->body != NULL)
   {
@@ -370,12 +429,12 @@ void create_body(GameState *gs, Entity *e)
 
 cpVect player_vel(GameState *gs, Entity *player)
 {
-  assert(player->is_player);
+  flight_assert(player->is_player);
   Entity *potential_seat = get_entity(gs, player->currently_inside_of_box);
   if (potential_seat != NULL && !potential_seat->is_box)
   {
     Log("Weird ass motherfucking bug where the seat inside of is an explosion or some shit\n");
-    assert(potential_seat->is_box);
+    flight_assert(potential_seat->is_box);
   }
   else
   {
@@ -395,14 +454,14 @@ void grid_create(GameState *gs, Entity *e)
 
 void entity_set_rotation(Entity *e, double rot)
 {
-  assert(e->body != NULL);
+  flight_assert(e->body != NULL);
   cpBodySetAngle(e->body, rot);
 }
 
 void entity_set_pos(Entity *e, cpVect pos)
 {
-  assert(e->is_grid);
-  assert(e->body != NULL);
+  flight_assert(e->is_grid);
+  flight_assert(e->body != NULL);
   cpBodySetPosition(e->body, (pos));
 }
 
@@ -483,8 +542,8 @@ void box_add_to_boxes(GameState *gs, Entity *grid, Entity *box_to_add)
 void box_create(GameState *gs, Entity *new_box, Entity *grid, cpVect pos)
 {
   new_box->is_box = true;
-  assert(gs->space != NULL);
-  assert(grid->is_grid);
+  flight_assert(gs->space != NULL);
+  flight_assert(grid->is_grid);
 
   double halfbox = BOX_SIZE / 2.0;
 
@@ -498,11 +557,39 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, cpVect pos)
 cpVect box_compass_vector(Entity *box)
 {
 
-  assert(box->is_box);
+  flight_assert(box->is_box);
   cpVect to_return = (cpVect){.x = 1.0, .y = 0.0};
   to_return = cpvspin(to_return, rotangle(box->compass_rotation));
 
   return to_return;
+}
+#include <time.h>
+void fill_time_string(char *to_fill, size_t max_length)
+{
+#ifdef WIN32
+  time_t rawtime;
+  struct tm timeinfo = {0};
+
+  time(&rawtime);
+  localtime_s(&timeinfo, &rawtime);
+
+  asctime_s(to_fill, max_length, &timeinfo);
+#else
+  time_t rawtime;
+  struct tm *timeinfo;
+
+  time(&rawtime);
+  timeinfo = localtime(&rawtime);
+
+  char *output = asctime(timeinfo);
+  size_t length = strlen(output);
+  strncpy(to_fill, output, length);
+#endif
+  size_t filled_length = strlen(to_fill);
+  // to_fill[filled_length - 1] = '\0'; // remove the newline
+  to_fill[filled_length - 2] = '\0'; // remove the newline
+  to_fill[filled_length - 3] = '\0'; // remove the newline
+  // to_fill[filled_length - 4] = '\0'; // remove the newline
 }
 
 // removes boxes from grid, then ensures that the rule that grids must not have
@@ -537,8 +624,8 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
   {
     // grab an unprocessed box, one not in separate_grids, to start the flood fill
     Entity *unprocessed = get_entity(gs, grid->boxes);
-    assert(unprocessed != NULL);
-    assert(unprocessed->is_box);
+    flight_assert(unprocessed != NULL);
+    flight_assert(unprocessed->is_box);
     box_remove_from_boxes(gs, unprocessed); // no longer in the boxes list of the grid
 
     uint32_t biggest_box_index = 0;
@@ -552,7 +639,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       Entity *N = NULL;
       while (true)
       {
-        assert(!was_entity_deleted(gs, Q));
+        flight_assert(!was_entity_deleted(gs, Q));
         N = get_entity(gs, Q);
         if (N == NULL) // must mean that the queue is empty
           break;
@@ -629,7 +716,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       biggest_separate_grid_index = cur_separate_grid_index;
     }
     cur_separate_grid_index++;
-    assert(cur_separate_grid_index < MAX_SEPARATE_GRIDS);
+    flight_assert(cur_separate_grid_index < MAX_SEPARATE_GRIDS);
     cur_separate_grid_size = 0;
   }
 
@@ -676,8 +763,8 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 
 static void grid_remove_box(GameState *gs, struct Entity *grid, struct Entity *box)
 {
-  assert(grid->is_grid);
-  assert(box->is_box);
+  flight_assert(grid->is_grid);
+  flight_assert(box->is_box);
   entity_destroy(gs, box);
   grid_correct_for_holes(gs, grid);
 }
@@ -784,7 +871,7 @@ cpVect grid_world_to_local(Entity *grid, cpVect world)
 }
 cpVect grid_local_to_world(Entity *grid, cpVect local)
 {
-  assert(grid->is_grid);
+  flight_assert(grid->is_grid);
   return (cpBodyLocalToWorld(grid->body, (local)));
 }
 // returned snapped position is in world coordinates
@@ -804,7 +891,7 @@ cpVect grid_snapped_box_pos(Entity *grid, cpVect world)
 // for boxes does not include box's compass rotation
 double entity_rotation(Entity *e)
 {
-  assert(e->body != NULL || e->shape != NULL);
+  flight_assert(e->body != NULL || e->shape != NULL);
   if (e->body != NULL)
     return (float)cpBodyGetAngle(e->body);
   else
@@ -819,7 +906,7 @@ Entity *box_grid(Entity *box)
 {
   if (box == NULL)
     return NULL;
-  assert(box->is_box);
+  flight_assert(box->is_box);
   return (Entity *)cpBodyGetUserData(cpShapeGetBody(box->shape));
 }
 // in local space
@@ -829,7 +916,7 @@ cpVect entity_shape_pos(Entity *box)
 }
 double entity_shape_mass(Entity *box)
 {
-  assert(box->shape != NULL);
+  flight_assert(box->shape != NULL);
   return (float)cpShapeGetMass(box->shape);
 }
 double box_rotation(Entity *box)
@@ -853,7 +940,7 @@ cpVect entity_pos(Entity *e)
   }
   else
   {
-    assert(e->body != NULL);
+    flight_assert(e->body != NULL);
     return (cpBodyGetPosition(e->body));
   }
 }
@@ -1500,8 +1587,8 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 // for_this_player can be null then the entire world will be sent
 bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk)
 {
-  assert(msg->cur_gs != NULL);
-  assert(msg != NULL);
+  flight_assert(msg->cur_gs != NULL);
+  flight_assert(msg != NULL);
 
   SerState ser = (SerState){
       .bytes = bytes,
@@ -1538,8 +1625,8 @@ bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes
 
 bool server_to_client_deserialize(struct ServerToClient *msg, unsigned char *bytes, size_t max_len, bool from_disk)
 {
-  assert(msg->cur_gs != NULL);
-  assert(msg != NULL);
+  flight_assert(msg->cur_gs != NULL);
+  flight_assert(msg != NULL);
 
   SerState servar = (SerState){
       .bytes = bytes,
@@ -1673,8 +1760,8 @@ bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, uns
 static THREADLOCAL Entity *grid_to_exclude = NULL;
 static bool merge_filter(Entity *potential_merge)
 {
-  assert(grid_to_exclude != NULL);
-  assert(grid_to_exclude->is_grid);
+  flight_assert(grid_to_exclude != NULL);
+  flight_assert(grid_to_exclude->is_grid);
   return potential_merge->is_box && potential_merge->box_type == BoxMerge && box_grid(potential_merge) != grid_to_exclude;
 }
 
@@ -1694,7 +1781,7 @@ static THREADLOCAL double closest_to_point_in_radius_result_largest_dist = 0.0;
 static THREADLOCAL bool (*closest_to_point_in_radius_filter_func)(Entity *);
 static void closest_point_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
 {
-  assert(points->count == 1);
+  flight_assert(points->count == 1);
   Entity *e = cp_shape_entity(shape);
   if (!e->is_box)
     return;
@@ -1753,7 +1840,7 @@ static void explosion_callback_func(cpShape *shape, cpContactPointSet *points, v
   Entity *parent = get_entity(gs, cp_shape_entity(shape)->shape_parent_entity);
   cpVect from_pos = entity_pos(cp_shape_entity(shape));
   cpVect impulse = cpvmult(cpvnormalize(cpvsub(from_pos, explosion_origin)), explosion_push_strength);
-  assert(parent->body != NULL);
+  flight_assert(parent->body != NULL);
   cpBodyApplyImpulseAtWorldPoint(parent->body, (impulse), (from_pos));
 }
 
@@ -1774,7 +1861,7 @@ static void do_explosion(GameState *gs, Entity *explosion, double dt)
 
 cpVect box_facing_vector(Entity *box)
 {
-  assert(box->is_box);
+  flight_assert(box->is_box);
   cpVect to_return = (cpVect){.x = 1.0, .y = 0.0};
 
   to_return = box_compass_vector(box);
@@ -1785,8 +1872,8 @@ cpVect box_facing_vector(Entity *box)
 
 enum CompassRotation facing_vector_to_compass(Entity *grid_to_transplant_to, Entity *grid_facing_vector_from, cpVect facing_vector)
 {
-  assert(grid_to_transplant_to->body != NULL);
-  assert(grid_to_transplant_to->is_grid);
+  flight_assert(grid_to_transplant_to->body != NULL);
+  flight_assert(grid_to_transplant_to->is_grid);
 
   cpVect from_target = cpvadd(entity_pos(grid_to_transplant_to), facing_vector);
   cpVect local_target = grid_world_to_local(grid_to_transplant_to, from_target);
@@ -1810,7 +1897,7 @@ enum CompassRotation facing_vector_to_compass(Entity *grid_to_transplant_to, Ent
       smallest = i;
     }
   }
-  assert(smallest != -1);
+  flight_assert(smallest != -1);
   return dirs[smallest];
 }
 
@@ -1908,7 +1995,7 @@ double entity_mass(Entity *m)
     return m->sun_mass;
   else
   {
-    assert(false);
+    flight_assert(false);
     return 0.0;
   }
 }
@@ -1923,7 +2010,7 @@ cpVect sun_gravity_accel_for_entity(Entity *entity_with_gravity, Entity *sun)
     return (cpVect){0};
   cpVect rel_vector = cpvsub(entity_pos(entity_with_gravity), entity_pos(sun));
   double mass = entity_mass(entity_with_gravity);
-  assert(mass != 0.0);
+  flight_assert(mass != 0.0);
   double distance_sqr = cpvlengthsq(rel_vector);
   // return (GRAVITY_CONSTANT * (SUN_MASS * mass / (distance * distance))) / mass;
   // the mass divides out
@@ -1948,7 +2035,7 @@ void entity_set_velocity(Entity *e, cpVect vel)
   else if (e->is_sun)
     e->sun_vel = vel;
   else
-    assert(false);
+    flight_assert(false);
 }
 
 void entity_ensure_in_orbit(GameState *gs, Entity *e)
@@ -1976,7 +2063,7 @@ void entity_ensure_in_orbit(GameState *gs, Entity *e)
 
 cpVect box_vel(Entity *box)
 {
-  assert(box->is_box);
+  flight_assert(box->is_box);
   Entity *grid = box_grid(box);
   return (cpBodyGetVelocityAtWorldPoint(grid->body, (entity_pos(box))));
 }
@@ -2139,7 +2226,7 @@ void process(struct GameState *gs, double dt)
 {
   PROFILE_SCOPE("Gameplay processing")
   {
-    assert(gs->space != NULL);
+    flight_assert(gs->space != NULL);
 
     gs->tick++;
 
@@ -2221,7 +2308,7 @@ void process(struct GameState *gs, double dt)
             p->damage = 0.95;
           }
         }
-        assert(p->is_player);
+        flight_assert(p->is_player);
         p->owning_squad = player->squad;
 
         if (p->squad_invited_to != SquadNone)
@@ -2262,7 +2349,7 @@ void process(struct GameState *gs, double dt)
             if (result != NULL)
             {
               Entity *potential_seat = cp_shape_entity(result);
-              assert(potential_seat->is_box);
+              flight_assert(potential_seat->is_box);
 
               if (potential_seat->box_type == BoxScanner) // learn everything from the scanner
               {
@@ -2272,9 +2359,9 @@ void process(struct GameState *gs, double dt)
               {
                 potential_seat->wants_disconnect = true;
                 grid_correct_for_holes(gs, box_grid(potential_seat));
-                assert(potential_seat->exists);
-                assert(potential_seat->is_box);
-                assert(potential_seat->box_type == BoxMerge);
+                flight_assert(potential_seat->exists);
+                flight_assert(potential_seat->is_box);
+                flight_assert(potential_seat->box_type == BoxMerge);
               }
               if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
               {
@@ -2342,7 +2429,7 @@ void process(struct GameState *gs, double dt)
           }
           else
           {
-            assert(seat_inside_of->is_box);
+            flight_assert(seat_inside_of->is_box);
             cpShapeSetFilter(p->shape, CP_SHAPE_FILTER_NONE); // no collisions while in a seat
             cpBodySetPosition(p->body, (entity_pos(seat_inside_of)));
             cpBodySetVelocity(p->body, (box_vel(seat_inside_of)));
@@ -2484,7 +2571,7 @@ void process(struct GameState *gs, double dt)
           }
         }
 
-// sun processing for this current entity
+        // sun processing for this current entity
 #ifndef NO_SUNS
         PROFILE_SCOPE("this entity sun processing")
         {
@@ -2578,7 +2665,7 @@ void process(struct GameState *gs, double dt)
             if (e->box_type == BoxMerge)
             {
               Entity *from_merge = e;
-              assert(from_merge != NULL);
+              flight_assert(from_merge != NULL);
 
               grid_to_exclude = box_grid(from_merge);
               Entity *other_merge = closest_box_to_point_in_radius(gs, entity_pos(from_merge), MERGE_MAX_DIST, merge_filter);
@@ -2588,7 +2675,7 @@ void process(struct GameState *gs, double dt)
 
               if (!from_merge->wants_disconnect && other_merge != NULL && !other_merge->wants_disconnect)
               {
-                assert(box_grid(from_merge) != box_grid(other_merge));
+                flight_assert(box_grid(from_merge) != box_grid(other_merge));
 
                 Entity *from_grid = box_grid(from_merge);
                 Entity *other_grid = box_grid(other_merge);
@@ -2609,7 +2696,7 @@ void process(struct GameState *gs, double dt)
                   double angle_diff = cpvanglediff(current_facing_vector, facing_vector_needed);
                   if (angle_diff == FLT_MIN)
                     angle_diff = 0.0;
-                  assert(!isnan(angle_diff));
+                  flight_assert(!isnan(angle_diff));
 
                   cpBodySetAngle(other_grid->body, cpBodyGetAngle(other_grid->body) + angle_diff);
 
@@ -2630,7 +2717,7 @@ void process(struct GameState *gs, double dt)
                     cur->compass_rotation = new_rotation;
                     cpVect new_cur_pos = grid_snapped_box_pos(from_grid, cpvadd(snap_movement_vect, world));
                     box_create(gs, cur, from_grid, grid_world_to_local(from_grid, new_cur_pos)); // destroys next/prev fields on cur
-                    assert(box_grid(cur) == box_grid(from_merge));
+                    flight_assert(box_grid(cur) == box_grid(from_merge));
                     cur = next;
                   }
                   entity_destroy(gs, other_grid);
@@ -2679,7 +2766,7 @@ void process(struct GameState *gs, double dt)
                 cur->energy_used -= energy_sucked_up_by_battery;
                 energy_to_add -= energy_sucked_up_by_battery;
               }
-              assert(energy_to_add >= 0.0);
+              flight_assert(energy_to_add >= 0.0);
             }
 
             // any energy_to_add existing now can also be used to power thrusters/medbay
@@ -2816,7 +2903,7 @@ void process(struct GameState *gs, double dt)
                 scanner_has_learned = cur_box->blueprints_learned;
                 Entity *to_learn = closest_box_to_point_in_radius(gs, entity_pos(cur_box), SCANNER_RADIUS, scanner_filter);
                 if (to_learn != NULL)
-                  assert(to_learn->is_box);
+                  flight_assert(to_learn->is_box);
 
                 EntityID new_id = get_id(gs, to_learn);
 

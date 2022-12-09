@@ -9,6 +9,7 @@
 #ifdef DEBUG
 
 #define SERVER_ADDRESS "127.0.0.1"
+#define ASSERT_DO_POPUP_AND_CRASH
 // #define SERVER_ADDRESS "207.246.80.160"
 
 //#define PROFILING
@@ -26,6 +27,7 @@
 // #define PROFILING
 // #define SERVER_ADDRESS "127.0.0.1"
 #define SERVER_ADDRESS "207.246.80.160"
+#define ASSERT_DO_POPUP_AND_CRASH
 
 #else
 #error Define either DEBUG or RELEASE

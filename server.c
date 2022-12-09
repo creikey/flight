@@ -250,7 +250,7 @@ void server(void *info_raw)
               struct ClientToServer received = {.mic_data = buffer_to_fill, .input_data = &player_input_queues[player_slot]};
               unsigned char decompressed[MAX_CLIENT_TO_SERVER] = {0};
               size_t decompressed_max_len = MAX_CLIENT_TO_SERVER;
-              assert(LZO1X_MEM_DECOMPRESS == 0);
+              flight_assert(LZO1X_MEM_DECOMPRESS == 0);
 
               int return_value = lzo1x_decompress_safe(event.packet->data, event.packet->dataLength, decompressed, &decompressed_max_len, NULL);
 

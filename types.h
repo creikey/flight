@@ -80,7 +80,7 @@
 #define MAX_MS_SPENT_REPREDICTING 30.0f
 #define TIME_BETWEEN_SEND_GAMESTATE (1.0f / 20.0f)
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
-#define TIMESTEP (1.0f / 60.0f) // server required to simulate at this, defines what tick the game is on
+#define TIMESTEP (1.0f / 60.0f)  // server required to simulate at this, defines what tick the game is on
 #define LOCAL_INPUT_QUEUE_MAX 90 // please god let you not have more than 90 frames of game latency
 #define INPUT_QUEUE_MAX 15
 
@@ -96,19 +96,16 @@
 
 #define ARRLEN(x) (sizeof(x) / sizeof((x)[0]))
 
+#include "cpVect.h"    // offers vector functions and types for the structs
 #include "miniaudio.h" // @Robust BAD. using miniaudio mutex construct for server thread synchronization. AWFUL!
-#include "cpVect.h" // offers vector functions and types for the structs
 
 // @Robust remove this include somehow, needed for sqrt and cos
 #include <math.h>
 #include <stdint.h> // tick is unsigned integer
 #include <stdio.h>  // logging on errors for functions
 
-
 // defined in gamestate.c. Janky
-#ifndef assert
-#define assert(condition) __flight_assert(condition, __FILE__, __LINE__, #condition)
-#endif
+#define flight_assert(condition) __flight_assert(condition, __FILE__, __LINE__, #condition)
 
 // including headers from headers bad
 
@@ -133,10 +130,22 @@ typedef int opus_int32;
 
 #endif
 
-#define Log(...)                                     \
-  {                                                  \
-    fprintf(stdout, "%s:%d | ", __FILE__, __LINE__); \
-    fprintf(stdout, __VA_ARGS__);                    \
+extern FILE *log_file;
+#include <time.h> // the time in logging!
+
+void fill_time_string(char *to_fill, size_t max_length);
+
+#define Log(...)                                                           \
+  {                                                                        \
+    char time_string[2048] = {0};                                          \
+    fill_time_string(time_string, 2048);                                   \
+    fprintf(stdout, "%s | %s:%d | ", time_string, __FILE__, __LINE__);     \
+    fprintf(stdout, __VA_ARGS__);                                          \
+    if (log_file != NULL)                                                  \
+    {                                                                      \
+      fprintf(log_file, "%s | %s:%d | ", time_string, __FILE__, __LINE__); \
+      fprintf(log_file, __VA_ARGS__);                                      \
+    }                                                                      \
   }
 
 enum BoxType
@@ -303,7 +312,7 @@ typedef struct Entity
   BOX_UNLOCKS_TYPE blueprints_learned; // @Robust make this same type as blueprints
   double scanner_head_rotate_speed;    // not serialized, cosmetic
   double scanner_head_rotate;
-  cpVect platonic_nearest_direction;      // normalized
+  cpVect platonic_nearest_direction;  // normalized
   double platonic_detection_strength; // from zero to one
 } Entity;
 
@@ -336,7 +345,6 @@ typedef struct GameState
   // Like a whole timestep then a double for subtimestep
   uint64_t tick;
   double subframe_time;
-  
 
   cpVect goldpos;
 
@@ -552,7 +560,7 @@ static inline double cpvanglediff(cpVect a, cpVect b)
 {
   double acos_input = cpvdot(a, b) / (cpvlength(a) * cpvlength(b));
   acos_input = clamp(acos_input, -1.0f, 1.0f);
-  assert(acos_input >= -1.0f && acos_input <= 1.0f);
+  flight_assert(acos_input >= -1.0f && acos_input <= 1.0f);
   return acos(acos_input) * sign(cpvdot(a, b));
 }
 
