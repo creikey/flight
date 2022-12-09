@@ -1,5 +1,7 @@
 # profiling results
 *.spall
+# logs
+astris_log.txt
 compile_commands.json
 .cache/
 enc_temp_folder/
