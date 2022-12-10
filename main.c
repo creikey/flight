@@ -84,8 +84,9 @@ static Queue input_queue = {0};
 char input_queue_data[QUEUE_SIZE_FOR_ELEMENTS(sizeof(InputFrame), LOCAL_INPUT_QUEUE_MAX)] = {0};
 static ENetHost *client;
 static ENetPeer *peer;
-static double zoom_target = 300.0;
-static double zoom = 300.0;
+#define DEFAULT_ZOOM 300.0
+static double zoom_target = DEFAULT_ZOOM;
+static double zoom = DEFAULT_ZOOM;
 static enum Squad take_over_squad = (enum Squad) - 1; // -1 means not taking over any squad
 
 // images
@@ -1618,8 +1619,7 @@ static void frame(void)
 
       // Create and send input packet, and predict a frame of gamestate
       static InputFrame cur_input_frame = {
-          0
-      }; // keep across frames for high refresh rate screens
+          0}; // keep across frames for high refresh rate screens
       static size_t last_input_committed_tick = 0;
       {
         // prepare the current input frame, such that when processed next,
@@ -1901,8 +1901,10 @@ static void frame(void)
           }
         }
 
-        player_scaling =
-            lerp(player_scaling, zoom < 6.5 ? 100.0 : 1.0, dt * 7.0);
+        double player_scaling_target = zoom < 6.5 ? 100.0 : 1.0;
+        if (zoom > 50.0)
+          player_scaling = player_scaling_target; // For press tab zoom shortcut. Bad hack to make zooming in not jarring with the bigger player. Comment this out and press tab to see!
+        player_scaling = lerp(player_scaling, player_scaling_target, dt * 15.0);
         ENTITIES_ITER(e)
         {
           // draw grid
@@ -2216,6 +2218,17 @@ void event(const sapp_event *e)
       mouse_frozen = !mouse_frozen;
     }
 #endif
+    if (e->key_code == SAPP_KEYCODE_TAB)
+    {
+      if (zoom_target < DEFAULT_ZOOM)
+      {
+        zoom_target = DEFAULT_ZOOM;
+      }
+      else
+      {
+        zoom_target = ZOOM_MIN;
+      }
+    }
     if (e->key_code == SAPP_KEYCODE_R)
     {
       cur_editing_rotation += 1;

@@ -3,8 +3,8 @@
 #include "buildsettings.h"
 
 #define MAX_BOX_TYPES 64
-#define ZOOM_MIN 0.25f
-#define ZOOM_MAX 1500.0f
+#define ZOOM_MIN 0.10 // smaller means you can zoom out more
+#define ZOOM_MAX 1500.0 // bigger means you can zoom in more
 #define MAX_PLAYERS 16
 #define MAX_SUNS 8
 #define MAX_ENTITIES 1024 * 25
