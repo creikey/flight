@@ -1,15 +1,18 @@
 //------------------------------------------------------------------------------
 //  Take flight
 //------------------------------------------------------------------------------
+#include "types.h"
 
-#define SOKOL_IMPL
-#define SOKOL_D3D11
 #include <enet/enet.h>
 #include <process.h> // starting server thread
 
 #define TOOLBAR_SLOTS 9
 
 #pragma warning(disable : 33010) // this warning is so broken, doesn't understand flight_assert()
+#define SOKOL_LOG Log
+#define SOKOL_ASSERT flight_assert
+#define SOKOL_IMPL
+#define SOKOL_D3D11
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -25,7 +28,6 @@
 #include "opus.h"
 #include "queue.h"
 #include "stb_image.h"
-#include "types.h"
 
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
@@ -276,9 +278,8 @@ static sg_image load_image(const char *path)
   stbi_uc *image_data = stbi_load(path, &x, &y, &comp, desired_channels);
   if (!image_data)
   {
-    fprintf(stderr, "Failed to load %s image: %s\n", path,
-            stbi_failure_reason());
-    exit(-1);
+    Log("Failed to load %s image: %s\n", path, stbi_failure_reason());
+    quit_with_popup("Couldn't load an image", "Failed to load image");
   }
   sg_init_image(to_return,
                 &(sg_image_desc){.width = x,
@@ -557,10 +558,6 @@ static void init(void)
     Log("Initialized audio\n");
   }
 
-  // @BeforeShip make all fprintf into logging to file, warning dialog grids on
-  // failure instead of exit(-1), replace the macros in sokol with this as well,
-  // like flight_assert
-
   Entity *entity_data = malloc(sizeof *entity_data * MAX_ENTITIES);
   initialize(&gs, entity_data, sizeof *entity_data * MAX_ENTITIES);
 
@@ -568,17 +565,16 @@ static void init(void)
   sg_setup(&sgdesc);
   if (!sg_isvalid())
   {
-    fprintf(stderr, "Failed to create Sokol GFX context!\n");
-    exit(-1);
+    Log("Failed to create Sokol GFX context!\n");
+    quit_with_popup("Failed to start sokol gfx context, something is really boned", "Failed to start graphics");
   }
 
   sgp_desc sgpdesc = {0};
   sgp_setup(&sgpdesc);
   if (!sgp_is_valid())
   {
-    fprintf(stderr, "Failed to create Sokol GP context: %s\n",
-            sgp_get_error_message(sgp_get_last_error()));
-    exit(-1);
+    Log("Failed to create Sokol GP context: %s\n", sgp_get_error_message(sgp_get_last_error()));
+    quit_with_popup("Failed to create Sokol GP context, something is really boned", "Failed to start graphics");
   }
 
   // initialize shaders
@@ -590,8 +586,8 @@ static void init(void)
     hueshift_pipeline = sgp_make_pipeline(&pip_desc);
     if (sg_query_pipeline_state(hueshift_pipeline) != SG_RESOURCESTATE_VALID)
     {
-      fprintf(stderr, "failed to make hueshift pipeline\n");
-      exit(-1);
+      Log("Failed to make hueshift pipeline\n");
+      quit_with_popup("Failed to make hueshift pipeline", "Boned Hueshift Shader");
     }
 
     {
@@ -603,8 +599,8 @@ static void init(void)
       goodpixel_pipeline = sgp_make_pipeline(&pip_desc);
       if (sg_query_pipeline_state(goodpixel_pipeline) != SG_RESOURCESTATE_VALID)
       {
-        fprintf(stderr, "failed to make goodpixel pipeline\n");
-        exit(-1);
+        Log("Failed to make goodpixel pipeline\n");
+        quit_with_popup("Couldn't make a shader! Uhhh ooooohhhhhh!!!", "Shader error BONED");
       }
     }
   }
@@ -646,8 +642,9 @@ static void init(void)
   {
     if (enet_initialize() != 0)
     {
-      fprintf(stderr, "An error occurred while initializing ENet.\n");
-      exit(-1);
+
+      Log("An error occurred while initializing ENet.\n");
+      quit_with_popup("Failed to initialize networking, enet error", "Networking Error");
     }
     client = enet_host_create(NULL /* create a client host */,
                               1 /* only allow 1 outgoing connection */,
@@ -656,10 +653,8 @@ static void init(void)
                               0 /* assume any amount of outgoing bandwidth */);
     if (client == NULL)
     {
-      fprintf(
-          stderr,
-          "An error occurred while trying to create an ENet client host.\n");
-      exit(-1);
+      Log("An error occurred while trying to create an ENet client host.\n");
+      quit_with_popup("Failed to initialize the networking. Mama mia!", "Networking uh oh");
     }
     ENetAddress address;
     ENetEvent event;
@@ -670,9 +665,8 @@ static void init(void)
     peer = enet_host_connect(client, &address, 2, 0);
     if (peer == NULL)
     {
-      fprintf(stderr,
-              "No available peers for initiating an ENet connection.\n");
-      exit(-1);
+      Log("No available peers for initiating an ENet connection.\n");
+      quit_with_popup("Failed to initialize the networking. Mama mia!", "Networking uh oh");
     }
     // the timeout is the third parameter here
     if (enet_host_service(client, &event, 5000) > 0 &&
@@ -687,7 +681,7 @@ static void init(void)
       /* had run out without any significant event.            */
       enet_peer_reset(peer);
       Log("Failed to connect to server. It might be too full\n");
-      quit_with_popup("Failed to connect to server. Is your wifi down? It took too long.", "Connection Failure");
+      quit_with_popup("Failed to connect to server. Is your wifi down? It took too long. The server could also be too full. I unfortunately do not have information as to which issue it is at this time. It could also be that the server is down. I hate this networking library", "Connection Failure");
     }
   }
 }
@@ -1508,8 +1502,8 @@ static void frame(void)
 
           case ENET_EVENT_TYPE_DISCONNECT:
           {
-            fprintf(stderr, "Disconnected from server\n");
-            exit(-1);
+            Log("Disconnected from server\n");
+            quit_with_popup("Disconnected from server", "Disconnected");
             break;
           }
           }
@@ -1520,7 +1514,7 @@ static void frame(void)
         }
         else if (enet_status < 0)
         {
-          fprintf(stderr, "Error receiving enet events: %d\n", enet_status);
+          Log("Error receiving enet events: %d\n", enet_status);
           break;
         }
       }
@@ -1624,7 +1618,8 @@ static void frame(void)
 
       // Create and send input packet, and predict a frame of gamestate
       static InputFrame cur_input_frame = {
-          0}; // keep across frames for high refresh rate screens
+          0
+      }; // keep across frames for high refresh rate screens
       static size_t last_input_committed_tick = 0;
       {
         // prepare the current input frame, such that when processed next,
