@@ -22,3 +22,4 @@ flight_release.exe
 *.lib
 *.ilk
 *.gen.h
+CrashDump_*.dmp

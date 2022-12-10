@@ -153,6 +153,9 @@
     <ClCompile Include="thirdparty\minilzo\minilzo.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="crash_handler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ipsettings.h">

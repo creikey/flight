@@ -2312,8 +2312,12 @@ void event(const sapp_event *e)
   }
 }
 
+extern void do_crash_handler();
+
 sapp_desc sokol_main(int argc, char *argv[])
 {
+  // do_crash_handler();
+
   bool hosting = false;
   stm_setup();
   ma_mutex_init(&server_info.info_mutex);

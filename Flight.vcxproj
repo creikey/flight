@@ -186,6 +186,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="crash_handler.cpp" />
     <ClCompile Include="debugdraw.c" />
     <ClCompile Include="gamestate.c" />
     <ClCompile Include="main.c" />
