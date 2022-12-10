@@ -12,7 +12,11 @@
 #define MERGE_MAX_DIST (BOX_SIZE / 2.0f + 0.01f)
 #define PLAYER_SIZE ((cpVect){.x = BOX_SIZE, .y = BOX_SIZE})
 #define PLAYER_MASS 0.5f
+#ifdef FAT_THRUSTERS
+#define PLAYER_JETPACK_FORCE 200.0f
+#else
 #define PLAYER_JETPACK_FORCE 2.0f
+#endif
 #define PLAYER_JETPACK_TORQUE 0.05f
 #define MISSILE_RANGE 4.0f
 #define MISSILE_BURN_TIME 1.5f

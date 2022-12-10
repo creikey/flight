@@ -522,6 +522,7 @@ void create_player(Player *player)
   unlock_box(player, BoxThruster);
   unlock_box(player, BoxBattery);
   unlock_box(player, BoxCockpit);
+  unlock_box(player, BoxGyroscope);
   unlock_box(player, BoxMedbay);
   unlock_box(player, BoxSolarPanel);
   unlock_box(player, BoxScanner);
@@ -2179,19 +2180,24 @@ void create_hard_shell_station(GameState *gs, cpVect pos, enum BoxType platonic_
 void create_initial_world(GameState *gs)
 {
   EntityID suns[] = {
-      create_sun(gs, new_entity(gs), ((cpVect){100.0, 0.0}), ((cpVect){0.0, 0.0}), 100000.0, 20.0),
-      create_sun(gs, new_entity(gs), ((cpVect){100.0, 50.0}), ((cpVect){10.0, 0.0}), 10000.0, 10.0),
-      create_sun(gs, new_entity(gs), ((cpVect){100.0, -50.0}), ((cpVect){-10.0, 0.0}), 10000.0, 10.0),
-      create_sun(gs, new_entity(gs), ((cpVect){50.0, 200.0}), ((cpVect){5.0, 0.0}), 400000.0, 30.0),
-      create_sun(gs, new_entity(gs), ((cpVect){-200.0, 200.0}), ((cpVect){-15.0, 0.0}), 900000.0, 60.0),
+      create_sun(gs, new_entity(gs), ((cpVect){800.0, 0.0}), ((cpVect){0.0, 0.0}), 1000000.0, 30.0),
+      create_sun(gs, new_entity(gs), ((cpVect){800.0, 50.0}), ((cpVect){50.0, 0.0}), 10000.0, 20.0),
+      create_sun(gs, new_entity(gs), ((cpVect){800.0, -50.0}), ((cpVect){-50.0, 0.0}), 10000.0, 20.0),
+      create_sun(gs, new_entity(gs), ((cpVect){-2500.0, -50.0}), ((cpVect){0.0, 0.0}), 100000.0, 20.0),
   };
 
   for (int i = 0; i < ARRLEN(suns); i++)
   {
     gs->suns[i] = suns[i];
   }
-
-#ifdef DEBUG_WORLD
+#ifndef DEBUG_WORLD
+  Log("Creating release world\n");
+  create_bomb_station(gs, (cpVect){800.0, 800.0}, BoxExplosive);
+  // create_hard_shell_station(gs, (cpVect){800.0, 400.0}, BoxGyroscope);
+  create_bomb_station(gs, (cpVect){800.0, -800.0}, BoxCloaking);
+  create_bomb_station(gs, (cpVect){1600.0, 800.0}, BoxMissileLauncher);
+  create_hard_shell_station(gs, (cpVect){-2500.0, 200.0}, BoxMerge);
+#else
   Log("Creating debug world\n");
   // pos, mass, radius
   create_bomb_station(gs, (cpVect){-5.0, 0.0}, BoxExplosive);
@@ -2206,7 +2212,6 @@ void create_initial_world(GameState *gs)
 
   enum CompassRotation rot = Right;
   {
-
     Entity *grid = new_entity(gs);
     grid_create(gs, grid);
     entity_set_pos(grid, cpvadd(from, cpvspin((cpVect){.x = -BOX_SIZE * 9.0}, theta)));
@@ -2232,13 +2237,6 @@ void create_initial_world(GameState *gs)
     cpBodySetVelocity(grid->body, (cpvspin((cpVect){-0.4, 0.0}, theta)));
     entity_ensure_in_orbit(gs, grid);
   }
-
-#else
-  create_bomb_station(gs, (cpVect){-200.0, 0.0}, BoxExplosive);
-  create_hard_shell_station(gs, (cpVect){0.0, 400.0}, BoxGyroscope);
-  create_bomb_station(gs, (cpVect){0.0, -150.0}, BoxCloaking);
-  create_bomb_station(gs, (cpVect){300.0, 300.0}, BoxMissileLauncher);
-  create_hard_shell_station(gs, (cpVect){50.0, 100.0}, BoxMerge);
 #endif
 }
 
