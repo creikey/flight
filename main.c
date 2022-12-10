@@ -686,7 +686,7 @@ static void init(void)
       /* received. Reset the peer in the event the 5 seconds   */
       /* had run out without any significant event.            */
       enet_peer_reset(peer);
-      Log("Failed to connect to server\n");
+      Log("Failed to connect to server. It might be too full\n");
       quit_with_popup("Failed to connect to server. Is your wifi down? It took too long.", "Connection Failure");
     }
   }

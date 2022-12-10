@@ -236,7 +236,6 @@ void server(void *info_raw)
             else
             {
               int64_t player_slot = (int64_t)event.peer->data;
-              size_t length = event.packet->dataLength;
 #define VOIP_QUEUE_DECL(queue_name, queue_data_name)                                                \
   Queue queue_name = {0};                                                                           \
   char queue_data_name[QUEUE_SIZE_FOR_ELEMENTS(sizeof(OpusPacket), VOIP_PACKET_BUFFER_SIZE)] = {0}; \
