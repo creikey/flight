@@ -14,7 +14,8 @@ flight.zip
 releases/
 .vs/
 x64/
-*.exe
+flight_debug.exe
+flight_release.exe
 *.obj
 *.pdb
 *.exp
