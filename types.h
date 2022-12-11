@@ -15,7 +15,7 @@
 #ifdef FAT_THRUSTERS
 #define PLAYER_JETPACK_FORCE 200.0f
 #else
-#define PLAYER_JETPACK_FORCE 2.0f
+#define PLAYER_JETPACK_FORCE 3.5f
 #endif
 #define PLAYER_JETPACK_TORQUE 0.05f
 #define MISSILE_RANGE 4.0f
@@ -29,10 +29,9 @@
 // centered on the sprite
 #define MISSILE_SPRITE_SIZE ((cpVect){.x = BOX_SIZE, .y = BOX_SIZE})
 #define MISSILE_COLLIDER_SIZE ((cpVect){.x = BOX_SIZE * 0.5f, .y = BOX_SIZE * 0.5f})
-// #define PLAYER_JETPACK_FORCE 20.0f
 // distance at which things become geostationary and no more solar power!
 #define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
-#define PLAYER_JETPACK_SPICE_PER_SECOND 0.2f
+#define PLAYER_JETPACK_SPICE_PER_SECOND 0.08f
 #define SCANNER_ENERGY_USE 0.05f
 #define MAX_HAND_REACH 1.0f
 #define SCANNER_SCAN_RATE 0.5f
@@ -195,11 +194,6 @@ typedef struct EntityID
   unsigned int generation; // VERY IMPORTANT if 0 then EntityID points to nothing, generation >= 1
   unsigned int index;      // index into the entity arena
 } EntityID;
-
-static inline bool entityids_same(EntityID a, EntityID b)
-{
-  return (a.generation == b.generation) && (a.index == b.index);
-}
 
 // when updated, must update serialization, comparison in main.c, and the server
 // on input received processing function
