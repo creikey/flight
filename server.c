@@ -296,13 +296,12 @@ void server(void *info_raw)
           }
         }
       }
-      total_time += (float)stm_sec(stm_diff(stm_now(), last_processed_time));
+      total_time += stm_sec(stm_diff(stm_now(), last_processed_time));
       last_processed_time = stm_now();
-      // @Robost @BeforePatreon if can't process quick enough will be stuck being lagged behind, think of a solution for this...
       const double max_time = 5.0 * TIMESTEP;
       if (total_time > max_time)
       {
-        Log("Abnormally large total time %f, clamping\n", total_time);
+        Log("SERVER LAGGING Abnormally large total time %f, clamping\n", total_time);
         total_time = max_time;
       }
 
