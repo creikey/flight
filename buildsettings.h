@@ -19,6 +19,7 @@
 // #define DEBUG_WORLD
 // #define UNLOCK_ALL
 #define INFINITE_RESOURCES
+// #define DEBUG_TOOLS
 // #define FAT_THRUSTERS
 // #define NO_GRAVITY
 // #define NO_SUNS

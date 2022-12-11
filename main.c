@@ -76,10 +76,7 @@ static cpVect camera_pos = {0}; // it being a global variable keeps camera at sa
 // position after player death
 static double player_scaling = 1.0;
 
-static bool mouse_frozen = false; // @BeforePatreon make this debug only thing
-static double funval =
-    0.0; // easy to play with value controlled by left mouse button when held
-// down @BeforePatreon remove on release builds
+static bool mouse_frozen = false;
 static Queue input_queue = {0};
 char input_queue_data[QUEUE_SIZE_FOR_ELEMENTS(sizeof(InputFrame), LOCAL_INPUT_QUEUE_MAX)] = {0};
 static ENetHost *client;
@@ -1741,7 +1738,12 @@ static void frame(void)
             ENetPacket *packet =
                 enet_packet_create((void *)compressed, compressed_len,
                                    ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
-            enet_peer_send(peer, 0, packet); // @BeforePatreon error check this
+            int err = enet_peer_send(peer, 0, packet);
+            if (err < 0)
+            {
+              Log("Failed to send packet error %d\n", err);
+              enet_packet_destroy(packet);
+            }
             last_sent_input_time = stm_now();
           }
           else
@@ -2299,11 +2301,6 @@ void event(const sapp_event *e)
     if (!mouse_frozen)
     {
       mouse_pos = (cpVect){.x = e->mouse_x, .y = e->mouse_y};
-    }
-    if (right_mouse_down)
-    {
-      funval += e->mouse_dx;
-      Log("Funval %f\n", funval);
     }
     break;
   default:
