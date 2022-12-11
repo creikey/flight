@@ -769,9 +769,11 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       cur = next;
     }
 
-    // @Robust do the momentum stuff properly here so no matter which grid stays as the current grid,
+    // @BeforePatreon do the momentum stuff properly here so no matter which grid stays as the current grid,
     // the *SAME RESULT* happens. VERY IMPORTANT for client side prediction to match what the server says.
-    // Tried to use something consistent on the server and client like current entity index but DID NOT WORK
+    // Tried to use something consistent on the server and client like current entity index but DID NOT WORK.
+    // IDEA: just make it so *all* of the boxes are in new grids instead of choosing one to stay the same
+    // This bug is triggered heavily with high ping by placing a box on a corner, so that it starts out in the grid but this logic is ran.
     if (sepgrid_i != biggest_separate_grid_index)
     {
       cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, (grid_com(new_grid))));
@@ -853,8 +855,8 @@ void initialize(GameState *gs, void *entity_arena, size_t entity_arena_size)
   gs->entities = (Entity *)entity_arena;
   gs->max_entities = (unsigned int)(entity_arena_size / sizeof(Entity));
   gs->space = cpSpaceNew();
-  cpSpaceSetUserData(gs->space, (cpDataPointer)gs);                          // needed in the handler
-  cpCollisionHandler *handler = cpSpaceAddCollisionHandler(gs->space, 0, 0); // @Robust limit collision type to just blocks that can be damaged
+  cpSpaceSetUserData(gs->space, (cpDataPointer)gs); // needed in the handler
+  cpCollisionHandler *handler = cpSpaceAddCollisionHandler(gs->space, 0, 0);
   handler->postSolveFunc = on_damage;
   gs->server_side_computing = is_server_side;
 }
@@ -1111,7 +1113,6 @@ enum GameVersion
   VMax, // this minus one will be the version used
 };
 
-// @Robust probably get rid of this as separate function, just use SER_VAR
 SerMaybeFailure ser_V2(SerState *ser, cpVect *var)
 {
   SER_VAR(&var->x);
@@ -1223,7 +1224,7 @@ SerMaybeFailure ser_player(SerState *ser, Player *p)
 
 SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 {
-  SER_VAR(&e->no_save_to_disk); // @Robust this is always false when saving to disk?
+  SER_VAR(&e->no_save_to_disk);
   SER_VAR(&e->generation);
   SER_MAYBE_RETURN(ser_f(ser, &e->damage));
 
@@ -1448,9 +1449,9 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
   GameState *gs = s->cur_gs;
 
   // completely reset and destroy all gamestate data
-  PROFILE_SCOPE("Destroy old gamestate")
+  if (!ser->serializing)
   {
-    if (!ser->serializing)
+    PROFILE_SCOPE("Destroy old gamestate")
     {
       // avoid a memset here very expensive. que rico!
       destroy(gs);
@@ -1474,7 +1475,6 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
 
   if (!ser->save_or_load_from_disk) // don't save player info to disk, this is filled on connection/disconnection
   {
-    // @Robust save player data with their ID or something somehow. Like local backup of their account
     for (size_t i = 0; i < MAX_PLAYERS; i++)
     {
       if (get_entity(gs, gs->players[i].entity) != NULL && is_cloaked(gs, get_entity(gs, gs->players[i].entity), ser->for_player))
@@ -1542,7 +1542,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
                 EntityID cur_id = get_id(gs, cur_box);
                 SER_ASSERT(cur_id.index < gs->max_entities);
                 SER_VAR(&entities_done);
-                size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. @Robust add debug info in serialization for what size the expected type is, maybe string nameof the type
+                size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. @BeforePatreon add debug info in serialization for what size the expected type is, maybe string nameof the type
                 SER_VAR_NAME(&the_index, "&i");
                 SER_MAYBE_RETURN(ser_entity(ser, gs, cur_box));
               }
@@ -1627,12 +1627,8 @@ bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes
       .for_player = for_this_player,
       .max_entity_index = msg->cur_gs->cur_next_entity,
       .version = VMax - 1,
+      .save_or_load_from_disk = to_disk,
   };
-
-  if (for_this_player == NULL) // @Robust jank
-  {
-    ser.save_or_load_from_disk = true;
-  }
 
   ser.write_varnames = to_disk;
 #ifdef WRITE_VARNAMES
@@ -1640,7 +1636,7 @@ bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes
 #endif
 
   SerMaybeFailure result = ser_server_to_client(&ser, msg);
-  *out_len = ser.cursor + 1; // @Robust not sure why I need to add one to cursor, ser.cursor should be the length..
+  *out_len = ser.cursor + 1; // not sure why I need to add one to cursor, ser.cursor should be the length. It seems to work without the +1 but I have no way to ensure that it works completely when removing the +1...
   if (result.failed)
   {
     Log("Failed to serialize on line %d because of %s\n", result.line, result.expression);
@@ -1842,7 +1838,6 @@ Entity *closest_box_to_point_in_radius(struct GameState *gs, cpVect point, doubl
 
   if (closest_to_point_in_radius_result != NULL)
   {
-    // @Robust query here for only boxes that are part of ships, could get nasty...
     return cp_shape_entity(closest_to_point_in_radius_result);
   }
 
@@ -1962,6 +1957,11 @@ cpVect potentially_snap_hand_pos(GameState *gs, cpVect world_hand_pos)
 
 cpVect get_world_hand_pos(GameState *gs, InputFrame *input, Entity *player)
 {
+  if(cpvlength(input->hand_pos) > MAX_HAND_REACH)
+  {
+    // no cheating with long hand!
+    input->hand_pos = cpvmult(cpvnormalize(input->hand_pos), MAX_HAND_REACH);
+  }
   return potentially_snap_hand_pos(gs, cpvadd(entity_pos(player), input->hand_pos));
 }
 
@@ -2389,7 +2389,7 @@ void process(struct GameState *gs, double dt)
                 flight_assert(potential_seat->is_box);
                 flight_assert(potential_seat->box_type == BoxMerge);
               }
-              if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay) // @Robust check by feature flag instead of box type
+              if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay)
               {
                 // don't let players get inside of cockpits that somebody else is already inside of
                 if (get_entity(gs, potential_seat->player_who_is_inside_of_me) == NULL)
@@ -2500,7 +2500,6 @@ void process(struct GameState *gs, double dt)
           cpPointQueryInfo info = {0};
           cpVect world_build = world_hand_pos;
 
-          // @Robust sanitize this input so player can't build on any grid in the world
           Entity *target_grid = grid_to_build_on(gs, world_hand_pos);
           cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, (world_build), 0.01, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
           if (maybe_box_to_destroy != NULL)

@@ -102,8 +102,7 @@
 #include "cpVect.h"    // offers vector functions and types for the structs
 #include "miniaudio.h" // @Robust BAD. using miniaudio mutex construct for server thread synchronization. AWFUL!
 
-// @Robust remove this include somehow, needed for sqrt and cos
-#include <math.h>
+#include <math.h> // sqrt and cos vector functions
 #include <stdint.h> // tick is unsigned integer
 #include <stdio.h>  // logging on errors for functions
 
@@ -195,6 +194,11 @@ typedef struct EntityID
   unsigned int index;      // index into the entity arena
 } EntityID;
 
+static inline bool entityids_same(EntityID a, EntityID b)
+{
+    return (a.generation == b.generation) && (a.index == b.index);
+}
+
 // when updated, must update serialization, comparison in main.c, and the server
 // on input received processing function
 typedef struct InputFrame
@@ -210,7 +214,6 @@ typedef struct InputFrame
 
   bool seat_action;
   cpVect hand_pos; // local to player transationally but not rotationally
-  // @BeforeShip bounds check on the hand_pos so that players can't reach across the entire map
 
   bool dobuild;
   enum BoxType build_type;
@@ -307,7 +310,7 @@ typedef struct Entity
   // scanner only stuff!
   EntityID currently_scanning;
   double currently_scanning_progress;  // when 1.0, scans it!
-  BOX_UNLOCKS_TYPE blueprints_learned; // @Robust make this same type as blueprints
+  BOX_UNLOCKS_TYPE blueprints_learned;
   double scanner_head_rotate_speed;    // not serialized, cosmetic
   double scanner_head_rotate;
   cpVect platonic_nearest_direction;  // normalized
@@ -339,10 +342,8 @@ typedef struct GameState
 {
   cpSpace *space;
 
-  // @Robust for the integer tick, also store a double for how much time has been processed.
-  // Like a whole timestep then a double for subtimestep
   uint64_t tick;
-  double subframe_time;
+  double subframe_time; // @Robust remove this, I don't think it's used anymore
 
   cpVect goldpos;
 

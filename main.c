@@ -76,10 +76,10 @@ static cpVect camera_pos = {0}; // it being a global variable keeps camera at sa
 // position after player death
 static double player_scaling = 1.0;
 
-static bool mouse_frozen = false; // @BeforeShip make this debug only thing
+static bool mouse_frozen = false; // @BeforePatreon make this debug only thing
 static double funval =
     0.0; // easy to play with value controlled by left mouse button when held
-// down @BeforeShip remove on release builds
+// down @BeforePatreon remove on release builds
 static Queue input_queue = {0};
 char input_queue_data[QUEUE_SIZE_FOR_ELEMENTS(sizeof(InputFrame), LOCAL_INPUT_QUEUE_MAX)] = {0};
 static ENetHost *client;
@@ -1741,7 +1741,7 @@ static void frame(void)
             ENetPacket *packet =
                 enet_packet_create((void *)compressed, compressed_len,
                                    ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
-            enet_peer_send(peer, 0, packet); // @Robust error check this
+            enet_peer_send(peer, 0, packet); // @BeforePatreon error check this
             last_sent_input_time = stm_now();
           }
           else
