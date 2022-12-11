@@ -477,7 +477,7 @@ void draw_textured_rect(double x, double y, double w, double h)
 static void init(void)
 {
   fopen_s(&log_file, "astris_log.txt", "a");
-  Log("Another day, another game of astris!\n");
+  Log("Another day, another game of astris! Git release tag %d\n", GIT_RELEASE_TAG);
   queue_init(&packets_to_play, sizeof(OpusPacket), packets_to_play_data,
              ARRLEN(packets_to_play_data));
   queue_init(&packets_to_send, sizeof(OpusPacket), packets_to_send_data,
