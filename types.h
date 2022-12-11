@@ -60,7 +60,9 @@
 #define EXPLOSION_DAMAGE_PER_SEC 10.0f
 #define EXPLOSION_DAMAGE_THRESHOLD 0.2f // how much damage until it explodes
 #define GOLD_UNLOCK_RADIUS 1.0f
+#ifndef TIME_BETWEEN_WORLD_SAVE 
 #define TIME_BETWEEN_WORLD_SAVE 30.0f
+#endif
 
 #define MISSILE_EXPLOSION_PUSH 2.5f
 #define MISSILE_EXPLOSION_RADIUS 0.4f

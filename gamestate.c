@@ -1052,8 +1052,17 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
   {
     if (ser->write_varnames)
     {
+      // the name
       memcpy(ser->bytes + ser->cursor, var_name, var_name_len);
       ser->cursor += var_name_len;
+      SER_ASSERT(ser->cursor < ser->max_size);
+
+      // the size, compressed to a short
+      SER_ASSERT(data_len < 65535); // uh oh stinky!
+      uint16_t size_to_write = (uint16_t)data_len;
+      memcpy(ser->bytes + ser->cursor, &size_to_write, sizeof(size_to_write));
+      ser->cursor += sizeof(size_to_write);
+      SER_ASSERT(ser->cursor < ser->max_size);
     }
     for (int b = 0; b < data_len; b++)
     {
@@ -1096,6 +1105,19 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
 
       // now compare!
       SER_ASSERT(strcmp(read_name, name) == 0);
+
+
+      // deserialize and check the size too!
+      SER_ASSERT(data_len < 65535); // uh oh stinky!
+      uint16_t expected_size = (uint16_t)data_len;
+      uint16_t got_size = 0;
+      for (int b = 0; b < sizeof(got_size); b++)
+      {
+        ((char*)&got_size)[b] = ser->bytes[ser->cursor];
+        ser->cursor += 1;
+        SER_ASSERT(ser->cursor <= ser->max_size);
+      }
+      SER_ASSERT(got_size == expected_size);
     }
     for (int b = 0; b < data_len; b++)
     {
@@ -1549,7 +1571,7 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
                 EntityID cur_id = get_id(gs, cur_box);
                 SER_ASSERT(cur_id.index < gs->max_entities);
                 SER_VAR(&entities_done);
-                size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. @BeforePatreon add debug info in serialization for what size the expected type is, maybe string nameof the type
+                size_t the_index = (size_t)cur_id.index; // super critical. Type of &i is size_t. Checked when write varnames is true though!
                 SER_VAR_NAME(&the_index, "&i");
                 SER_MAYBE_RETURN(ser_entity(ser, gs, cur_box));
               }
