@@ -356,6 +356,7 @@ static void destroy_body(GameState *gs, cpBody **body)
   *body = NULL;
 }
 
+// will destroy all shapes which are attached to the body in the entity
 void entity_destroy(GameState *gs, Entity *e)
 {
   flight_assert(e->exists);
@@ -390,7 +391,18 @@ void entity_destroy(GameState *gs, Entity *e)
 
 void on_entity_child_shape(cpBody *body, cpShape *shape, void *data)
 {
-  entity_destroy((GameState *)data, cp_shape_entity(shape));
+  GameState *gs = (GameState *)data;
+  if (cp_shape_entity(shape) == NULL)
+  {
+    // support the case where no parent entity *SPECIFICALLY* for grid_correct_for_holes,
+    // where the entities that are part of the old grid are reused so entityids are preserved
+    cpSpaceRemoveShape(gs->space, shape);
+    cpShapeFree(shape);
+  }
+  else
+  {
+    entity_destroy(gs, cp_shape_entity(shape));
+  }
 }
 
 Entity *new_entity(GameState *gs)
@@ -749,37 +761,32 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       continue; // this separate grid is empty
 
     Entity *new_grid;
-    if (sepgrid_i == biggest_separate_grid_index)
-    {
-      new_grid = grid;
-    }
-    else
-    {
-      new_grid = new_entity(gs);
-      grid_create(gs, new_grid);
-      cpBodySetPosition(new_grid->body, cpBodyGetPosition(grid->body));
-      cpBodySetAngle(new_grid->body, cpBodyGetAngle(grid->body));
-    }
+    new_grid = new_entity(gs);
+    grid_create(gs, new_grid);
+    cpBodySetPosition(new_grid->body, cpBodyGetPosition(grid->body));
+    cpBodySetAngle(new_grid->body, cpBodyGetAngle(grid->body));
 
     Entity *cur = get_entity(gs, cur_separate_grid);
     while (cur != NULL)
     {
       Entity *next = get_entity(gs, cur->next_box);
-      box_create(gs, cur, new_grid, entity_shape_pos(cur)); // destroys next/prev fields on cur
+      cpVect new_shape_position = entity_shape_pos(cur);
+
+      // leaks the allocated shape for the box so center of mass calcs from the original grid are correct. Shapes are freed when grid is destroyed after construction of new replacement grids
+      // important that a new entity isn't created for the shapes so entity references to those shapes are still valid
+      cpShapeSetUserData(cur->shape, NULL);
+      cur->shape = NULL;
+
+      box_create(gs, cur, new_grid, new_shape_position); // destroys next/prev fields on cur
       cur = next;
     }
 
-    // @BeforePatreon do the momentum stuff properly here so no matter which grid stays as the current grid,
-    // the *SAME RESULT* happens. VERY IMPORTANT for client side prediction to match what the server says.
-    // Tried to use something consistent on the server and client like current entity index but DID NOT WORK.
-    // IDEA: just make it so *all* of the boxes are in new grids instead of choosing one to stay the same
-    // This bug is triggered heavily with high ping by placing a box on a corner, so that it starts out in the grid but this logic is ran.
-    if (sepgrid_i != biggest_separate_grid_index)
-    {
-      cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, (grid_com(new_grid))));
-      cpBodySetAngularVelocity(new_grid->body, entity_angular_velocity(grid) / fmax(1.0, cpvdist(entity_pos(new_grid), entity_pos(grid))));
-    }
+    cpBodySetVelocity(new_grid->body, cpBodyGetVelocityAtWorldPoint(grid->body, (grid_com(new_grid))));
+    cpBodySetAngularVelocity(new_grid->body, cpBodyGetAngularVelocity(grid->body));
   }
+
+  // destroys all the box shapes and the entities attached to those shapes
+  entity_destroy(gs, grid);
 }
 
 static void grid_remove_box(GameState *gs, struct Entity *grid, struct Entity *box)
@@ -1957,7 +1964,7 @@ cpVect potentially_snap_hand_pos(GameState *gs, cpVect world_hand_pos)
 
 cpVect get_world_hand_pos(GameState *gs, InputFrame *input, Entity *player)
 {
-  if(cpvlength(input->hand_pos) > MAX_HAND_REACH)
+  if (cpvlength(input->hand_pos) > MAX_HAND_REACH)
   {
     // no cheating with long hand!
     input->hand_pos = cpvmult(cpvnormalize(input->hand_pos), MAX_HAND_REACH);
