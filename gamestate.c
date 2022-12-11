@@ -82,10 +82,10 @@ void quit_with_popup(const char *message_utf8, const char *title_utf8)
   free(message_wchar);
   free(title_wchar);
 
-  PostQuitMessage(1);
   (void)message_out_len;
   (void)title_out_len;
 #endif
+  exit(0);
 }
 
 void __flight_assert(bool cond, const char *file, int line, const char *cond_string)
