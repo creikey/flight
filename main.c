@@ -940,10 +940,11 @@ static void ui(bool draw, double dt, double width, double height)
       {
         pipeline_scope(hueshift_pipeline)
         {
+          set_color_values(1.0, 1.0, 1.0, 1.0);
+          sgp_set_image(0, image_squad_invite);
           setup_hueshift(draw_as_squad);
           scale_at(1.0, -1.0, x,
                    invite_y); // images upside down by default :(
-          sgp_set_image(0, image_squad_invite);
           draw_texture_centered((cpVect){x, invite_y}, size);
           sgp_reset_image(0);
         }
