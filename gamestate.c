@@ -2847,12 +2847,15 @@ void process(struct GameState *gs, double dt)
                 {
                   cur_box->thrust = 0.0;
                 }
-                double energy_to_consume = fabs(cur_box->wanted_thrust * GYROSCOPE_ENERGY_USED_PER_SECOND * dt);
+                double thrust_to_want = cur_box->wanted_thrust;
+                if (cur_box->wanted_thrust == 0.0)
+                  thrust_to_want = clamp(-cpBodyGetAngularVelocity(grid->body) * GYROSCOPE_PROPORTIONAL_INERTIAL_RESPONSE, -1.0, 1.0);
+                double energy_to_consume = fabs(thrust_to_want * GYROSCOPE_ENERGY_USED_PER_SECOND * dt);
                 if (energy_to_consume > 0.0)
                 {
                   cur_box->thrust = 0.0;
                   double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
-                  cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
+                  cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * thrust_to_want;
                   if (fabs(cur_box->thrust) >= 0.0)
                     cpBodySetTorque(grid->body, cpBodyGetTorque(grid->body) + cur_box->thrust * GYROSCOPE_TORQUE);
                 }
