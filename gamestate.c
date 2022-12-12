@@ -1205,7 +1205,7 @@ SerMaybeFailure ser_fV2(SerState *ser, cpVect *var)
 
 SerMaybeFailure ser_f(SerState *ser, double *d)
 {
-  
+
   float f;
   if (ser->serializing)
     f = (float)*d;
@@ -1213,8 +1213,7 @@ SerMaybeFailure ser_f(SerState *ser, double *d)
   SER_ASSERT(!isnan(f));
   *d = f;
   return ser_ok;
-  
-  
+
   // if you're ever sketched out by floating point precision you can use this to test...
   /*  double  f;
   if (ser->serializing)
@@ -2325,6 +2324,14 @@ void body_integrity_check(cpBody *body, void *data)
   flight_assert(cp_body_entity(body)->exists);
   flight_assert(cp_body_entity(body)->body == body);
 }
+void player_get_in_seat(GameState *gs, Player *player, Entity *seat)
+{
+  Entity *p = get_entity(gs, player->entity);
+  p->currently_inside_of_box = get_id(gs, seat);
+  seat->player_who_is_inside_of_me = get_id(gs, p);
+  if (seat->box_type == BoxMedbay)
+    player->last_used_medbay = p->currently_inside_of_box;
+}
 
 void process(struct GameState *gs, double dt)
 {
@@ -2416,8 +2423,15 @@ void process(struct GameState *gs, double dt)
           entity_ensure_in_orbit(gs, p);
           if (medbay != NULL)
           {
-            exit_seat(gs, medbay, p);
             p->damage = 0.95;
+            if (get_entity(gs, medbay->player_who_is_inside_of_me) == NULL)
+            {
+              player_get_in_seat(gs, player, medbay);
+            }
+            else
+            {
+              exit_seat(gs, medbay, p);
+            }
           }
         }
         flight_assert(p->is_player);
@@ -2476,10 +2490,7 @@ void process(struct GameState *gs, double dt)
                 // don't let players get inside of cockpits that somebody else is already inside of
                 if (get_entity(gs, potential_seat->player_who_is_inside_of_me) == NULL)
                 {
-                  p->currently_inside_of_box = get_id(gs, potential_seat);
-                  potential_seat->player_who_is_inside_of_me = get_id(gs, p);
-                  if (potential_seat->box_type == BoxMedbay)
-                    player->last_used_medbay = p->currently_inside_of_box;
+                  player_get_in_seat(gs, player, potential_seat);
                 }
               }
             }
