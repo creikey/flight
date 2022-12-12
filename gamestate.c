@@ -593,6 +593,7 @@ void create_missile(GameState *gs, Entity *e)
 void create_player_entity(GameState *gs, Entity *e)
 {
   e->is_player = true;
+  e->always_visible = true;
   e->no_save_to_disk = true;
   create_body(gs, e);
   create_rectangle_shape(gs, e, e, (cpVect){0}, cpvmult(PLAYER_SIZE, 0.5), PLAYER_MASS);

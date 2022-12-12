@@ -77,6 +77,7 @@ typedef struct MousePressed
 } MousePressed;
 static MousePressed mousepressed[MAX_MOUSEBUTTON] = {0};
 static EntityID maybe_inviting_this_player = {0};
+static EntityID hovering_this_player = {0};
 bool confirm_invite_this_player = false;
 bool accept_invite = false;
 bool reject_invite = false;
@@ -1032,8 +1033,31 @@ static void ui(bool draw, double dt, double width, double height)
     }
   }
 
-  // draw maybe inviting
+  // draw maybe inviting and helper text
   {
+    Entity *maybe_hovering = get_entity(&gs, hovering_this_player);
+    if (draw && maybe_hovering != NULL && myplayer() != NULL && myplayer()->squad != SquadNone && myplayer()->squad != maybe_hovering->owning_squad)
+    {
+      cpVect pos = world_to_screen(width, height, entity_pos(maybe_hovering));
+      set_color(WHITE);
+      draw_circle(pos, 28.0 + sin(exec_time * 5.0) * 6.5);
+
+      sgp_set_image(0, image_rightclick);
+
+      cpVect draw_at = cpvadd(pos, cpv(0, 50.0));
+
+      transform_scope
+      {
+        pipeline_scope(goodpixel_pipeline)
+        {
+          scale_at(1.0, -1.0, draw_at.x, draw_at.y);
+          draw_texture_centered(draw_at, 100.0 + sin(exec_time * 5.0) * 10.0);
+        }
+      }
+
+      sgp_reset_image(0);
+    }
+
     Entity *inviting = get_entity(&gs, maybe_inviting_this_player);
     if (inviting != NULL && myplayer() != NULL)
     {
@@ -1041,7 +1065,7 @@ static void ui(bool draw, double dt, double width, double height)
           width, height,
           cpvadd(entity_pos(inviting),
                  (cpVect){.y = player_scaling * PLAYER_SIZE.y / 2.0}));
-      cpVect pos = cpvadd(top_of_head, (cpVect){.y = -30.0});
+      cpVect pos = cpvadd(top_of_head, (cpVect){.y = -30.0}); // -y is up because in screen space here
       cpVect to_mouse = cpvsub(mouse_pos,
                                world_to_screen(width, height, entity_pos(inviting)));
       bool selecting_to_invite =
@@ -1679,15 +1703,18 @@ static void frame(void)
 
       // process player interaction (squad invites)
       if (interact_pressed && myplayer() != NULL && myplayer()->squad != SquadNone)
-        ENTITIES_ITER(cur)
+      {
+        if (get_entity(&gs, hovering_this_player) != NULL)
         {
-          if (cur != myentity() && cur->is_player &&
-              has_point(centered_at(entity_pos(cur), cpvmult(PLAYER_SIZE, player_scaling)), world_mouse_pos))
-          {
-            maybe_inviting_this_player = get_id(&gs, cur);
-            interact_pressed = false;
-          }
+          maybe_inviting_this_player = hovering_this_player;
+          interact_pressed = false;
         }
+      }
+      ENTITIES_ITER(cur)
+      {
+        {
+        }
+      }
 
       // Create and send input packet, and predict a frame of gamestate
       static InputFrame cur_input_frame = {
@@ -1990,10 +2017,12 @@ static void frame(void)
           }
         }
 
-        double player_scaling_target = zoom < 6.5 ? PLAYER_BIG_SCALING/zoom : 1.0;
+        double player_scaling_target = zoom < 6.5 ? PLAYER_BIG_SCALING / zoom : 1.0;
         if (zoom > 50.0)
           player_scaling = player_scaling_target; // For press tab zoom shortcut. Bad hack to make zooming in not jarring with the bigger player. Comment this out and press tab to see!
         player_scaling = lerp(player_scaling, player_scaling_target, dt * 15.0);
+        hovering_this_player = (EntityID){0};
+        // draw all types of entities
         ENTITIES_ITER(e)
         {
           // draw grid
@@ -2225,24 +2254,28 @@ static void frame(void)
           }
 
           // draw player
-          if (e->is_player &&
-              get_entity(&gs, e->currently_inside_of_box) == NULL)
+          if (e->is_player)
           {
-            transform_scope
-            {
-              rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
-              set_color_values(1.0, 1.0, 1.0, 1.0);
-
-              pipeline_scope(hueshift_pipeline)
+            if (e != myentity() && has_point(centered_at(entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling)), world_mouse_pos))
+              hovering_this_player = get_id(&gs, e);
+            if (get_entity(&gs, e->currently_inside_of_box) == NULL)
+              transform_scope
               {
-                setup_hueshift(e->owning_squad);
-                sgp_set_image(0, image_player);
-                draw_texture_rectangle_centered(
-                    entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling));
-                sgp_reset_image(0);
+                rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
+                set_color_values(1.0, 1.0, 1.0, 1.0);
+
+                pipeline_scope(hueshift_pipeline)
+                {
+                  setup_hueshift(e->owning_squad);
+                  sgp_set_image(0, image_player);
+                  draw_texture_rectangle_centered(
+                      entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling));
+                  sgp_reset_image(0);
+                }
               }
-            }
           }
+
+          // draw explosion
           if (e->is_explosion)
           {
             sgp_set_image(0, image_explosion);
@@ -2267,7 +2300,7 @@ static void frame(void)
             sgp_set_image(0, image_sun);
             draw_texture_centered((cpVect){0}, i.sun->sun_radius * 8.0);
             sgp_reset_image(0);
-      
+
 #ifdef DEBUG_RENDERING
             // so you can make sure the sprite is the right size to accurately show when it will burn you
             set_color(RED);
