@@ -365,8 +365,6 @@ typedef struct GameState
   uint64_t tick;
   double subframe_time; // @Robust remove this, I don't think it's used anymore
 
-  cpVect goldpos;
-
   Player players[MAX_PLAYERS];
   EntityID suns[MAX_SUNS]; // can't have holes in it for serialization
 

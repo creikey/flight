@@ -49,6 +49,7 @@ static bool keydown[MAX_KEYDOWN] = {0};
 static bool piloting_rotation_capable_ship = false;
 static double rotation_learned = 0.0;
 static double rotation_in_cockpit_learned = 0.0;
+static double zoomeasy_learned = 0.0;
 typedef struct KeyPressed
 {
   bool pressed;
@@ -121,6 +122,7 @@ static sg_image image_missile;
 static sg_image image_missile_burning;
 static sg_image image_rightclick;
 static sg_image image_rothelp;
+static sg_image image_zoomeasyhelp;
 static sg_image image_gyrospin;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
@@ -648,6 +650,7 @@ static void init(void)
     image_rightclick = load_image("loaded/right_click.png");
     image_rothelp = load_image("loaded/rothelp.png");
     image_gyrospin = load_image("loaded/gyroscope_spinner.png");
+    image_zoomeasyhelp = load_image("loaded/zoomeasyhelp.png");
   }
 
   // socket initialization
@@ -805,22 +808,40 @@ static void ui(bool draw, double dt, double width, double height)
   if (draw)
     sgp_push_transform();
 
-  // rotation helper
+  // helpers
   if (draw)
   {
-    double alpha = 1.0 - clamp01(rotation_learned);
-    if (piloting_rotation_capable_ship)
-      alpha = 1.0 - clamp01(rotation_in_cockpit_learned);
-    set_color_values(1.0, 1.0, 1.0, alpha);
-
-    sgp_set_image(0, image_rothelp);
-    cpVect draw_at = cpv(width / 2.0, height * 0.25);
-    transform_scope
+    // rotation
     {
-      scale_at(1.0, -1.0, draw_at.x, draw_at.y);
-      pipeline_scope(goodpixel_pipeline)
-          draw_texture_centered(draw_at, 200.0);
-      sgp_reset_image(0);
+      double alpha = 1.0 - clamp01(rotation_learned);
+      if (piloting_rotation_capable_ship)
+        alpha = 1.0 - clamp01(rotation_in_cockpit_learned);
+      set_color_values(1.0, 1.0, 1.0, alpha);
+
+      sgp_set_image(0, image_rothelp);
+      cpVect draw_at = cpv(width / 2.0, height * 0.25);
+      transform_scope
+      {
+        scale_at(1.0, -1.0, draw_at.x, draw_at.y);
+        pipeline_scope(goodpixel_pipeline)
+            draw_texture_centered(draw_at, 200.0);
+        sgp_reset_image(0);
+      }
+    }
+
+    // zooming zoomeasy
+    {
+      double alpha = 1.0 - clamp01(zoomeasy_learned);
+      set_color_values(1.0, 1.0, 1.0, alpha);
+      sgp_set_image(0, image_zoomeasyhelp);
+      cpVect draw_at = cpv(width * 0.25, height * 0.5);
+      transform_scope
+      {
+        scale_at(1.0, -1.0, draw_at.x, draw_at.y);
+        pipeline_scope(goodpixel_pipeline)
+            draw_texture_centered(draw_at, 200.0);
+        sgp_reset_image(0);
+      }
     }
   }
 
@@ -2233,10 +2254,6 @@ static void frame(void)
           }
         }
 
-        // gold target
-        set_color(GOLD);
-        draw_filled_rect(gs.goldpos.x, gs.goldpos.y, 0.1, 0.1);
-
         // instant death
         set_color(RED);
         draw_circle((cpVect){0}, INSTANT_DEATH_DISTANCE_FROM_CENTER);
@@ -2339,6 +2356,7 @@ void event(const sapp_event *e)
     }
     if (e->key_code == SAPP_KEYCODE_TAB)
     {
+      zoomeasy_learned += 0.2;
       if (zoom_target < DEFAULT_ZOOM)
       {
         zoom_target = DEFAULT_ZOOM;

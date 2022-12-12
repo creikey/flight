@@ -1490,8 +1490,6 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
   SER_VAR(&gs->tick);
   SER_VAR(&gs->subframe_time);
 
-  SER_MAYBE_RETURN(ser_V2(ser, &gs->goldpos));
-
   if (!ser->save_or_load_from_disk) // don't save player info to disk, this is filled on connection/disconnection
   {
     for (size_t i = 0; i < MAX_PLAYERS; i++)
@@ -2374,13 +2372,6 @@ void process(struct GameState *gs, double dt)
 #ifdef INFINITE_RESOURCES
         p->damage = 0.0;
 #endif
-        // update gold win condition
-        if (cpvlength(cpvsub((cpBodyGetPosition(p->body)), gs->goldpos)) < GOLD_COLLECT_RADIUS)
-        {
-          p->goldness += 0.1;
-          p->damage = 0.0;
-          gs->goldpos = (cpVect){.x = hash11((float)elapsed_time(gs)) * 20.0, .y = hash11((float)elapsed_time(gs) - 13.6) * 20.0};
-        }
 #if 1
         cpVect world_hand_pos = get_world_hand_pos(gs, &player->input, p);
         if (player->input.seat_action)
