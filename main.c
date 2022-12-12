@@ -834,7 +834,7 @@ static void ui(bool draw, double dt, double width, double height)
       double alpha = 1.0 - clamp01(zoomeasy_learned);
       set_color_values(1.0, 1.0, 1.0, alpha);
       sgp_set_image(0, image_zoomeasyhelp);
-      cpVect draw_at = cpv(width * 0.25, height * 0.5);
+      cpVect draw_at = cpv(width * 0.1, height * 0.5);
       transform_scope
       {
         scale_at(1.0, -1.0, draw_at.x, draw_at.y);

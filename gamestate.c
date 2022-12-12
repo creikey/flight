@@ -2833,6 +2833,14 @@ void process(struct GameState *gs, double dt)
               {
                 cur_box->gyrospin_velocity = lerp(cur_box->gyrospin_velocity, cur_box->thrust * 20.0, dt * 5.0);
                 cur_box->gyrospin_angle += cur_box->gyrospin_velocity * dt;
+                if(cur_box->gyrospin_angle > 2.0*PI)
+                {
+                  cur_box->gyrospin_angle -= 2.0 * PI;
+                }
+                if(cur_box->gyrospin_angle < -2.0 * PI)
+                {
+                  cur_box->gyrospin_angle += 2.0 * PI;
+                }
                 if (cur_box->wanted_thrust == 0.0)
                 {
                   cur_box->thrust = 0.0;
