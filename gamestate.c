@@ -1719,7 +1719,7 @@ SerMaybeFailure ser_client_to_server(SerState *ser, ClientToServer *msg)
   {
     size_t to_skip = queue_num_elements(msg->input_data) - num;
     size_t i = 0;
-    QUEUE_ITER(msg->input_data, cur_header)
+    QUEUE_ITER(msg->input_data, InputFrame, cur)
     {
       if (i < to_skip)
       {
@@ -1727,7 +1727,6 @@ SerMaybeFailure ser_client_to_server(SerState *ser, ClientToServer *msg)
       }
       else
       {
-        InputFrame *cur = (InputFrame *)cur_header->data;
         SER_MAYBE_RETURN(ser_inputframe(ser, cur));
       }
     }

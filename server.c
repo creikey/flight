@@ -312,9 +312,8 @@ void server(void *info_raw)
           CONNECTED_PEERS(enet_host, cur)
           {
             int this_player_index = (int)(int64_t)cur->data;
-            QUEUE_ITER(&player_input_queues[this_player_index], cur_header)
+            QUEUE_ITER(&player_input_queues[this_player_index], InputFrame, cur)
             {
-              InputFrame *cur = (InputFrame *)cur_header->data;
               if (cur->tick == tick(&gs))
               {
                 gs.players[this_player_index].input = *cur;

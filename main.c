@@ -1427,9 +1427,8 @@ static void draw_dots(cpVect camera_pos, double gap)
 void apply_this_tick_of_input_to_player(uint64_t tick_to_search_for)
 {
   InputFrame *to_apply = NULL;
-  QUEUE_ITER(&input_queue, cur_header)
+  QUEUE_ITER(&input_queue, InputFrame, cur)
   {
-    InputFrame *cur = (InputFrame *)cur_header->data;
     if (cur->tick == tick(&gs))
     {
       to_apply = cur;

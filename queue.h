@@ -25,7 +25,7 @@ typedef struct Queue
 #define QUEUE_SIZE_FOR_ELEMENTS(element_size, max_elements) ((sizeof(QueueElementHeader) + element_size) * max_elements)
 
 // oldest to newest
-#define QUEUE_ITER(q_ptr, cur_header) for (QueueElementHeader *cur_header = (q_ptr)->next; cur_header != NULL; cur_header = cur_header->next)
+#define QUEUE_ITER(q_ptr, type, cur) for (QueueElementHeader *cur_header = (q_ptr)->next; cur_header != NULL; cur_header = cur_header->next) for(type *cur = (type*)cur_header->data; cur != NULL; cur = NULL)
 void queue_init(Queue *q, size_t element_size, char *data, size_t data_length);
 void queue_clear(Queue *q);
 void *queue_push_element(Queue *q);
