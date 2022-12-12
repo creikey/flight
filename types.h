@@ -29,6 +29,7 @@
 // centered on the sprite
 #define MISSILE_SPRITE_SIZE ((cpVect){.x = BOX_SIZE, .y = BOX_SIZE})
 #define MISSILE_COLLIDER_SIZE ((cpVect){.x = BOX_SIZE * 0.5f, .y = BOX_SIZE * 0.5f})
+#define MISSILE_SPAWN_DIST (sqrt((BOX_SIZE / 2.0) * (BOX_SIZE / 2.0) * 2.0) + MISSILE_COLLIDER_SIZE.x / 2.0 + 0.1)
 #define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
 #define PLAYER_JETPACK_SPICE_PER_SECOND 0.08f
 #define SCANNER_ENERGY_USE 0.05f

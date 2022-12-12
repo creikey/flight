@@ -17,7 +17,7 @@
 // #define PROFILING
 #define DEBUG_RENDERING
 // #define DEBUG_WORLD
-// #define UNLOCK_ALL
+#define UNLOCK_ALL
 #define TIME_BETWEEN_WORLD_SAVE 1.0f
 // #define INFINITE_RESOURCES
 #define DEBUG_TOOLS

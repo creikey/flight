@@ -312,7 +312,7 @@ static void on_missile_shape(cpShape *shape, cpContactPointSet *points, void *da
 
     // lookahead by their velocity
     cpVect rel_velocity = cpvsub(entity_vel(gs, other), entity_vel(gs, launcher));
-    double dist = cpvdist(entity_pos(other), entity_pos(launcher));
+    double dist = cpvdist(entity_pos(other), entity_pos(launcher)) - MISSILE_SPAWN_DIST;
 
     double time_of_travel = sqrt((2.0 * dist) / (MISSILE_BURN_FORCE / MISSILE_MASS));
 
@@ -2902,8 +2902,7 @@ void process(struct GameState *gs, double dt)
                   Entity *new_missile = new_entity(gs);
                   create_missile(gs, new_missile);
                   new_missile->owning_squad = cur_box->owning_squad; // missiles have teams and attack eachother!
-                  double missile_spawn_dist = sqrt((BOX_SIZE / 2.0) * (BOX_SIZE / 2.0) * 2.0) + MISSILE_COLLIDER_SIZE.x / 2.0 + 0.1;
-                  cpBodySetPosition(new_missile->body, (cpvadd(entity_pos(cur_box), cpvspin((cpVect){.x = missile_spawn_dist, 0.0}, target.facing_angle))));
+                  cpBodySetPosition(new_missile->body, (cpvadd(entity_pos(cur_box), cpvspin((cpVect){.x = MISSILE_SPAWN_DIST, 0.0}, target.facing_angle))));
                   cpBodySetAngle(new_missile->body, target.facing_angle);
                   cpBodySetVelocity(new_missile->body, (box_vel(cur_box)));
                 }
