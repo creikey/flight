@@ -1743,7 +1743,7 @@ static void frame(void)
           reject_invite = false;
         }
 
-        if (build_pressed && currently_building() != BoxInvalid)
+        if (build_pressed && !hand_at_arms_length && currently_building() != BoxInvalid)
         {
           cur_input_frame.dobuild = build_pressed;
           cur_input_frame.build_type = currently_building();
