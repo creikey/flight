@@ -1205,6 +1205,7 @@ SerMaybeFailure ser_fV2(SerState *ser, cpVect *var)
 
 SerMaybeFailure ser_f(SerState *ser, double *d)
 {
+  
   float f;
   if (ser->serializing)
     f = (float)*d;
@@ -1212,6 +1213,16 @@ SerMaybeFailure ser_f(SerState *ser, double *d)
   SER_ASSERT(!isnan(f));
   *d = f;
   return ser_ok;
+  
+  
+  // if you're ever sketched out by floating point precision you can use this to test...
+  /*  double  f;
+  if (ser->serializing)
+    f = (double)*d;
+  SER_VAR(&f);
+  SER_ASSERT(!isnan(f));
+  *d = f;
+  return ser_ok;*/
 }
 
 SerMaybeFailure ser_bodydata(SerState *ser, struct BodyData *data)
@@ -1410,6 +1421,9 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
         SER_MAYBE_RETURN(ser_entityid(ser, &e->player_who_is_inside_of_me));
       break;
     case BoxThruster:
+      SER_MAYBE_RETURN(ser_f(ser, &e->thrust));
+      SER_MAYBE_RETURN(ser_f(ser, &e->wanted_thrust));
+      break;
     case BoxGyroscope:
       SER_MAYBE_RETURN(ser_f(ser, &e->thrust));
       SER_MAYBE_RETURN(ser_f(ser, &e->wanted_thrust));
@@ -2022,9 +2036,14 @@ bool batteries_have_capacity_for(GameState *gs, Entity *grid, double *energy_lef
   return false;
 }
 
-// returns any energy unable to burn
+// returns any effectiveness
 double batteries_use_energy(GameState *gs, Entity *grid, double *energy_left_over, double energy_to_use)
 {
+  if (energy_to_use == 0.0)
+  {
+    return 1.0;
+  }
+  double energy_wanting_to_use = energy_to_use;
   if (*energy_left_over > 0.0)
   {
     double energy_to_use_from_leftover = fmin(*energy_left_over, energy_to_use);
@@ -2040,10 +2059,13 @@ double batteries_use_energy(GameState *gs, Entity *grid, double *energy_left_ove
       battery->energy_used += energy_to_burn_from_this_battery;
       energy_to_use -= energy_to_burn_from_this_battery;
       if (energy_to_use <= 0.0)
-        return 0.0;
+        return 1.0;
     }
   }
-  return energy_to_use;
+  double to_return = 1.0 - (energy_to_use / energy_wanting_to_use);
+  flight_assert(to_return >= 0.0);
+  flight_assert(to_return <= 1.0);
+  return to_return;
 }
 
 double sun_dist_no_gravity(Entity *sun)
@@ -2833,9 +2855,11 @@ void process(struct GameState *gs, double dt)
                   double new_sun = clamp01(fabs(cpvdot(box_facing_vector(cur_box), cpvnormalize(cpvsub(entity_pos(i.sun), entity_pos(cur_box))))));
 
                   // less sun the farther away you are!
-                  new_sun *= lerp(1.0, 0.0, clamp01(cpvlength(cpvsub(entity_pos(cur_box), entity_pos(i.sun))) / sun_dist_no_gravity(i.sun)));
+                  new_sun *= lerp(1.0, 0.0, clamp01(cpvdist(entity_pos(cur_box), entity_pos(i.sun)) / sun_dist_no_gravity(i.sun)));
                   cur_box->sun_amount += new_sun;
                 }
+                cur_box->sun_amount = clamp01(cur_box->sun_amount);
+
                 energy_to_add += cur_box->sun_amount * SOLAR_ENERGY_PER_SECOND * dt;
               }
             }
@@ -2854,7 +2878,7 @@ void process(struct GameState *gs, double dt)
               flight_assert(energy_to_add >= 0.0);
             }
 
-            // any energy_to_add existing now can also be used to power thrusters/medbay
+            // any energy_to_add existing now can also be used to power thrusters/medbay. Kind of like a temporary separate battery
             double non_battery_energy_left_over = energy_to_add;
 
             // use the energy, stored in the batteries, in various boxes
@@ -2862,25 +2886,17 @@ void process(struct GameState *gs, double dt)
             {
               if (cur_box->box_type == BoxThruster)
               {
-
-                double energy_to_consume = cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
-                if (cur_box->wanted_thrust == 0.0)
-                {
-                  cur_box->thrust = 0.0;
-                }
-                if (energy_to_consume > 0.0)
-                {
-                  cur_box->thrust = 0.0;
-                  double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
-                  cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * cur_box->wanted_thrust;
-                  if (cur_box->thrust >= 0.0)
-                    cpBodyApplyForceAtWorldPoint(grid->body, (thruster_force(cur_box)), (entity_pos(cur_box)));
-                }
+                cur_box->energy_effectiveness = batteries_use_energy(gs, grid, &non_battery_energy_left_over, cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt);
+                cur_box->thrust = cur_box->energy_effectiveness * cur_box->wanted_thrust;
+                if (cur_box->thrust >= 0.0)
+                  cpBodyApplyForceAtWorldPoint(grid->body, (thruster_force(cur_box)), (entity_pos(cur_box)));
               }
               if (cur_box->box_type == BoxGyroscope)
               {
                 cur_box->gyrospin_velocity = lerp(cur_box->gyrospin_velocity, cur_box->thrust * 20.0, dt * 5.0);
                 cur_box->gyrospin_angle += cur_box->gyrospin_velocity * dt;
+
+                // wrap to keep the number small
                 if (cur_box->gyrospin_angle > 2.0 * PI)
                 {
                   cur_box->gyrospin_angle -= 2.0 * PI;
@@ -2889,6 +2905,7 @@ void process(struct GameState *gs, double dt)
                 {
                   cur_box->gyrospin_angle += 2.0 * PI;
                 }
+
                 if (cur_box->wanted_thrust == 0.0)
                 {
                   cur_box->thrust = 0.0;
@@ -2896,39 +2913,27 @@ void process(struct GameState *gs, double dt)
                 double thrust_to_want = cur_box->wanted_thrust;
                 if (cur_box->wanted_thrust == 0.0)
                   thrust_to_want = clamp(-cpBodyGetAngularVelocity(grid->body) * GYROSCOPE_PROPORTIONAL_INERTIAL_RESPONSE, -1.0, 1.0);
-                double energy_to_consume = fabs(thrust_to_want * GYROSCOPE_ENERGY_USED_PER_SECOND * dt);
-                if (energy_to_consume > 0.0)
-                {
-                  cur_box->thrust = 0.0;
-                  double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, energy_to_consume);
-                  cur_box->thrust = (1.0 - energy_unconsumed / energy_to_consume) * thrust_to_want;
-                  if (fabs(cur_box->thrust) >= 0.0)
-                    cpBodySetTorque(grid->body, cpBodyGetTorque(grid->body) + cur_box->thrust * GYROSCOPE_TORQUE);
-                }
+                cur_box->energy_effectiveness = batteries_use_energy(gs, grid, &non_battery_energy_left_over, fabs(thrust_to_want * GYROSCOPE_ENERGY_USED_PER_SECOND * dt));
+                cur_box->thrust = cur_box->energy_effectiveness * thrust_to_want;
+                if (fabs(cur_box->thrust) >= 0.0)
+                  cpBodySetTorque(grid->body, cpBodyGetTorque(grid->body) + cur_box->thrust * GYROSCOPE_TORQUE);
               }
               if (cur_box->box_type == BoxMedbay)
               {
                 Entity *potential_meatbag_to_heal = get_entity(gs, cur_box->player_who_is_inside_of_me);
                 if (potential_meatbag_to_heal != NULL)
                 {
-                  double wanted_energy_use = fmin(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
-                  if (wanted_energy_use > 0.0)
-                  {
-                    double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, wanted_energy_use);
-                    potential_meatbag_to_heal->damage -= (1.0 - energy_unconsumed / wanted_energy_use) * wanted_energy_use;
-                  }
+                  double wanted_energy_to_heal = fmin(potential_meatbag_to_heal->damage, PLAYER_ENERGY_RECHARGE_PER_SECOND * dt);
+                  cur_box->energy_effectiveness = batteries_use_energy(gs, grid, &non_battery_energy_left_over, wanted_energy_to_heal);
+                  potential_meatbag_to_heal->damage -= wanted_energy_to_heal * cur_box->energy_effectiveness;
                 }
               }
               if (cur_box->box_type == BoxCloaking)
               {
-                double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, CLOAKING_ENERGY_USE * dt);
-                if (energy_unconsumed >= CLOAKING_ENERGY_USE * dt)
+                cur_box->energy_effectiveness = batteries_use_energy(gs, grid, &non_battery_energy_left_over, CLOAKING_ENERGY_USE * dt);
+                cur_box->cloaking_power = lerp(cur_box->cloaking_power, cur_box->energy_effectiveness, dt * 3.0);
+                if (cur_box->energy_effectiveness >= 1.0)
                 {
-                  cur_box->cloaking_power = lerp(cur_box->cloaking_power, 0.0, dt * 3.0);
-                }
-                else
-                {
-                  cur_box->cloaking_power = lerp(cur_box->cloaking_power, 1.0, dt * 3.0);
                   rect_query(gs->space, (BoxCentered){
                                             .pos = entity_pos(cur_box),
                                             .rotation = entity_rotation(cur_box),
@@ -2940,7 +2945,6 @@ void process(struct GameState *gs, double dt)
                   {
                     cpShape *shape = res->shape;
                     Entity *from_cloaking_box = cur_box;
-                    GameState *gs = entitys_gamestate(from_cloaking_box);
                     Entity *to_cloak = cp_shape_entity(shape);
 
                     to_cloak->time_was_last_cloaked = elapsed_time(gs);
@@ -2955,8 +2959,9 @@ void process(struct GameState *gs, double dt)
                 if (cur_box->missile_construction_charge < 1.0)
                 {
                   double want_use_energy = dt * MISSILE_CHARGE_RATE;
-                  double energy_charged = want_use_energy - batteries_use_energy(gs, grid, &non_battery_energy_left_over, want_use_energy);
-                  cur_box->missile_construction_charge += energy_charged;
+                  cur_box->energy_effectiveness = batteries_use_energy(gs, grid, &non_battery_energy_left_over, want_use_energy);
+
+                  cur_box->missile_construction_charge += cur_box->energy_effectiveness * want_use_energy;
                 }
 
                 if (target.target_found && cur_box->missile_construction_charge >= 1.0)
@@ -2972,11 +2977,12 @@ void process(struct GameState *gs, double dt)
               }
               if (cur_box->box_type == BoxScanner)
               {
-                // set the nearest platonic solid! only on server as only the server sees everything
+                cur_box->energy_effectiveness = batteries_use_energy(gs, grid, &non_battery_energy_left_over, SCANNER_ENERGY_USE * dt);
+
+                // only the server knows all the positions of all the solids
                 if (gs->server_side_computing)
                 {
-                  double energy_unconsumed = batteries_use_energy(gs, grid, &non_battery_energy_left_over, SCANNER_ENERGY_USE * dt);
-                  if (energy_unconsumed >= SCANNER_ENERGY_USE * dt)
+                  if (cur_box->energy_effectiveness < 1.0)
                   {
                     cur_box->platonic_detection_strength = 0.0;
                     cur_box->platonic_nearest_direction = (cpVect){0};

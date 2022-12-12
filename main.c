@@ -125,6 +125,7 @@ static sg_image image_rightclick;
 static sg_image image_rothelp;
 static sg_image image_zoomeasyhelp;
 static sg_image image_gyrospin;
+static sg_image image_noenergy;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
     BoxHullpiece,
@@ -652,6 +653,7 @@ static void init(void)
     image_rothelp = load_image("loaded/rothelp.png");
     image_gyrospin = load_image("loaded/gyroscope_spinner.png");
     image_zoomeasyhelp = load_image("loaded/zoomeasyhelp.png");
+    image_noenergy = load_image("loaded/no_energy.png");
   }
 
   // socket initialization
@@ -2029,6 +2031,7 @@ static void frame(void)
           if (e->is_grid)
           {
             Entity *g = e;
+            // draw boxes
             BOXES_ITER(&gs, b, g)
             {
               set_color_values(1.0, 1.0, 1.0, 1.0);
@@ -2193,6 +2196,27 @@ static void frame(void)
               }
 
               // outside of the transform scope
+
+              // if not enough energy for box to be used
+              bool uses_energy = false;
+              uses_energy |= b->box_type == BoxThruster;
+              uses_energy |= b->box_type == BoxGyroscope;
+              uses_energy |= b->box_type == BoxMedbay && get_entity(&gs, b->player_who_is_inside_of_me) != NULL;
+              uses_energy |= b->box_type == BoxCloaking;
+              uses_energy |= b->box_type == BoxMissileLauncher;
+              uses_energy |= b->box_type == BoxScanner;
+              if (uses_energy)
+              {
+                set_color_values(1.0, 1.0, 1.0, 1.0 - b->energy_effectiveness);
+                sgp_set_image(0, image_noenergy);
+
+                pipeline_scope(goodpixel_pipeline)
+                {
+                  draw_texture_centered(cpvadd(entity_pos(b), cpv(0, -BOX_SIZE / 2.0)), 0.2);
+                }
+                sgp_reset_image(0);
+              }
+
               if (b->box_type == BoxScanner)
               {
                 if (b->platonic_detection_strength > 0.0)

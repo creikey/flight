@@ -302,6 +302,11 @@ typedef struct Entity
   enum CompassRotation compass_rotation;
   bool indestructible;
 
+  // used by multiple boxes that use power to see if it should show low power warning.
+  // not serialized, populated during client side prediction. For the medbay
+  // is only valid if the medbay has somebody inside of it
+  double energy_effectiveness; // from 0 to 1, how effectively the box is operating given available power
+
   // merger
   bool wants_disconnect; // don't serialized, termporary value not used across frames
 
@@ -310,6 +315,7 @@ typedef struct Entity
 
   // used by medbay and cockpit
   EntityID player_who_is_inside_of_me;
+
 
   // only serialized when box_type is thruster or gyroscope, used for both. Thrust
   // can mean rotation thrust!
