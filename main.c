@@ -1990,7 +1990,7 @@ static void frame(void)
           }
         }
 
-        double player_scaling_target = zoom < 6.5 ? 100.0 : 1.0;
+        double player_scaling_target = zoom < 6.5 ? PLAYER_BIG_SCALING/zoom : 1.0;
         if (zoom > 50.0)
           player_scaling = player_scaling_target; // For press tab zoom shortcut. Bad hack to make zooming in not jarring with the bigger player. Comment this out and press tab to see!
         player_scaling = lerp(player_scaling, player_scaling_target, dt * 15.0);
@@ -2265,8 +2265,14 @@ static void frame(void)
             translate(entity_pos(i.sun).x, entity_pos(i.sun).y);
             set_color(WHITE);
             sgp_set_image(0, image_sun);
-            draw_texture_centered((cpVect){0}, i.sun->sun_radius * 2.0);
+            draw_texture_centered((cpVect){0}, i.sun->sun_radius * 8.0);
             sgp_reset_image(0);
+      
+#ifdef DEBUG_RENDERING
+            // so you can make sure the sprite is the right size to accurately show when it will burn you
+            set_color(RED);
+            draw_circle(cpv(0, 0), i.sun->sun_radius);
+#endif
 
             // can draw at 0,0 because everything relative to sun now!
 

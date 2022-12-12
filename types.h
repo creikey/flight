@@ -3,7 +3,7 @@
 #include "buildsettings.h"
 
 #define MAX_BOX_TYPES 64
-#define ZOOM_MIN 0.10   // smaller means you can zoom out more
+#define ZOOM_MIN 0.04   // smaller means you can zoom out more
 #define ZOOM_MAX 1500.0 // bigger means you can zoom in more
 #define MAX_PLAYERS 16
 #define MAX_SUNS 8
@@ -32,6 +32,7 @@
 #define MISSILE_SPAWN_DIST (sqrt((BOX_SIZE / 2.0) * (BOX_SIZE / 2.0) * 2.0) + MISSILE_COLLIDER_SIZE.x / 2.0 + 0.1)
 #define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
 #define PLAYER_JETPACK_SPICE_PER_SECOND 0.08f
+#define PLAYER_BIG_SCALING 300.0
 #define SCANNER_ENERGY_USE 0.05f
 #define MAX_HAND_REACH 1.0f
 #define SCANNER_SCAN_RATE 0.5f
@@ -50,9 +51,9 @@
 #define VISION_RADIUS 12.0f
 #define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
-#define GRAVITY_CONSTANT 0.1f
+#define GRAVITY_CONSTANT 0.05f
 #define GRAVITY_SMALLEST 0.01f // used to determine when gravity is clamped to 0.0f
-#define INSTANT_DEATH_DISTANCE_FROM_CENTER 4000.0f
+#define INSTANT_DEATH_DISTANCE_FROM_CENTER 10000.0f
 #define SOLAR_ENERGY_PER_SECOND 0.09f
 #define DAMAGE_TO_PLAYER_PER_BLOCK 0.1f
 #define BATTERY_CAPACITY 1.5f
@@ -558,7 +559,7 @@ typedef struct BoxCentered
 {
   cpVect pos;
   double rotation;
-  cpVect size;
+  cpVect size; // half width and half height, centered on position
 } BoxCentered;
 
 static inline bool box_has_point(BoxCentered box, cpVect point)

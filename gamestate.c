@@ -288,60 +288,101 @@ cpVect entity_vel(GameState *gs, Entity *e)
   return (cpVect){0};
 }
 
-static THREADLOCAL double to_face = 0.0;
-static THREADLOCAL double nearest_dist = INFINITY;
-static THREADLOCAL bool target_found = false;
-static void on_missile_shape(cpShape *shape, cpContactPointSet *points, void *data)
+typedef struct QueryResult
 {
-  Entity *launcher = (Entity *)data;
-  Entity *other = cp_shape_entity(shape);
-  GameState *gs = entitys_gamestate(launcher);
-  flight_assert(other->is_box || other->is_player || other->is_missile);
+  cpShape *shape;
+  cpVect pointA;
+  cpVect pointB;
+} QueryResult;
+static THREADLOCAL char query_result_data[128 * sizeof(QueryResult)] = {0};
+// the data starts off NULL, on the first call sets it to result data
+static THREADLOCAL Queue query_result = {.data_length = 128 * sizeof(QueryResult), .element_size = sizeof(cpShape *)};
 
-  cpVect to = cpvsub(entity_pos(other), entity_pos(launcher));
-  bool should_attack = true;
-  if (other->is_box && box_grid(other) == box_grid(launcher))
-    should_attack = false;
-  if (other->owning_squad == launcher->owning_squad)
-    should_attack = false;
-
-  if (should_attack && cpvlength(to) < nearest_dist)
+static void shape_query_callback(cpShape *shape, cpContactPointSet *points, void *data)
+{
+  flight_assert(points->count >= 1); // bad, not exactly sure what the points look like. Just taking the first one for now. @Robust good debug drawing for this and figure it out. Make debug rects fade away instead of only drawn for one frame, makes one off things visible
+  QueryResult *new = queue_push_element(&query_result);
+  if (new == NULL)
   {
-    target_found = true;
-    nearest_dist = cpvlength(to);
-
-    // lookahead by their velocity
-    cpVect rel_velocity = cpvsub(entity_vel(gs, other), entity_vel(gs, launcher));
-    double dist = cpvdist(entity_pos(other), entity_pos(launcher)) - MISSILE_SPAWN_DIST;
-
-    double time_of_travel = sqrt((2.0 * dist) / (MISSILE_BURN_FORCE / MISSILE_MASS));
-
-    cpVect other_future_pos = cpvadd(entity_pos(other), cpvmult(rel_velocity, time_of_travel));
-
-    cpVect adjusted_to = cpvsub(other_future_pos, entity_pos(launcher));
-
-    to_face = cpvangle(adjusted_to);
+    (void)queue_pop_element(&query_result);
+    new = queue_push_element(&query_result);
   }
+  new->shape = shape;
+  new->pointA = points->points[0].pointA;
+  new->pointB = points->points[0].pointB;
+}
+
+// shapes are pushed to query result
+static void shape_query(cpSpace *space, cpShape *shape)
+{
+  query_result.data = query_result_data;
+  queue_clear(&query_result);
+  cpSpaceShapeQuery(space, shape, shape_query_callback, NULL);
+}
+
+// shapes are pushed to query result
+static void circle_query(cpSpace *space, cpVect pos, double radius)
+{
+  cpBody *tmp_body = cpBodyNew(0, 0);
+  cpBodySetPosition(tmp_body, pos);
+  cpShape *tmp_shape = cpCircleShapeNew(tmp_body, radius, cpv(0, 0));
+  shape_query(space, tmp_shape);
+  cpBodyFree(tmp_body);
+  cpShapeFree(tmp_shape);
+}
+
+static void rect_query(cpSpace *space, BoxCentered box)
+{
+  cpBody *tmp_body = cpBodyNew(0, 0);
+  cpBodySetPosition(tmp_body, box.pos);
+  cpBodySetAngle(tmp_body, box.rotation);
+  cpShape *tmp_shape = cpBoxShapeNew(tmp_body, box.size.x * 2.0, box.size.y * 2.0, 0.0);
+  shape_query(space, tmp_shape);
+  cpBodyFree(tmp_body);
+  cpShapeFree(tmp_shape);
 }
 
 LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
 {
-  to_face = 0.0;
-  cpBody *tmp = cpBodyNew(0.0, 0.0);
-  cpBodySetPosition(tmp, (entity_pos(launcher)));
-  cpShape *circle = cpCircleShapeNew(tmp, MISSILE_RANGE, cpv(0, 0));
+  double to_face = 0.0;
+  double nearest_dist = INFINITY;
+  bool target_found = false;
+  circle_query(gs->space, entity_pos(launcher), MISSILE_RANGE);
+  QUEUE_ITER(&query_result, QueryResult, res)
+  {
+    cpShape *cur_shape = res->shape;
+    Entity *other = cp_shape_entity(cur_shape);
+    flight_assert(other->is_box || other->is_player || other->is_missile);
 
-  nearest_dist = INFINITY;
-  to_face = 0.0;
-  target_found = false;
-  cpSpaceShapeQuery(gs->space, circle, on_missile_shape, (void *)launcher);
+    cpVect to = cpvsub(entity_pos(other), entity_pos(launcher));
+    bool should_attack = true;
+    if (other->is_box && box_grid(other) == box_grid(launcher))
+      should_attack = false;
+    if (other->owning_squad == launcher->owning_squad)
+      should_attack = false;
 
-  cpBodyFree(tmp);
-  cpShapeFree(circle);
+    if (should_attack && cpvlength(to) < nearest_dist)
+    {
+      target_found = true;
+      nearest_dist = cpvlength(to);
+
+      // lookahead by their velocity
+      cpVect rel_velocity = cpvsub(entity_vel(gs, other), entity_vel(gs, launcher));
+      double dist = cpvdist(entity_pos(other), entity_pos(launcher)) - MISSILE_SPAWN_DIST;
+
+      double time_of_travel = sqrt((2.0 * dist) / (MISSILE_BURN_FORCE / MISSILE_MASS));
+
+      cpVect other_future_pos = cpvadd(entity_pos(other), cpvmult(rel_velocity, time_of_travel));
+
+      cpVect adjusted_to = cpvsub(other_future_pos, entity_pos(launcher));
+
+      to_face = cpvangle(adjusted_to);
+    }
+  }
   return (LauncherTarget){.target_found = target_found, .facing_angle = to_face};
 }
 
-void on_entity_child_shape(cpBody *body, cpShape *shape, void *data);
+void on_entity_child_shape(cpBody *body, cpShape *shape, void *data); // declared here bc entity_destroy circular dependency
 
 // gs is for iterating over all child shapes and destroying those, too
 static void destroy_body(GameState *gs, cpBody **body)
@@ -437,6 +478,7 @@ EntityID create_sun(GameState *gs, Entity *new_sun, cpVect pos, cpVect vel, doub
   new_sun->sun_vel = vel;
   new_sun->sun_mass = mass;
   new_sun->sun_radius = radius;
+  new_sun->always_visible = true;
 
   return get_id(gs, new_sun);
 }
@@ -1531,7 +1573,18 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
         {
           if (!e->is_box && !e->is_grid)
           {
-            SER_ENTITY();
+            Entity *cur_entity = e;
+            bool this_entity_in_range = ser->save_or_load_from_disk;
+            this_entity_in_range |= ser->for_player == NULL;
+            this_entity_in_range |= (ser->for_player != NULL && cpvdistsq(entity_pos(ser->for_player), entity_pos(cur_entity)) < VISION_RADIUS * VISION_RADIUS); // only in vision radius
+            // don't have to check if the entity is cloaked because this is checked above
+            if (cur_entity->always_visible)
+              this_entity_in_range = true;
+
+            if (this_entity_in_range)
+            {
+              SER_ENTITY();
+            }
           }
           if (e->is_grid)
           {
@@ -1806,51 +1859,32 @@ static bool merge_filter(Entity *potential_merge)
   return potential_merge->is_box && potential_merge->box_type == BoxMerge && box_grid(potential_merge) != grid_to_exclude;
 }
 
-static void cloaking_shield_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
-{
-  Entity *from_cloaking_box = (Entity *)data;
-  GameState *gs = entitys_gamestate(from_cloaking_box);
-  Entity *to_cloak = cp_shape_entity(shape);
-
-  to_cloak->time_was_last_cloaked = elapsed_time(gs);
-  to_cloak->last_cloaked_by_squad = from_cloaking_box->owning_squad;
-}
-
-// has to be global var because can only get this information
-static THREADLOCAL cpShape *closest_to_point_in_radius_result = NULL;
-static THREADLOCAL double closest_to_point_in_radius_result_largest_dist = 0.0;
-static THREADLOCAL bool (*closest_to_point_in_radius_filter_func)(Entity *);
-static void closest_point_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
-{
-  flight_assert(points->count == 1);
-  Entity *e = cp_shape_entity(shape);
-  if (!e->is_box)
-    return;
-
-  if (closest_to_point_in_radius_filter_func != NULL && !closest_to_point_in_radius_filter_func(e))
-    return;
-  double dist = cpvlength((cpvsub(points->points[0].pointA, points->points[0].pointB)));
-  // double dist = -points->points[0].distance;
-  if (dist > closest_to_point_in_radius_result_largest_dist)
-  {
-    closest_to_point_in_radius_result_largest_dist = dist;
-    closest_to_point_in_radius_result = shape;
-  }
-}
-
 // filter func null means everything is ok, if it's not null and returns false, that means
 // exclude it from the selection. This returns the closest box entity!
 Entity *closest_box_to_point_in_radius(struct GameState *gs, cpVect point, double radius, bool (*filter_func)(Entity *))
 {
-  closest_to_point_in_radius_result = NULL;
-  closest_to_point_in_radius_result_largest_dist = 0.0;
-  closest_to_point_in_radius_filter_func = filter_func;
-  cpBody *tmpbody = cpBodyNew(0.0, 0.0);
-  cpShape *circle = cpCircleShapeNew(tmpbody, radius, (point));
-  cpSpaceShapeQuery(gs->space, circle, closest_point_callback_func, NULL);
+  cpShape *closest_to_point_in_radius_result = NULL;
+  double closest_to_point_in_radius_result_largest_dist = 0.0;
 
-  cpShapeFree(circle);
-  cpBodyFree(tmpbody);
+  circle_query(gs->space, point, radius);
+  QUEUE_ITER(&query_result, QueryResult, res)
+  {
+    cpShape *shape = res->shape;
+
+    Entity *e = cp_shape_entity(shape);
+    if (!e->is_box)
+      continue;
+
+    if (filter_func != NULL && !filter_func(e))
+      continue;
+    double dist = cpvlength((cpvsub(res->pointA, res->pointB)));
+    // double dist = -points->points[0].distance;
+    if (dist > closest_to_point_in_radius_result_largest_dist)
+    {
+      closest_to_point_in_radius_result_largest_dist = dist;
+      closest_to_point_in_radius_result = shape;
+    }
+  }
 
   if (closest_to_point_in_radius_result != NULL)
   {
@@ -1870,33 +1904,23 @@ static bool scanner_filter(Entity *e)
   return true;
 }
 
-static double cur_explosion_damage = 0.0;
-static cpVect explosion_origin = {0};
-static double explosion_push_strength = 0.0;
-static void explosion_callback_func(cpShape *shape, cpContactPointSet *points, void *data)
-{
-  GameState *gs = (GameState *)data;
-  cp_shape_entity(shape)->damage += cur_explosion_damage;
-  Entity *parent = get_entity(gs, cp_shape_entity(shape)->shape_parent_entity);
-  cpVect from_pos = entity_pos(cp_shape_entity(shape));
-  cpVect impulse = cpvmult(cpvnormalize(cpvsub(from_pos, explosion_origin)), explosion_push_strength);
-  flight_assert(parent->body != NULL);
-  cpBodyApplyImpulseAtWorldPoint(parent->body, (impulse), (from_pos));
-}
-
 static void do_explosion(GameState *gs, Entity *explosion, double dt)
 {
 
-  cpBody *tmpbody = cpBodyNew(0.0, 0.0);
-  cpShape *circle = cpCircleShapeNew(tmpbody, explosion->explosion_radius, (explosion_origin));
-
-  cur_explosion_damage = dt * EXPLOSION_DAMAGE_PER_SEC;
-  explosion_origin = explosion->explosion_pos;
-  explosion_push_strength = explosion->explosion_push_strength;
-  cpSpaceShapeQuery(gs->space, circle, explosion_callback_func, (void *)gs);
-
-  cpShapeFree(circle);
-  cpBodyFree(tmpbody);
+  double cur_explosion_damage = dt * EXPLOSION_DAMAGE_PER_SEC;
+  cpVect explosion_origin = explosion->explosion_pos;
+  double explosion_push_strength = explosion->explosion_push_strength;
+  circle_query(gs->space, explosion_origin, explosion->explosion_radius);
+  QUEUE_ITER(&query_result, QueryResult, res)
+  {
+    cpShape *shape = res->shape;
+    cp_shape_entity(shape)->damage += cur_explosion_damage;
+    Entity *parent = get_entity(gs, cp_shape_entity(shape)->shape_parent_entity);
+    cpVect from_pos = entity_pos(cp_shape_entity(shape));
+    cpVect impulse = cpvmult(cpvnormalize(cpvsub(from_pos, explosion_origin)), explosion_push_strength);
+    flight_assert(parent->body != NULL);
+    cpBodyApplyImpulseAtWorldPoint(parent->body, (impulse), (from_pos));
+  }
 }
 
 cpVect box_facing_vector(Entity *box)
@@ -2195,11 +2219,12 @@ void create_hard_shell_station(GameState *gs, cpVect pos, enum BoxType platonic_
 }
 void create_initial_world(GameState *gs)
 {
+  const double mass_multiplier = 10.0;
   EntityID suns[] = {
-      create_sun(gs, new_entity(gs), ((cpVect){800.0, 0.0}), ((cpVect){0.0, 0.0}), 1000000.0, 30.0),
-      create_sun(gs, new_entity(gs), ((cpVect){800.0, 50.0}), ((cpVect){50.0, 0.0}), 10000.0, 20.0),
-      create_sun(gs, new_entity(gs), ((cpVect){800.0, -50.0}), ((cpVect){-50.0, 0.0}), 10000.0, 20.0),
-      create_sun(gs, new_entity(gs), ((cpVect){-2500.0, -50.0}), ((cpVect){0.0, 0.0}), 100000.0, 20.0),
+      create_sun(gs, new_entity(gs), ((cpVect){800.0, 0.0}), ((cpVect){0.0, 0.0}), 1000000.0 * mass_multiplier, 30.0),
+      create_sun(gs, new_entity(gs), ((cpVect){800.0, 100.0}), ((cpVect){60.0, 0.0}), 10000.0 * mass_multiplier, 20.0),
+      create_sun(gs, new_entity(gs), ((cpVect){800.0, -100.0}), ((cpVect){-60.0, 0.0}), 10000.0 * mass_multiplier, 20.0),
+      create_sun(gs, new_entity(gs), ((cpVect){-7000.0, -50.0}), ((cpVect){0.0, 0.0}), 100000.0 * mass_multiplier, 20.0),
   };
 
   for (int i = 0; i < ARRLEN(suns); i++)
@@ -2212,7 +2237,7 @@ void create_initial_world(GameState *gs)
   // create_hard_shell_station(gs, (cpVect){800.0, 400.0}, BoxGyroscope);
   create_bomb_station(gs, (cpVect){800.0, -800.0}, BoxCloaking);
   create_bomb_station(gs, (cpVect){1600.0, 800.0}, BoxMissileLauncher);
-  create_hard_shell_station(gs, (cpVect){-2500.0, 200.0}, BoxMerge);
+  create_hard_shell_station(gs, (cpVect){-7000.0, 200.0}, BoxMerge);
 #else
   Log("Creating debug world\n");
   // pos, mass, radius
@@ -2264,11 +2289,33 @@ void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
   cpBodySetVelocity(p->body, cpBodyGetVelocity(box_grid(seat_in)->body));
 }
 
+void shape_integrity_check(cpShape *shape, void *data)
+{
+  flight_assert(cpShapeGetUserData(shape) != NULL);
+  flight_assert(cp_shape_entity(shape)->exists);
+  flight_assert(cp_shape_entity(shape)->shape == shape);
+}
+
+void body_integrity_check(cpBody *body, void *data)
+{
+  flight_assert(cpBodyGetUserData(body) != NULL);
+  flight_assert(cp_body_entity(body)->exists);
+  flight_assert(cp_body_entity(body)->body == body);
+}
+
 void process(struct GameState *gs, double dt)
 {
   PROFILE_SCOPE("Gameplay processing")
   {
     flight_assert(gs->space != NULL);
+
+#ifdef CHIPMUNK_INTEGRITY_CHECK
+    PROFILE_SCOPE("Chipmunk Integrity Checks")
+    {
+      cpSpaceEachShape(gs->space, shape_integrity_check, NULL);
+      cpSpaceEachBody(gs->space, body_integrity_check, NULL);
+    }
+#endif
 
     gs->tick++;
 
@@ -2833,11 +2880,11 @@ void process(struct GameState *gs, double dt)
               {
                 cur_box->gyrospin_velocity = lerp(cur_box->gyrospin_velocity, cur_box->thrust * 20.0, dt * 5.0);
                 cur_box->gyrospin_angle += cur_box->gyrospin_velocity * dt;
-                if(cur_box->gyrospin_angle > 2.0*PI)
+                if (cur_box->gyrospin_angle > 2.0 * PI)
                 {
                   cur_box->gyrospin_angle -= 2.0 * PI;
                 }
-                if(cur_box->gyrospin_angle < -2.0 * PI)
+                if (cur_box->gyrospin_angle < -2.0 * PI)
                 {
                   cur_box->gyrospin_angle += 2.0 * PI;
                 }
@@ -2881,15 +2928,23 @@ void process(struct GameState *gs, double dt)
                 else
                 {
                   cur_box->cloaking_power = lerp(cur_box->cloaking_power, 1.0, dt * 3.0);
-                  cpBody *tmp = cpBodyNew(0.0, 0.0);
-                  cpBodySetPosition(tmp, (entity_pos(cur_box)));
-                  cpBodySetAngle(tmp, entity_rotation(cur_box));
-                  // subtract a little from the panel size so that boxes just at the boundary of the panel
-                  // aren't (sometimes cloaked)/(sometimes not) from floating point imprecision
-                  cpShape *box_shape = cpBoxShapeNew(tmp, CLOAKING_PANEL_SIZE - 0.03, CLOAKING_PANEL_SIZE - 0.03, 0.0);
-                  cpSpaceShapeQuery(gs->space, box_shape, cloaking_shield_callback_func, (void *)cur_box);
-                  cpShapeFree(box_shape);
-                  cpBodyFree(tmp);
+                  rect_query(gs->space, (BoxCentered){
+                                            .pos = entity_pos(cur_box),
+                                            .rotation = entity_rotation(cur_box),
+                                            // subtract a little from the panel size so that boxes just at the boundary of the panel
+                                            // aren't (sometimes cloaked)/(sometimes not) from floating point imprecision
+                                            .size = cpv(CLOAKING_PANEL_SIZE - 0.03, CLOAKING_PANEL_SIZE - 0.03),
+                                        });
+                  QUEUE_ITER(&query_result, QueryResult, res)
+                  {
+                    cpShape *shape = res->shape;
+                    Entity *from_cloaking_box = cur_box;
+                    GameState *gs = entitys_gamestate(from_cloaking_box);
+                    Entity *to_cloak = cp_shape_entity(shape);
+
+                    to_cloak->time_was_last_cloaked = elapsed_time(gs);
+                    to_cloak->last_cloaked_by_squad = from_cloaking_box->owning_squad;
+                  }
                 }
               }
               if (cur_box->box_type == BoxMissileLauncher)
