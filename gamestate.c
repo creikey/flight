@@ -644,11 +644,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
 #define MAX_SEPARATE_GRIDS 8
   EntityID separate_grids[MAX_SEPARATE_GRIDS] = {0};
   int cur_separate_grid_index = 0;
-  int cur_separate_grid_size = 0;
   int processed_boxes = 0;
-
-  int biggest_separate_grid_index = 0;
-  uint32_t biggest_separate_grid_length = 0;
 
   // process all boxes into separate, but correctly connected, grids
   while (processed_boxes < num_boxes)
@@ -679,7 +675,6 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
         {
           N->next_box = separate_grids[cur_separate_grid_index];
           separate_grids[cur_separate_grid_index] = get_id(gs, N);
-          cur_separate_grid_size++;
           processed_boxes++;
 
           if (get_id(gs, N).index > biggest_box_index)
@@ -741,14 +736,8 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       }
     }
 
-    if (biggest_box_index > biggest_separate_grid_length)
-    {
-      biggest_separate_grid_length = biggest_box_index;
-      biggest_separate_grid_index = cur_separate_grid_index;
-    }
     cur_separate_grid_index++;
     flight_assert(cur_separate_grid_index < MAX_SEPARATE_GRIDS);
-    cur_separate_grid_size = 0;
   }
 
   // create new grids for all lists of boxes except for the biggest one.
@@ -1106,14 +1095,13 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
       // now compare!
       SER_ASSERT(strcmp(read_name, name) == 0);
 
-
       // deserialize and check the size too!
       SER_ASSERT(data_len < 65535); // uh oh stinky!
       uint16_t expected_size = (uint16_t)data_len;
       uint16_t got_size = 0;
       for (int b = 0; b < sizeof(got_size); b++)
       {
-        ((char*)&got_size)[b] = ser->bytes[ser->cursor];
+        ((char *)&got_size)[b] = ser->bytes[ser->cursor];
         ser->cursor += 1;
         SER_ASSERT(ser->cursor <= ser->max_size);
       }
@@ -1382,6 +1370,8 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     case BoxGyroscope:
       SER_MAYBE_RETURN(ser_f(ser, &e->thrust));
       SER_MAYBE_RETURN(ser_f(ser, &e->wanted_thrust));
+      SER_MAYBE_RETURN(ser_f(ser, &e->gyrospin_angle));
+      SER_MAYBE_RETURN(ser_f(ser, &e->gyrospin_velocity));
       break;
     case BoxBattery:
       SER_MAYBE_RETURN(ser_f(ser, &e->energy_used));
@@ -2408,10 +2398,12 @@ void process(struct GameState *gs, double dt)
 
               if (potential_seat->box_type == BoxScanner) // learn everything from the scanner
               {
+                flight_assert(box_interactible(potential_seat->box_type));
                 player->box_unlocks |= potential_seat->blueprints_learned;
               }
               if (potential_seat->box_type == BoxMerge) // disconnect!
               {
+                flight_assert(box_interactible(potential_seat->box_type));
                 potential_seat->wants_disconnect = true;
                 grid_correct_for_holes(gs, box_grid(potential_seat));
                 flight_assert(potential_seat->exists);
@@ -2420,6 +2412,7 @@ void process(struct GameState *gs, double dt)
               }
               if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay)
               {
+                flight_assert(box_interactible(potential_seat->box_type));
                 // don't let players get inside of cockpits that somebody else is already inside of
                 if (get_entity(gs, potential_seat->player_who_is_inside_of_me) == NULL)
                 {
@@ -2833,6 +2826,10 @@ void process(struct GameState *gs, double dt)
               {
 
                 double energy_to_consume = cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt;
+                if (cur_box->wanted_thrust == 0.0)
+                {
+                  cur_box->thrust = 0.0;
+                }
                 if (energy_to_consume > 0.0)
                 {
                   cur_box->thrust = 0.0;
@@ -2844,6 +2841,12 @@ void process(struct GameState *gs, double dt)
               }
               if (cur_box->box_type == BoxGyroscope)
               {
+                cur_box->gyrospin_velocity = lerp(cur_box->gyrospin_velocity, cur_box->thrust * 20.0, dt * 5.0);
+                cur_box->gyrospin_angle += cur_box->gyrospin_velocity * dt;
+                if (cur_box->wanted_thrust == 0.0)
+                {
+                  cur_box->thrust = 0.0;
+                }
                 double energy_to_consume = fabs(cur_box->wanted_thrust * GYROSCOPE_ENERGY_USED_PER_SECOND * dt);
                 if (energy_to_consume > 0.0)
                 {

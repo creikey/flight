@@ -3,7 +3,7 @@
 #include "buildsettings.h"
 
 #define MAX_BOX_TYPES 64
-#define ZOOM_MIN 0.10 // smaller means you can zoom out more
+#define ZOOM_MIN 0.10   // smaller means you can zoom out more
 #define ZOOM_MAX 1500.0 // bigger means you can zoom in more
 #define MAX_PLAYERS 16
 #define MAX_SUNS 8
@@ -29,7 +29,6 @@
 // centered on the sprite
 #define MISSILE_SPRITE_SIZE ((cpVect){.x = BOX_SIZE, .y = BOX_SIZE})
 #define MISSILE_COLLIDER_SIZE ((cpVect){.x = BOX_SIZE * 0.5f, .y = BOX_SIZE * 0.5f})
-// distance at which things become geostationary and no more solar power!
 #define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
 #define PLAYER_JETPACK_SPICE_PER_SECOND 0.08f
 #define SCANNER_ENERGY_USE 0.05f
@@ -60,7 +59,7 @@
 #define EXPLOSION_DAMAGE_PER_SEC 10.0f
 #define EXPLOSION_DAMAGE_THRESHOLD 0.2f // how much damage until it explodes
 #define GOLD_UNLOCK_RADIUS 1.0f
-#ifndef TIME_BETWEEN_WORLD_SAVE 
+#ifndef TIME_BETWEEN_WORLD_SAVE
 #define TIME_BETWEEN_WORLD_SAVE 30.0f
 #endif
 
@@ -104,7 +103,7 @@
 #include "cpVect.h"    // offers vector functions and types for the structs
 #include "miniaudio.h" // @Robust BAD. using miniaudio mutex construct for server thread synchronization. AWFUL!
 
-#include <math.h> // sqrt and cos vector functions
+#include <math.h>   // sqrt and cos vector functions
 #include <stdint.h> // tick is unsigned integer
 #include <stdio.h>  // logging on errors for functions
 
@@ -170,6 +169,20 @@ enum BoxType
   BoxLast,
 };
 
+static inline bool box_interactible(enum BoxType type)
+{
+  enum BoxType types[] = {
+      BoxCockpit,
+      BoxMedbay,
+      BoxMerge,
+      BoxScanner,
+  };
+  for (int i = 0; i < ARRLEN(types); i++)
+    if (types[i] == type)
+      return true;
+  return false;
+}
+
 enum CompassRotation
 {
   Right,
@@ -198,7 +211,7 @@ typedef struct EntityID
 
 static inline bool entityids_same(EntityID a, EntityID b)
 {
-    return (a.generation == b.generation) && (a.index == b.index);
+  return (a.generation == b.generation) && (a.index == b.index);
 }
 
 // when updated, must update serialization, comparison in main.c, and the server
@@ -299,6 +312,10 @@ typedef struct Entity
   // can mean rotation thrust!
   double wanted_thrust; // the thrust command applied to the thruster
   double thrust;        // the actual thrust it can provide based on energy sources in the grid
+  
+  // only gyroscope, velocity not serialized. Cosmetic
+  double gyrospin_angle;
+  double gyrospin_velocity;
 
   // only serialized when box_type is battery
   double energy_used; // battery, between 0 battery capacity. You have to look through code to figure out what that is! haha sucker!
@@ -311,9 +328,9 @@ typedef struct Entity
 
   // scanner only stuff!
   EntityID currently_scanning;
-  double currently_scanning_progress;  // when 1.0, scans it!
+  double currently_scanning_progress; // when 1.0, scans it!
   BOX_UNLOCKS_TYPE blueprints_learned;
-  double scanner_head_rotate_speed;    // not serialized, cosmetic
+  double scanner_head_rotate_speed; // not serialized, cosmetic
   double scanner_head_rotate;
   cpVect platonic_nearest_direction;  // normalized
   double platonic_detection_strength; // from zero to one
@@ -535,6 +552,19 @@ static inline cpVect cpvspin(cpVect vec, double theta)
 static inline double cpvangle(cpVect vec)
 {
   return atan2(vec.y, vec.x);
+}
+
+typedef struct BoxCentered
+{
+  cpVect pos;
+  double rotation;
+  cpVect size;
+} BoxCentered;
+
+static inline bool box_has_point(BoxCentered box, cpVect point)
+{
+  cpVect local_point = cpvspin(cpvsub(point, box.pos), -box.rotation);
+  return has_point((AABB){.x = -box.size.x/2.0, .y = -box.size.y/2.0, .width = box.size.x, .height = box.size.y}, local_point);
 }
 
 static double sign(double f)

@@ -46,6 +46,9 @@ static int my_player_index = -1;
 static bool right_mouse_down = false;
 #define MAX_KEYDOWN SAPP_KEYCODE_MENU
 static bool keydown[MAX_KEYDOWN] = {0};
+static bool piloting_rotation_capable_ship = false;
+static double rotation_learned = 0.0;
+static double rotation_in_cockpit_learned = 0.0;
 typedef struct KeyPressed
 {
   bool pressed;
@@ -55,6 +58,10 @@ static KeyPressed keypressed[MAX_KEYDOWN] = {0};
 static cpVect mouse_pos = {0};
 static bool fullscreened = false;
 static bool picking_new_boxtype = false;
+static double exec_time = 0.0; // cosmetic bouncing, network stats
+// for network statistics, printed to logs with F3
+static uint64_t total_bytes_sent = 0;
+static uint64_t total_bytes_received = 0;
 
 static bool build_pressed = false;
 static double dilating_time_factor = 1.0;
@@ -112,10 +119,14 @@ static sg_image image_itemswitch;
 static sg_image image_cloaking_panel;
 static sg_image image_missile;
 static sg_image image_missile_burning;
+static sg_image image_rightclick;
+static sg_image image_rothelp;
+static sg_image image_gyrospin;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
     BoxHullpiece,
     BoxThruster,
+    BoxGyroscope,
     BoxBattery,
     BoxCockpit,
     BoxMedbay,
@@ -634,6 +645,9 @@ static void init(void)
     image_cloaking_panel = load_image("loaded/cloaking_panel.png");
     image_missile_burning = load_image("loaded/missile_burning.png");
     image_missile = load_image("loaded/missile.png");
+    image_rightclick = load_image("loaded/right_click.png");
+    image_rothelp = load_image("loaded/rothelp.png");
+    image_gyrospin = load_image("loaded/gyroscope_spinner.png");
   }
 
   // socket initialization
@@ -790,6 +804,25 @@ static void ui(bool draw, double dt, double width, double height)
 
   if (draw)
     sgp_push_transform();
+
+  // rotation helper
+  if (draw)
+  {
+    double alpha = 1.0 - clamp01(rotation_learned);
+    if (piloting_rotation_capable_ship)
+      alpha = 1.0 - clamp01(rotation_in_cockpit_learned);
+    set_color_values(1.0, 1.0, 1.0, alpha);
+
+    sgp_set_image(0, image_rothelp);
+    cpVect draw_at = cpv(width / 2.0, height * 0.25);
+    transform_scope
+    {
+      scale_at(1.0, -1.0, draw_at.x, draw_at.y);
+      pipeline_scope(goodpixel_pipeline)
+          draw_texture_centered(draw_at, 200.0);
+      sgp_reset_image(0);
+    }
+  }
 
   // draw pick new box type menu
   static double pick_opacity = 0.0;
@@ -1412,8 +1445,8 @@ static void frame(void)
   PROFILE_SCOPE("frame")
   {
     double width = (float)sapp_width(), height = (float)sapp_height();
-    double exec_time = sapp_frame_count() * sapp_frame_duration();
     double dt = sapp_frame_duration();
+    exec_time += dt;
 
     // pressed input management
     {
@@ -1463,6 +1496,7 @@ static void frame(void)
 
           case ENET_EVENT_TYPE_RECEIVE:
           {
+            total_bytes_received += event.packet->dataLength;
             unsigned char *decompressed = malloc(
                 sizeof *decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
             size_t decompressed_max_len = MAX_SERVER_TO_CLIENT;
@@ -1603,6 +1637,26 @@ static void frame(void)
         local_hand_pos = cpvsub(global_hand_pos, entity_pos(myentity()));
       }
 
+      // for tutorial text
+      piloting_rotation_capable_ship = false;
+
+      if (myentity() != NULL)
+      {
+        Entity *inside_of = get_entity(&gs, myentity()->currently_inside_of_box);
+        if (inside_of != NULL && inside_of->box_type == BoxCockpit)
+        {
+          BOXES_ITER(&gs, cur, box_grid(inside_of))
+          {
+            flight_assert(cur->is_box);
+            if (cur->box_type == BoxGyroscope)
+            {
+              piloting_rotation_capable_ship = true;
+              break;
+            }
+          }
+        }
+      }
+
       // process player interaction (squad invites)
       if (interact_pressed && myplayer() != NULL && myplayer()->squad != SquadNone)
         ENTITIES_ITER(cur)
@@ -1632,7 +1686,15 @@ static void frame(void)
         if (cpvlength(input) > 0.0)
           input = cpvnormalize(input);
         cur_input_frame.movement = input;
-        cur_input_frame.rotation = (float)keydown[SAPP_KEYCODE_E] - (float)keydown[SAPP_KEYCODE_Q];
+        cur_input_frame.rotation = -((float)keydown[SAPP_KEYCODE_E] - (float)keydown[SAPP_KEYCODE_Q]);
+
+        if (fabs(cur_input_frame.rotation) > 0.01f)
+        {
+          if (piloting_rotation_capable_ship)
+            rotation_in_cockpit_learned += dt * 0.35;
+          else
+            rotation_learned += dt * 0.35;
+        }
 
         if (interact_pressed)
           cur_input_frame.seat_action = interact_pressed;
@@ -1745,6 +1807,10 @@ static void frame(void)
               Log("Failed to send packet error %d\n", err);
               enet_packet_destroy(packet);
             }
+            else
+            {
+              total_bytes_sent += packet->dataLength;
+            }
             last_sent_input_time = stm_now();
           }
           else
@@ -1761,8 +1827,9 @@ static void frame(void)
       global_hand_pos =
           get_global_hand_pos(world_mouse_pos, &hand_at_arms_length);
 
-      Entity *placing_grid = box_grid(closest_box_to_point_in_radius(
-          &gs, global_hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP, NULL));
+      Entity *nearest_box = closest_box_to_point_in_radius(&gs, global_hand_pos, BUILD_BOX_SNAP_DIST_TO_SHIP, NULL);
+      Entity *placing_grid = box_grid(nearest_box);
+
       if (placing_grid == NULL)
       {
         build_preview = (struct BuildPreviewInfo){
@@ -1887,15 +1954,14 @@ static void frame(void)
         // building preview
         if (currently_building() != BoxInvalid && can_build(currently_building()))
         {
-          set_color_values(0.5, 0.5, 0.5,
-                           (sin((float)exec_time * 9.0) + 1.0) / 3.0 + 0.2);
 
           transform_scope
           {
-            sgp_set_image(0, boxinfo(currently_building()).image);
             rotate_at(build_preview.grid_rotation +
                           rotangle(cur_editing_rotation),
                       global_hand_pos.x, global_hand_pos.y);
+            sgp_set_image(0, boxinfo(currently_building()).image);
+            set_color_values(0.5, 0.5, 0.5, (sin((float)exec_time * 9.0) + 1.0) / 3.0 + 0.2);
             pipeline_scope(goodpixel_pipeline)
                 draw_texture_centered(global_hand_pos, BOX_SIZE);
             // drawbox(hand_pos, build_preview.grid_rotation, 0.0,
@@ -1972,6 +2038,33 @@ static void frame(void)
                   */
                 }
 
+                if (box_interactible(b->box_type))
+                {
+                  if (box_has_point((BoxCentered){
+                                        .pos = entity_pos(b),
+                                        .rotation = entity_rotation(b),
+                                        .size = (cpVect){BOX_SIZE, BOX_SIZE},
+                                    },
+                                    world_mouse_pos))
+                  {
+                    // set_color_values(1.0, 1.0, 1.0, 0.2);
+                    // draw_color_rect_centered(entity_pos(b), BOX_SIZE);
+                    set_color(WHITE);
+                    draw_circle(entity_pos(b), BOX_SIZE / 1.75 + sin(exec_time * 5.0) * BOX_SIZE * 0.1);
+                    transform_scope
+                    {
+                      pipeline_scope(goodpixel_pipeline)
+                      {
+                        sgp_set_image(0, image_rightclick);
+                        cpVect draw_at = cpvadd(entity_pos(b), cpv(BOX_SIZE, 0));
+                        rotate_at(-entity_rotation(b) - rotangle(b->compass_rotation), draw_at.x, draw_at.y);
+                        draw_texture_centered(draw_at, BOX_SIZE + sin(exec_time * 5.0) * BOX_SIZE * 0.1);
+                        sgp_reset_image(0);
+                      }
+                    }
+                  }
+                }
+
                 sgp_set_image(0, img);
                 if (b->indestructible)
                 {
@@ -2007,11 +2100,27 @@ static void frame(void)
                     pipeline_scope(goodpixel_pipeline)
                     {
                       rotate_at(b->scanner_head_rotate, entity_pos(b).x, entity_pos(b).y);
+                      set_color(WHITE);
                       draw_texture_centered(entity_pos(b), BOX_SIZE);
                     }
                   }
                   sgp_reset_image(0);
-                  set_color(WHITE);
+                }
+
+                if (b->box_type == BoxGyroscope)
+                {
+                  sgp_set_image(0, image_gyrospin);
+
+                  transform_scope
+                  {
+                    pipeline_scope(goodpixel_pipeline)
+                    {
+                      set_color(WHITE);
+                      rotate_at(b->gyrospin_angle, entity_pos(b).x, entity_pos(b).y);
+                      draw_texture_centered(entity_pos(b), BOX_SIZE);
+                    }
+                  }
+                  sgp_reset_image(0);
                 }
 
                 // scanner range, visualizes what scanner can scan
@@ -2221,6 +2330,13 @@ void event(const sapp_event *e)
       mouse_frozen = !mouse_frozen;
     }
 #endif
+    if (e->key_code == SAPP_KEYCODE_F3)
+    {
+      // print statistics
+      double received_per_sec = (double)total_bytes_received / exec_time;
+      double sent_per_sec = (double)total_bytes_sent / exec_time;
+      Log("Byte/s received %d byte/s sent %d\n", (int)received_per_sec, (int)sent_per_sec);
+    }
     if (e->key_code == SAPP_KEYCODE_TAB)
     {
       if (zoom_target < DEFAULT_ZOOM)
