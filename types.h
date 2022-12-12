@@ -83,6 +83,7 @@
 #define VOIP_DISTANCE_WHEN_CANT_HEAR (VISION_RADIUS * 0.8f)
 
 // multiplayer
+#define CAUTIOUS_MULTIPLIER 0.8 // how overboard to go with the time ahead predicting, makes it less likely that inputs are lost
 #define TICKS_BEHIND_DO_SNAP 6 // when this many ticks behind, instead of dilating time SNAP to the healthy ticks ahead
 #define MAX_MS_SPENT_REPREDICTING 30.0f
 #define TIME_BETWEEN_SEND_GAMESTATE (1.0f / 20.0f)

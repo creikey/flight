@@ -1607,7 +1607,7 @@ static void frame(void)
 
           int ticks_should_repredict = (int)predicted_to_tick - (int)server_current_tick;
 
-          int healthy_num_ticks_ahead = (int)ceil((((double)peer->roundTripTime) / 1000.0) / TIMESTEP) + 6;
+          int healthy_num_ticks_ahead = (int)ceil((((double)peer->roundTripTime + (double)peer->roundTripTimeVariance * CAUTIOUS_MULTIPLIER) / 1000.0) / TIMESTEP) + 6;
 
           int ticks_to_repredict = ticks_should_repredict;
 
