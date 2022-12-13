@@ -33,6 +33,16 @@
 #define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
 #define PLAYER_JETPACK_SPICE_PER_SECOND 0.08f
 #define PLAYER_BIG_SCALING 300.0
+
+#define ORB_MASS 4.0
+#define ORB_RADIUS 1.0
+#define ORB_HEAT_FORCE_MULTIPLIER 5.0
+#define ORB_DRAG_CONSTANT 1.0
+#define ORB_FROZEN_DRAG_CONSTANT 10.0
+#define ORB_HEAT_MAX_DETECTION_DIST 80.0
+#define ORB_HEAL_RATE 0.2
+#define ORB_MAX_FORCE 160.0
+
 #define SCANNER_ENERGY_USE 0.05f
 #define MAX_HAND_REACH 1.0f
 #define SCANNER_SCAN_RATE 0.5f
@@ -62,6 +72,7 @@
 #define EXPLOSION_DAMAGE_PER_SEC 10.0f
 #define EXPLOSION_DAMAGE_THRESHOLD 0.2f // how much damage until it explodes
 #define GOLD_UNLOCK_RADIUS 1.0f
+
 #ifndef TIME_BETWEEN_WORLD_SAVE
 #define TIME_BETWEEN_WORLD_SAVE 30.0f
 #endif
@@ -115,12 +126,7 @@
 #define flight_assert(condition) __flight_assert(condition, __FILE__, __LINE__, #condition)
 
 // including headers from headers bad
-
-#ifndef CHIPMUNK_H
-typedef void cpSpace;
-typedef void cpBody;
-typedef void cpShape;
-#endif
+#include <chipmunk.h> // unfortunate but needs cpSpace, cpBody, cpShape etc
 
 #include "queue.h"
 #include <stdbool.h>
@@ -247,7 +253,7 @@ typedef struct Entity
 
   bool no_save_to_disk; // stuff generated later on, like player's bodies or space stations that respawn.
 
-  double damage;  // used by box and player
+  double damage;  // used by box, player, and orb
   cpBody *body;   // used by grid, player, and box
   cpShape *shape; // must be a box so shape_size can be set appropriately, and serialized
 
@@ -259,8 +265,10 @@ typedef struct Entity
   // for serializing the shape
   // @Robust remove shape_parent_entity from this struct, use the shape's body to figure out
   // what the shape's parent entity is
+  bool is_circle_shape;
   EntityID shape_parent_entity; // can't be zero if shape is nonzero
-  cpVect shape_size;
+  double shape_radius; // only when circle shape
+  cpVect shape_size; // only when rect shape
 
   // player
   bool is_player;
@@ -287,6 +295,9 @@ typedef struct Entity
   // missile
   bool is_missile;
   double time_burned_for; // until MISSILE_BURN_TIME. Before MISSILE_ARM_TIME cannot explode
+
+  // orb
+  bool is_orb;
 
   // grids
   bool is_grid;

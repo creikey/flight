@@ -352,7 +352,7 @@ LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
   {
     cpShape *cur_shape = res->shape;
     Entity *other = cp_shape_entity(cur_shape);
-    flight_assert(other->is_box || other->is_player || other->is_missile);
+    flight_assert(other->is_box || other->is_player || other->is_missile || other->is_orb);
 
     cpVect to = cpvsub(entity_pos(other), entity_pos(launcher));
     bool should_attack = true;
@@ -360,6 +360,8 @@ LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
       should_attack = false;
     if (other->owning_squad == launcher->owning_squad)
       should_attack = false;
+    if (other->is_orb)
+      should_attack = true;
 
     if (should_attack && cpvlength(to) < nearest_dist)
     {
@@ -532,14 +534,18 @@ void entity_set_rotation(Entity *e, double rot)
 
 void entity_set_pos(Entity *e, cpVect pos)
 {
-  flight_assert(e->is_grid);
   flight_assert(e->body != NULL);
   cpBodySetPosition(e->body, (pos));
 }
 
+static const cpShapeFilter BOXES_FILTER = {CP_NO_GROUP, BOXES, CP_ALL_CATEGORIES};
+static const cpShapeFilter NOT_BOXES_FILTER = {CP_NO_GROUP, CP_ALL_CATEGORIES & (~BOXES), CP_ALL_CATEGORIES};
+#define PLAYER_SHAPE_FILTER cpShapeFilterNew(CP_NO_GROUP, PLAYERS, CP_ALL_CATEGORIES)
+
 // size is (1/2 the width, 1/2 the height)
 void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, cpVect pos, cpVect size, double mass)
 {
+  // @Robust remove this garbage
   if (e->shape != NULL)
   {
     cpSpaceRemoveShape(gs->space, e->shape);
@@ -561,9 +567,18 @@ void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, cpVect pos
   cpShapeSetUserData(e->shape, (void *)e);
   cpShapeSetMass(e->shape, mass);
   cpSpaceAddShape(gs->space, e->shape);
+  cpShapeSetFilter(e->shape, NOT_BOXES_FILTER);
 }
-
-#define PLAYER_SHAPE_FILTER cpShapeFilterNew(CP_NO_GROUP, PLAYERS, CP_ALL_CATEGORIES)
+void create_circle_shape(GameState *gs, Entity *e, double radius)
+{
+  e->shape = cpCircleShapeNew(e->body, ORB_RADIUS, cpv(0, 0));
+  e->shape_parent_entity = get_id(gs, e);
+  e->shape_radius = radius;
+  cpShapeSetMass(e->shape, ORB_MASS);
+  cpShapeSetUserData(e->shape, (void *)e);
+  cpSpaceAddShape(gs->space, e->shape);
+  cpShapeSetFilter(e->shape, NOT_BOXES_FILTER);
+}
 
 void create_player(Player *player)
 {
@@ -581,6 +596,14 @@ void create_player(Player *player)
   unlock_box(player, BoxSolarPanel);
   unlock_box(player, BoxScanner);
 #endif
+}
+
+void create_orb(GameState *gs, Entity *e)
+{
+  create_body(gs, e);
+  create_circle_shape(gs, e, ORB_RADIUS);
+  e->is_circle_shape = true;
+  e->is_orb = true;
 }
 
 void create_missile(GameState *gs, Entity *e)
@@ -623,7 +646,7 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, cpVect pos)
 
   create_rectangle_shape(gs, new_box, grid, pos, (cpVect){halfbox, halfbox}, 1.0);
 
-  cpShapeSetFilter(new_box->shape, cpShapeFilterNew(CP_NO_GROUP, BOXES, CP_ALL_CATEGORIES));
+  cpShapeSetFilter(new_box->shape, BOXES_FILTER);
 
   box_add_to_boxes(gs, grid, new_box);
 }
@@ -970,9 +993,11 @@ Entity *box_grid(Entity *box)
   return (Entity *)cpBodyGetUserData(cpShapeGetBody(box->shape));
 }
 // in local space
-cpVect entity_shape_pos(Entity *box)
+cpVect entity_shape_pos(Entity *e)
 {
-  return (cpShapeGetCenterOfGravity(box->shape));
+  flight_assert(e != NULL);
+  flight_assert(e->shape != NULL);
+  return (cpShapeGetCenterOfGravity(e->shape));
 }
 double entity_shape_mass(Entity *box)
 {
@@ -1316,10 +1341,18 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 
   bool has_shape = ser->serializing && e->shape != NULL;
   SER_VAR(&has_shape);
-
   if (has_shape)
   {
-    SER_MAYBE_RETURN(ser_fV2(ser, &e->shape_size));
+    SER_VAR(&e->is_circle_shape);
+    if (e->is_circle_shape)
+    {
+      SER_MAYBE_RETURN(ser_f(ser, &e->shape_radius));
+    }
+    else
+    {
+      SER_MAYBE_RETURN(ser_fV2(ser, &e->shape_size));
+    }
+
     SER_MAYBE_RETURN(ser_entityid(ser, &e->shape_parent_entity));
     Entity *parent = get_entity(gs, e->shape_parent_entity);
     SER_ASSERT(parent != NULL);
@@ -1345,8 +1378,15 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_VAR(&filter.mask);
     if (!ser->serializing)
     {
-      create_rectangle_shape(gs, e, parent, shape_pos, e->shape_size, shape_mass);
-      cpShapeSetFilter(e->shape, filter);
+      if (e->is_circle_shape)
+      {
+        create_circle_shape(gs, e, e->shape_radius);
+      }
+      else
+      {
+        create_rectangle_shape(gs, e, parent, shape_pos, e->shape_size, shape_mass);
+        cpShapeSetFilter(e->shape, filter);
+      }
     }
   }
 
@@ -1393,10 +1433,15 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_MAYBE_RETURN(ser_entityid(ser, &e->boxes));
   }
 
-  SER_VAR(&e->is_missile)
+  SER_VAR(&e->is_missile);
   if (e->is_missile)
   {
     SER_MAYBE_RETURN(ser_f(ser, &e->time_burned_for));
+  }
+
+  SER_VAR(&e->is_orb);
+  if (e->is_orb)
+  {
   }
 
   SER_VAR(&e->is_box);
@@ -1920,7 +1965,6 @@ static bool scanner_filter(Entity *e)
 
 static void do_explosion(GameState *gs, Entity *explosion, double dt)
 {
-
   double cur_explosion_damage = dt * EXPLOSION_DAMAGE_PER_SEC;
   cpVect explosion_origin = explosion->explosion_pos;
   double explosion_push_strength = explosion->explosion_push_strength;
@@ -2255,6 +2299,16 @@ void create_initial_world(GameState *gs)
   }
 #ifndef DEBUG_WORLD
   Log("Creating release world\n");
+
+#define ORB_AT(pos)               \
+  {                               \
+    Entity *orb = new_entity(gs); \
+    create_orb(gs, orb);          \
+    entity_set_pos(orb, pos);     \
+  }
+  ORB_AT(cpv(-5.0, 0.0));
+  ORB_AT(cpv(-50.0, 100.0));
+  ORB_AT(cpv(-50.0, -100.0));
   create_bomb_station(gs, (cpVect){800.0, 800.0}, BoxExplosive);
   // create_hard_shell_station(gs, (cpVect){800.0, 400.0}, BoxGyroscope);
   create_bomb_station(gs, (cpVect){800.0, -800.0}, BoxCloaking);
@@ -2464,7 +2518,7 @@ void process(struct GameState *gs, double dt)
           if (seat_maybe_in == NULL) // not in any seat
           {
             cpPointQueryInfo query_info = {0};
-            cpShape *result = cpSpacePointQueryNearest(gs->space, (world_hand_pos), 0.1, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &query_info);
+            cpShape *result = cpSpacePointQueryNearest(gs->space, (world_hand_pos), 0.1, BOXES_FILTER, &query_info);
             if (result != NULL)
             {
               Entity *potential_seat = cp_shape_entity(result);
@@ -2594,7 +2648,7 @@ void process(struct GameState *gs, double dt)
           cpVect world_build = world_hand_pos;
 
           Entity *target_grid = grid_to_build_on(gs, world_hand_pos);
-          cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, (world_build), 0.01, cpShapeFilterNew(CP_NO_GROUP, CP_ALL_CATEGORIES, BOXES), &info);
+          cpShape *maybe_box_to_destroy = cpSpacePointQueryNearest(gs->space, (world_build), 0.01, cpShapeFilterNew(CP_NO_GROUP, BOXES, BOXES), &info);
           if (maybe_box_to_destroy != NULL)
           {
             Entity *cur_box = cp_shape_entity(maybe_box_to_destroy);
@@ -2684,6 +2738,7 @@ void process(struct GameState *gs, double dt)
             else
             {
               entity_destroy(gs, e);
+              continue;
             }
             continue;
           }
@@ -2734,7 +2789,34 @@ void process(struct GameState *gs, double dt)
             if (e->explosion_progress >= EXPLOSION_TIME)
             {
               entity_destroy(gs, e);
+              continue;
             }
+          }
+        }
+
+        if (e->is_orb)
+        {
+          PROFILE_SCOPE("Orb")
+          {
+            circle_query(gs->space, entity_pos(e), ORB_HEAT_MAX_DETECTION_DIST);
+            cpVect final_force = cpv(0, 0);
+            QUEUE_ITER(&query_result, QueryResult, res)
+            {
+              Entity *potential_aggravation = cp_shape_entity(res->shape);
+              if (potential_aggravation->is_box && potential_aggravation->box_type == BoxThruster && fabs(potential_aggravation->thrust) > 0.1)
+              {
+                final_force = cpvadd(final_force, cpvmult(cpvsub(entity_pos(potential_aggravation), entity_pos(e)), ORB_HEAT_FORCE_MULTIPLIER));
+              }
+            }
+            if (cpvlength(final_force) > ORB_MAX_FORCE)
+            {
+              final_force = cpvmult(cpvnormalize(final_force), ORB_MAX_FORCE);
+            }
+            // add drag
+            final_force = cpvadd(final_force, cpvmult(entity_vel(gs, e), -1.0 * lerp(ORB_DRAG_CONSTANT, ORB_FROZEN_DRAG_CONSTANT, e->damage)));
+            cpBodyApplyForceAtWorldPoint(e->body, final_force, entity_pos(e));
+            e->damage -= dt * ORB_HEAL_RATE;
+            e->damage = clamp01(e->damage);
           }
         }
 
@@ -2752,10 +2834,11 @@ void process(struct GameState *gs, double dt)
               Entity *explosion = new_entity(gs);
               explosion->is_explosion = true;
               explosion->explosion_pos = entity_pos(e);
-              explosion->explosion_vel = (cpBodyGetVelocity(e->body));
+              explosion->explosion_vel = cpBodyGetVelocity(e->body);
               explosion->explosion_push_strength = MISSILE_EXPLOSION_PUSH;
               explosion->explosion_radius = MISSILE_EXPLOSION_RADIUS;
               entity_destroy(gs, e);
+              continue;
             }
           }
         }

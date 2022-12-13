@@ -43,7 +43,6 @@ static sg_pipeline goodpixel_pipeline;
 
 static struct GameState gs = {0};
 static int my_player_index = -1;
-static bool right_mouse_down = false;
 #define MAX_KEYDOWN SAPP_KEYCODE_MENU
 static bool keydown[MAX_KEYDOWN] = {0};
 static bool piloting_rotation_capable_ship = false;
@@ -126,6 +125,8 @@ static sg_image image_rothelp;
 static sg_image image_zoomeasyhelp;
 static sg_image image_gyrospin;
 static sg_image image_noenergy;
+static sg_image image_orb;
+static sg_image image_orb_frozen;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
     BoxHullpiece,
@@ -654,6 +655,8 @@ static void init(void)
     image_gyrospin = load_image("loaded/gyroscope_spinner.png");
     image_zoomeasyhelp = load_image("loaded/zoomeasyhelp.png");
     image_noenergy = load_image("loaded/no_energy.png");
+    image_orb = load_image("loaded/orb.png");
+    image_orb_frozen = load_image("loaded/orb_frozen.png");
   }
 
   // socket initialization
@@ -1236,25 +1239,6 @@ static void ui(bool draw, double dt, double width, double height)
   }
 #undef FLAG_ITER
 
-  //  draw spice bar
-  if (draw)
-  {
-    static double damage = 0.5;
-
-    if (myentity() != NULL)
-    {
-      damage = myentity()->damage;
-    }
-
-    set_color_values(0.5, 0.5, 0.5, cur_opacity);
-    double margin = width * 0.2;
-    double bar_width = width - margin * 2.0;
-    double y = height - 150.0;
-    draw_filled_rect(margin, y, bar_width, 30.0);
-    set_color_values(1.0, 1.0, 1.0, cur_opacity);
-    draw_filled_rect(margin, y, bar_width * (1.0 - damage), 30.0);
-  }
-
   // draw muted
   static double toggle_mute_opacity = 0.2;
   const double size = 150.0;
@@ -1289,18 +1273,19 @@ static void ui(bool draw, double dt, double width, double height)
   }
 
   // draw item toolbar
+  double itembar_width = 0.0;
   {
     double itemframe_width =
         (float)sg_query_image_info(image_itemframe).width * 2.0;
     double itemframe_height =
         (float)sg_query_image_info(image_itemframe).height * 2.0;
-    double total_width = itemframe_width * (float)TOOLBAR_SLOTS;
+    itembar_width = itemframe_width * (float)TOOLBAR_SLOTS;
     double item_width = itemframe_width * 0.75;
     double item_height = itemframe_height * 0.75;
     double item_offset_x = (itemframe_width - item_width) / 2.0;
     double item_offset_y = (itemframe_height - item_height) / 2.0;
 
-    double x = width / 2.0 - total_width / 2.0;
+    double x = width / 2.0 - itembar_width / 2.0;
     double y = height - itemframe_height * 1.5;
     for (int i = 0; i < TOOLBAR_SLOTS; i++)
     {
@@ -1393,6 +1378,24 @@ static void ui(bool draw, double dt, double width, double height)
       }
       x += itemframe_width;
     }
+  }
+  //  draw spice bar
+  if (draw)
+  {
+    static double damage = 0.5;
+
+    if (myentity() != NULL)
+    {
+      damage = myentity()->damage;
+    }
+
+    set_color_values(0.5, 0.5, 0.5, cur_opacity);
+    double bar_width = itembar_width * 1.1;
+    double margin = (width - bar_width)/2.0;
+    double y = height - 150.0;
+    draw_filled_rect(margin, y, bar_width, 30.0);
+    set_color_values(1.0, 1.0, 1.0, cur_opacity);
+    draw_filled_rect(margin, y, bar_width * (1.0 - damage), 30.0);
   }
 
   if (draw)
@@ -1671,7 +1674,9 @@ static void frame(void)
     PROFILE_SCOPE("gameplay and prediction")
     {
       // interpolate zoom
-      zoom = lerp(zoom, zoom_target, dt * 12.0);
+      zoom = lerp(zoom, zoom_target, dt * 16.0);
+      // zoom = lerp(log(zoom), log(zoom_target), dt * 20.0);
+      // zoom = exp(zoom);
 
       // calculate build preview stuff
       cpVect local_hand_pos = {0};
@@ -2250,13 +2255,31 @@ static void frame(void)
             }
           }
 
+          // draw orb
+          if (e->is_orb)
+          {
+            set_color(WHITE);
+            double effective_radius = ORB_RADIUS * 2.2;
+            set_color_values(1.0, 1.0, 1.0, 1.0 - e->damage);
+            sgp_set_image(0, image_orb);
+            pipeline_scope(goodpixel_pipeline)
+                draw_texture_centered(entity_pos(e), effective_radius);
+            sgp_reset_image(0);
+
+            set_color_values(1.0, 1.0, 1.0, e->damage);
+            sgp_set_image(0, image_orb_frozen);
+            pipeline_scope(goodpixel_pipeline)
+                draw_texture_centered(entity_pos(e), effective_radius);
+            sgp_reset_image(0);
+          }
+
           // draw missile
           if (e->is_missile)
           {
             transform_scope
             {
               rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
-              set_color_values(1.0, 1.0, 1.0, 1.0);
+              set_color(WHITE);
 
               if (is_burning(e))
               {
