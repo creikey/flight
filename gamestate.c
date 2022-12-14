@@ -296,7 +296,7 @@ typedef struct QueryResult
 } QueryResult;
 static THREADLOCAL char query_result_data[128 * sizeof(QueryResult)] = {0};
 // the data starts off NULL, on the first call sets it to result data
-static THREADLOCAL Queue query_result = {.data_length = 128 * sizeof(QueryResult), .element_size = sizeof(cpShape *)};
+static THREADLOCAL Queue query_result = {.data_length = 128 * sizeof(QueryResult), .element_size = sizeof(QueryResult)};
 
 static void shape_query_callback(cpShape *shape, cpContactPointSet *points, void *data)
 {
