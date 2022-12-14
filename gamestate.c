@@ -2306,9 +2306,13 @@ void create_initial_world(GameState *gs)
     create_orb(gs, orb);          \
     entity_set_pos(orb, pos);     \
   }
-  ORB_AT(cpv(-5.0, 0.0));
-  ORB_AT(cpv(-50.0, 100.0));
-  ORB_AT(cpv(-50.0, -100.0));
+  for(int x = -10; x > -1000; x -= 20)
+  {
+    for(int i = -20; i < 20; i++)
+    {
+      ORB_AT(cpv(x, (double)i * 100.0));
+    }
+  }
   create_bomb_station(gs, (cpVect){800.0, 800.0}, BoxExplosive);
   // create_hard_shell_station(gs, (cpVect){800.0, 400.0}, BoxGyroscope);
   create_bomb_station(gs, (cpVect){800.0, -800.0}, BoxCloaking);
