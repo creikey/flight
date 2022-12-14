@@ -538,7 +538,7 @@ void entity_set_pos(Entity *e, cpVect pos)
   cpBodySetPosition(e->body, (pos));
 }
 
-static const cpShapeFilter BOXES_FILTER = {CP_NO_GROUP, BOXES, CP_ALL_CATEGORIES};
+static const cpShapeFilter BOXES_FILTER = {CP_NO_GROUP, BOXES, BOXES};
 static const cpShapeFilter NOT_BOXES_FILTER = {CP_NO_GROUP, CP_ALL_CATEGORIES & (~BOXES), CP_ALL_CATEGORIES};
 #define PLAYER_SHAPE_FILTER cpShapeFilterNew(CP_NO_GROUP, PLAYERS, CP_ALL_CATEGORIES)
 

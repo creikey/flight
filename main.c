@@ -1184,8 +1184,7 @@ static void ui(bool draw, double dt, double width, double height)
         }
 
       double size = 128.0;
-      bool hovering =
-          cpvdist(mouse_pos, flag_pos[i]) < size * 0.25 && this_squad_available;
+      bool hovering = box_has_point((BoxCentered){.pos = flag_pos[i], .rotation = flag_rot[i], .size = cpv(size*0.5, size)}, mouse_pos) && this_squad_available;
 
       if (!choosing_flags && hovering && build_pressed)
       {
@@ -1391,7 +1390,7 @@ static void ui(bool draw, double dt, double width, double height)
 
     set_color_values(0.5, 0.5, 0.5, cur_opacity);
     double bar_width = itembar_width * 1.1;
-    double margin = (width - bar_width)/2.0;
+    double margin = (width - bar_width) / 2.0;
     double y = height - 150.0;
     draw_filled_rect(margin, y, bar_width, 30.0);
     set_color_values(1.0, 1.0, 1.0, cur_opacity);
