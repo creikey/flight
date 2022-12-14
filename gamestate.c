@@ -2308,10 +2308,7 @@ void create_initial_world(GameState *gs)
   }
   for(int x = -10; x > -1000; x -= 20)
   {
-    for(int i = -20; i < 20; i++)
-    {
-      ORB_AT(cpv(x, (double)i * 100.0));
-    }
+    ORB_AT(cpv(x, 0.0));
   }
   create_bomb_station(gs, (cpVect){800.0, 800.0}, BoxExplosive);
   // create_hard_shell_station(gs, (cpVect){800.0, 400.0}, BoxGyroscope);
