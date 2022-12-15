@@ -1184,7 +1184,7 @@ static void ui(bool draw, double dt, double width, double height)
         }
 
       double size = 128.0;
-      bool hovering = box_has_point((BoxCentered){.pos = flag_pos[i], .rotation = flag_rot[i], .size = cpv(size*0.5, size)}, mouse_pos) && this_squad_available;
+      bool hovering = box_has_point((BoxCentered){.pos = flag_pos[i], .rotation = flag_rot[i], .size = cpv(size * 0.5, size)}, mouse_pos) && this_squad_available;
 
       if (!choosing_flags && hovering && build_pressed)
       {
@@ -2017,8 +2017,6 @@ static void frame(void)
             set_color_values(0.5, 0.5, 0.5, (sin((float)exec_time * 9.0) + 1.0) / 3.0 + 0.2);
             pipeline_scope(goodpixel_pipeline)
                 draw_texture_centered(global_hand_pos, BOX_SIZE);
-            // drawbox(hand_pos, build_preview.grid_rotation, 0.0,
-            // cur_editing_boxtype, cur_editing_rotation);
             sgp_reset_image(0);
           }
         }
@@ -2028,6 +2026,7 @@ static void frame(void)
           player_scaling = player_scaling_target; // For press tab zoom shortcut. Bad hack to make zooming in not jarring with the bigger player. Comment this out and press tab to see!
         player_scaling = lerp(player_scaling, player_scaling_target, dt * 15.0);
         hovering_this_player = (EntityID){0};
+
         // draw all types of entities
         ENTITIES_ITER(e)
         {
@@ -2087,11 +2086,6 @@ static void frame(void)
                       draw_texture_centered(entity_pos(b), BOX_SIZE);
                   sgp_reset_image(0);
                   set_color_values(1.0, 1.0, 1.0, 1.0 - b->sun_amount);
-                  /* Color to_set = colhexcode(0xeb9834);
-                  to_set.a = b->sun_amount * 0.5;
-                  set_color(to_set);
-                  draw_color_rect_centered(entity_pos(b), BOX_SIZE);
-                  */
                 }
 
                 if (box_interactible(b->box_type))
@@ -2103,8 +2097,6 @@ static void frame(void)
                                     },
                                     world_mouse_pos))
                   {
-                    // set_color_values(1.0, 1.0, 1.0, 0.2);
-                    // draw_color_rect_centered(entity_pos(b), BOX_SIZE);
                     set_color(WHITE);
                     draw_circle(entity_pos(b), BOX_SIZE / 1.75 + sin(exec_time * 5.0) * BOX_SIZE * 0.1);
                     transform_scope
