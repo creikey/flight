@@ -2759,7 +2759,7 @@ void process(struct GameState *gs, double dt)
 
             if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
             {
-              PROFILE_SCOPE("Grid processing")
+              // PROFILE_SCOPE("Grid processing")
               {
                 sqdist = cpvlengthsq(cpvsub((entity_pos(e)), (entity_pos(i.sun))));
                 if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))

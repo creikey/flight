@@ -707,7 +707,7 @@ static void init(void)
   }
 }
 
-#define transform_scope DeferLoop(sgp_push_transform(), sgp_pop_transform())
+#define transform_scope() DeferLoop(sgp_push_transform(), sgp_pop_transform())
 
 static void set_pipeline_and_pull_color(sg_pipeline pip)
 {
@@ -826,7 +826,7 @@ static void ui(bool draw, double dt, double width, double height)
 
       sgp_set_image(0, image_rothelp);
       cpVect draw_at = cpv(width / 2.0, height * 0.25);
-      transform_scope
+      transform_scope()
       {
         scale_at(1.0, -1.0, draw_at.x, draw_at.y);
         pipeline_scope(goodpixel_pipeline)
@@ -841,7 +841,7 @@ static void ui(bool draw, double dt, double width, double height)
       set_color_values(1.0, 1.0, 1.0, alpha);
       sgp_set_image(0, image_zoomeasyhelp);
       cpVect draw_at = cpv(width * 0.1, height * 0.5);
-      transform_scope
+      transform_scope()
       {
         scale_at(1.0, -1.0, draw_at.x, draw_at.y);
         pipeline_scope(goodpixel_pipeline)
@@ -939,7 +939,7 @@ static void ui(bool draw, double dt, double width, double height)
           {
             sgp_set_image(0, image_mystery);
           }
-          transform_scope
+          transform_scope()
           {
             scale_at(1.0, -1.0, item_x + item_width / 2.0, item_y + item_height / 2.0);
             pipeline_scope(goodpixel_pipeline)
@@ -996,7 +996,7 @@ static void ui(bool draw, double dt, double width, double height)
       if (invited)
         draw_as_squad = myentity()->squad_invited_to;
 
-      transform_scope
+      transform_scope()
       {
         pipeline_scope(hueshift_pipeline)
         {
@@ -1011,7 +1011,7 @@ static void ui(bool draw, double dt, double width, double height)
       }
 
       // yes
-      transform_scope
+      transform_scope()
       {
         set_color_values(1.0, 1.0, 1.0, 1.0);
         scale_at(1.0, -1.0, yes_x, buttons_y);
@@ -1024,7 +1024,7 @@ static void ui(bool draw, double dt, double width, double height)
       }
 
       // no
-      transform_scope
+      transform_scope()
       {
         set_color_values(1.0, 1.0, 1.0, 1.0);
         scale_at(1.0, -1.0, no_x, buttons_y);
@@ -1051,7 +1051,7 @@ static void ui(bool draw, double dt, double width, double height)
 
       cpVect draw_at = cpvadd(pos, cpv(0, 50.0));
 
-      transform_scope
+      transform_scope()
       {
         pipeline_scope(goodpixel_pipeline)
         {
@@ -1082,7 +1082,7 @@ static void ui(bool draw, double dt, double width, double height)
           confirm_invite_this_player = true;
       }
       if (draw)
-        transform_scope
+        transform_scope()
         {
           const double size = 64.0;
 
@@ -1205,7 +1205,7 @@ static void ui(bool draw, double dt, double width, double height)
 
       if (draw)
       {
-        transform_scope
+        transform_scope()
         {
           if (this_squad_available)
           {
@@ -1262,7 +1262,7 @@ static void ui(bool draw, double dt, double width, double height)
       sgp_set_image(0, image_mic_muted);
     else
       sgp_set_image(0, image_mic_unmuted);
-    transform_scope
+    transform_scope()
     {
       scale_at(1.0, -1.0, button.x + button.width / 2.0,
                button.y + button.height / 2.0);
@@ -1342,7 +1342,7 @@ static void ui(bool draw, double dt, double width, double height)
         pipeline_scope(goodpixel_pipeline)
             draw_textured_rect(x, y, itemframe_width, itemframe_height);
         sgp_reset_image(0);
-        transform_scope
+        transform_scope()
         {
           double item_x = x + item_offset_x;
           double item_y = y + item_offset_y;
@@ -1915,14 +1915,14 @@ static void frame(void)
 
       // WORLD SPACE
       // world space coordinates are +Y up, -Y down. Like normal cartesian coords
-      transform_scope
+      transform_scope()
       {
         translate(width / 2, height / 2);
         scale_at(zoom, -zoom, 0.0, 0.0);
 
         // parllax layers, just the zooming, but not 100% of the camera panning
 #if 1 // space background
-        transform_scope
+        transform_scope()
         {
           cpVect scaled_camera_pos = cpvmult(
               camera_pos, 0.0005); // this is how strong/weak the parallax is
@@ -1939,7 +1939,7 @@ static void frame(void)
           // draw_textured_rect(0, 0, stars_width, stars_height);
           sgp_reset_image(0);
         }
-        transform_scope
+        transform_scope()
         {
           cpVect scaled_camera_pos = cpvmult(
               camera_pos, 0.005); // this is how strong/weak the parallax is
@@ -1959,14 +1959,14 @@ static void frame(void)
 #endif
 
 #if 1 // parallaxed dots
-        transform_scope
+        transform_scope()
         {
           cpVect scaled_camera_pos = cpvmult(camera_pos, 0.25);
           translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
           set_color(WHITE);
           draw_dots(scaled_camera_pos, 3.0);
         }
-        transform_scope
+        transform_scope()
         {
           cpVect scaled_camera_pos = cpvmult(camera_pos, 0.5);
           translate(-scaled_camera_pos.x, -scaled_camera_pos.y);
@@ -2008,7 +2008,7 @@ static void frame(void)
         if (currently_building() != BoxInvalid && can_build(currently_building()))
         {
 
-          transform_scope
+          transform_scope()
           {
             rotate_at(build_preview.grid_rotation +
                           rotangle(cur_editing_rotation),
@@ -2047,14 +2047,14 @@ static void frame(void)
                     Collerp(from, to, b->energy_used / BATTERY_CAPACITY);
                 set_color_values(result.r, result.g, result.b, cur_alpha);
               }
-              transform_scope
+              transform_scope()
               {
                 rotate_at(entity_rotation(g) + rotangle(b->compass_rotation),
                           entity_pos(b).x, entity_pos(b).y);
 
                 if (b->box_type == BoxThruster)
                 {
-                  transform_scope
+                  transform_scope()
                   {
                     set_color_values(1.0, 1.0, 1.0, 1.0);
                     sgp_set_image(0, image_thrusterburn);
@@ -2099,7 +2099,7 @@ static void frame(void)
                   {
                     set_color(WHITE);
                     draw_circle(entity_pos(b), BOX_SIZE / 1.75 + sin(exec_time * 5.0) * BOX_SIZE * 0.1);
-                    transform_scope
+                    transform_scope()
                     {
                       pipeline_scope(goodpixel_pipeline)
                       {
@@ -2143,7 +2143,7 @@ static void frame(void)
                 if (b->box_type == BoxScanner)
                 {
                   sgp_set_image(0, image_scanner_head);
-                  transform_scope
+                  transform_scope()
                   {
                     pipeline_scope(goodpixel_pipeline)
                     {
@@ -2159,7 +2159,7 @@ static void frame(void)
                 {
                   sgp_set_image(0, image_gyrospin);
 
-                  transform_scope
+                  transform_scope()
                   {
                     pipeline_scope(goodpixel_pipeline)
                     {
@@ -2230,7 +2230,7 @@ static void frame(void)
                 draw_circle(entity_pos(b), MISSILE_RANGE);
 
                 // draw the charging missile
-                transform_scope
+                transform_scope()
                 {
                   rotate_at(missile_launcher_target(&gs, b).facing_angle, entity_pos(b).x, entity_pos(b).y);
                   sgp_set_image(0, image_missile);
@@ -2267,7 +2267,7 @@ static void frame(void)
           // draw missile
           if (e->is_missile)
           {
-            transform_scope
+            transform_scope()
             {
               rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
               set_color(WHITE);
@@ -2297,7 +2297,7 @@ static void frame(void)
             if (e != myentity() && has_point(centered_at(entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling)), world_mouse_pos))
               hovering_this_player = get_id(&gs, e);
             if (get_entity(&gs, e->currently_inside_of_box) == NULL)
-              transform_scope
+              transform_scope()
               {
                 rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
                 set_color_values(1.0, 1.0, 1.0, 1.0);
@@ -2331,7 +2331,7 @@ static void frame(void)
         // the SUN
         SUNS_ITER(&gs)
         {
-          transform_scope
+          transform_scope()
           {
             translate(entity_pos(i.sun).x, entity_pos(i.sun).y);
             set_color(WHITE);
