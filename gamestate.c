@@ -57,12 +57,6 @@ fromUTF8(
 #endif // win32
 #endif // ASSERT_DO_POPUP_AND_CRASH
 
-enum
-{
-  PLAYERS = 1 << 0,
-  BOXES = 1 << 1,
-};
-
 FILE *log_file = NULL;
 
 void quit_with_popup(const char *message_utf8, const char *title_utf8)
@@ -294,9 +288,9 @@ typedef struct QueryResult
   cpVect pointA;
   cpVect pointB;
 } QueryResult;
-static THREADLOCAL char query_result_data[128 * sizeof(QueryResult)] = {0};
+static THREADLOCAL char query_result_data[QUEUE_SIZE_FOR_ELEMENTS(sizeof(QueryResult), 128)] = {0};
 // the data starts off NULL, on the first call sets it to result data
-static THREADLOCAL Queue query_result = {.data_length = 128 * sizeof(QueryResult), .element_size = sizeof(QueryResult)};
+static THREADLOCAL Queue query_result = {0};
 
 static void shape_query_callback(cpShape *shape, cpContactPointSet *points, void *data)
 {
@@ -315,7 +309,7 @@ static void shape_query_callback(cpShape *shape, cpContactPointSet *points, void
 // shapes are pushed to query result
 static void shape_query(cpSpace *space, cpShape *shape)
 {
-  query_result.data = query_result_data;
+  queue_init(&query_result, sizeof(QueryResult), query_result_data, ARRLEN(query_result_data));
   queue_clear(&query_result);
   cpSpaceShapeQuery(space, shape, shape_query_callback, NULL);
 }
@@ -538,9 +532,17 @@ void entity_set_pos(Entity *e, cpVect pos)
   cpBodySetPosition(e->body, (pos));
 }
 
-static const cpShapeFilter BOXES_FILTER = {CP_NO_GROUP, BOXES, BOXES};
-static const cpShapeFilter NOT_BOXES_FILTER = {CP_NO_GROUP, CP_ALL_CATEGORIES & (~BOXES), CP_ALL_CATEGORIES};
-#define PLAYER_SHAPE_FILTER cpShapeFilterNew(CP_NO_GROUP, PLAYERS, CP_ALL_CATEGORIES)
+// IMPORTANT: all shapes must exist in one of these categories, as by default chipmunk assigns an object
+// to be in every category. Which is bad because that doesn't make sense for entities
+enum
+{
+  DEFAULT = 1 << 0,
+  BOXES = 1 << 1,
+};
+static const cpShapeFilter FILTER_ONLY_BOXES = {CP_NO_GROUP, BOXES, BOXES};
+static const cpShapeFilter FILTER_BOXES = {CP_NO_GROUP, DEFAULT | BOXES, CP_ALL_CATEGORIES};
+static const cpShapeFilter FILTER_DEFAULT = {CP_NO_GROUP, DEFAULT, CP_ALL_CATEGORIES};
+#define PLAYER_FILTER FILTER_DEFAULT
 
 // size is (1/2 the width, 1/2 the height)
 void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, cpVect pos, cpVect size, double mass)
@@ -567,7 +569,7 @@ void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, cpVect pos
   cpShapeSetUserData(e->shape, (void *)e);
   cpShapeSetMass(e->shape, mass);
   cpSpaceAddShape(gs->space, e->shape);
-  cpShapeSetFilter(e->shape, NOT_BOXES_FILTER);
+  cpShapeSetFilter(e->shape, FILTER_DEFAULT);
 }
 void create_circle_shape(GameState *gs, Entity *e, double radius)
 {
@@ -577,7 +579,7 @@ void create_circle_shape(GameState *gs, Entity *e, double radius)
   cpShapeSetMass(e->shape, ORB_MASS);
   cpShapeSetUserData(e->shape, (void *)e);
   cpSpaceAddShape(gs->space, e->shape);
-  cpShapeSetFilter(e->shape, NOT_BOXES_FILTER);
+  cpShapeSetFilter(e->shape, FILTER_DEFAULT);
 }
 
 void create_player(Player *player)
@@ -620,7 +622,7 @@ void create_player_entity(GameState *gs, Entity *e)
   e->no_save_to_disk = true;
   create_body(gs, e);
   create_rectangle_shape(gs, e, e, (cpVect){0}, cpvmult(PLAYER_SIZE, 0.5), PLAYER_MASS);
-  cpShapeSetFilter(e->shape, PLAYER_SHAPE_FILTER);
+  cpShapeSetFilter(e->shape, PLAYER_FILTER);
 }
 
 void box_add_to_boxes(GameState *gs, Entity *grid, Entity *box_to_add)
@@ -646,7 +648,7 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, cpVect pos)
 
   create_rectangle_shape(gs, new_box, grid, pos, (cpVect){halfbox, halfbox}, 1.0);
 
-  cpShapeSetFilter(new_box->shape, BOXES_FILTER);
+  cpShapeSetFilter(new_box->shape, FILTER_BOXES);
 
   box_add_to_boxes(gs, grid, new_box);
 }
@@ -1385,8 +1387,8 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
       else
       {
         create_rectangle_shape(gs, e, parent, shape_pos, e->shape_size, shape_mass);
-        cpShapeSetFilter(e->shape, filter);
       }
+      cpShapeSetFilter(e->shape, filter);
     }
   }
 
@@ -2306,7 +2308,7 @@ void create_initial_world(GameState *gs)
     create_orb(gs, orb);          \
     entity_set_pos(orb, pos);     \
   }
-  for(int x = -10; x > -1000; x -= 20)
+  for (int x = -10; x > -1000; x -= 20)
   {
     ORB_AT(cpv(x, 0.0));
   }
@@ -2317,6 +2319,7 @@ void create_initial_world(GameState *gs)
   create_hard_shell_station(gs, (cpVect){-7000.0, 200.0}, BoxMerge);
 #else
   Log("Creating debug world\n");
+
   // pos, mass, radius
   create_bomb_station(gs, (cpVect){-5.0, 0.0}, BoxExplosive);
   create_bomb_station(gs, (cpVect){0.0, 5.0}, BoxGyroscope);
@@ -2519,7 +2522,7 @@ void process(struct GameState *gs, double dt)
           if (seat_maybe_in == NULL) // not in any seat
           {
             cpPointQueryInfo query_info = {0};
-            cpShape *result = cpSpacePointQueryNearest(gs->space, (world_hand_pos), 0.1, BOXES_FILTER, &query_info);
+            cpShape *result = cpSpacePointQueryNearest(gs->space, (world_hand_pos), 0.1, FILTER_ONLY_BOXES, &query_info);
             if (result != NULL)
             {
               Entity *potential_seat = cp_shape_entity(result);
@@ -2595,7 +2598,7 @@ void process(struct GameState *gs, double dt)
 
           if (seat_inside_of == NULL)
           {
-            cpShapeSetFilter(p->shape, PLAYER_SHAPE_FILTER);
+            cpShapeSetFilter(p->shape, PLAYER_FILTER);
             cpBodyApplyForceAtWorldPoint(p->body, (cpvmult(movement_this_tick, PLAYER_JETPACK_FORCE)), cpBodyGetPosition(p->body));
             cpBodySetTorque(p->body, rotation_this_tick * PLAYER_JETPACK_TORQUE);
             p->damage += cpvlength(movement_this_tick) * dt * PLAYER_JETPACK_SPICE_PER_SECOND;
@@ -3034,7 +3037,7 @@ void process(struct GameState *gs, double dt)
                                             .rotation = entity_rotation(cur_box),
                                             // subtract a little from the panel size so that boxes just at the boundary of the panel
                                             // aren't (sometimes cloaked)/(sometimes not) from floating point imprecision
-                                            .size = cpv(CLOAKING_PANEL_SIZE - 0.03, CLOAKING_PANEL_SIZE - 0.03),
+                                            .size = cpv(CLOAKING_PANEL_SIZE / 2.0 - 0.03, CLOAKING_PANEL_SIZE / 2.0 - 0.03),
                                         });
                   QUEUE_ITER(&query_result, QueryResult, res)
                   {
