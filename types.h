@@ -503,7 +503,7 @@ LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher);
 
 // grid
 void grid_create(struct GameState *gs, Entity *e);
-void box_create(struct GameState *gs, Entity *new_box, Entity *grid, cpVect pos);
+void box_create(struct GameState *gs, Entity *new_box, Entity *grid, cpVect pos, enum BoxType type);
 Entity *box_grid(Entity *box);
 cpVect grid_com(Entity *grid);
 cpVect grid_vel(Entity *grid);

@@ -14,7 +14,9 @@
 #define ASSERT_DO_POPUP_AND_CRASH
 // #define SERVER_ADDRESS "207.246.80.160"
 
-#define PROFILING
+// #define PROFILING
+// Intensive profiling means profiling a lot of little tiny stuff. Not always enabled because tanks performance
+#define INTENSIVE_PROFILING
 // #define DEBUG_RENDERING
 #define DEBUG_WORLD
 #define UNLOCK_ALL
@@ -24,7 +26,7 @@
 #define DEBUG_TOOLS
 #define CHIPMUNK_INTEGRITY_CHECK
 // #define FAT_THRUSTERS
-#define NO_GRAVITY
+// #define NO_GRAVITY
 // #define NO_SUNS
 
 #else

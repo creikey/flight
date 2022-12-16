@@ -336,6 +336,18 @@ static void rect_query(cpSpace *space, BoxCentered box)
   cpShapeFree(tmp_shape);
 }
 
+static THREADLOCAL cpShape *found_merge_shape = NULL;
+static void raycast_query_callback(cpShape *shape, cpVect point, cpVect normal, cpFloat alpha, void *data)
+{
+  Entity *grid_to_exclude = (Entity *)data;
+  flight_assert(grid_to_exclude != NULL);
+
+  if (cp_shape_entity(shape)->is_box && cp_shape_entity(shape)->box_type == BoxMerge && box_grid(cp_shape_entity(shape)) != grid_to_exclude)
+  {
+    found_merge_shape = shape;
+  }
+}
+
 LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
 {
   double to_face = 0.0;
@@ -538,9 +550,12 @@ enum
 {
   DEFAULT = 1 << 0,
   BOXES = 1 << 1,
+  MERGE_BOXES = 1 << 2,
 };
 static const cpShapeFilter FILTER_ONLY_BOXES = {CP_NO_GROUP, BOXES, BOXES};
 static const cpShapeFilter FILTER_BOXES = {CP_NO_GROUP, DEFAULT | BOXES, CP_ALL_CATEGORIES};
+static const cpShapeFilter FILTER_MERGE_BOX = {CP_NO_GROUP, DEFAULT | BOXES | MERGE_BOXES, CP_ALL_CATEGORIES};
+static const cpShapeFilter FILTER_ONLY_MERGE_BOX = {CP_NO_GROUP, MERGE_BOXES, CP_ALL_CATEGORIES};
 static const cpShapeFilter FILTER_DEFAULT = {CP_NO_GROUP, DEFAULT, CP_ALL_CATEGORIES};
 #define PLAYER_FILTER FILTER_DEFAULT
 
@@ -638,7 +653,8 @@ void box_add_to_boxes(GameState *gs, Entity *grid, Entity *box_to_add)
 
 // box must be passed as a parameter as the box added to chipmunk uses this pointer in its
 // user data. pos is in local coordinates. Adds the box to the grid's chain of boxes
-void box_create(GameState *gs, Entity *new_box, Entity *grid, cpVect pos)
+// Must pass in a type so it knows what filter to give the collision shape
+void box_create(GameState *gs, Entity *new_box, Entity *grid, cpVect pos, enum BoxType type)
 {
   new_box->is_box = true;
   flight_assert(gs->space != NULL);
@@ -648,7 +664,16 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, cpVect pos)
 
   create_rectangle_shape(gs, new_box, grid, pos, (cpVect){halfbox, halfbox}, 1.0);
 
-  cpShapeSetFilter(new_box->shape, FILTER_BOXES);
+  new_box->box_type = type;
+  switch (type)
+  {
+  case BoxMerge:
+    cpShapeSetFilter(new_box->shape, FILTER_MERGE_BOX);
+    break;
+  default:
+    cpShapeSetFilter(new_box->shape, FILTER_BOXES);
+    break;
+  }
 
   box_add_to_boxes(gs, grid, new_box);
 }
@@ -834,7 +859,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       cpShapeSetUserData(cur->shape, NULL);
       cur->shape = NULL;
 
-      box_create(gs, cur, new_grid, new_shape_position); // destroys next/prev fields on cur
+      box_create(gs, cur, new_grid, new_shape_position, cur->box_type); // destroys next/prev fields on cur
       cur = next;
     }
 
@@ -1123,12 +1148,19 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
       ser->cursor += sizeof(size_to_write);
       SER_ASSERT(ser->cursor < ser->max_size);
     }
+    size_t new_cursor = ser->cursor + data_len;
+    SER_ASSERT(new_cursor < ser->max_size);
+    memcpy(ser->bytes + ser->cursor, data, data_len);
+    ser->cursor = new_cursor;
+
+    /*
     for (int b = 0; b < data_len; b++)
     {
       ser->bytes[ser->cursor] = data[b];
       ser->cursor += 1;
       SER_ASSERT(ser->cursor < ser->max_size);
     }
+    */
   }
   else
   {
@@ -1177,12 +1209,10 @@ SerMaybeFailure ser_data(SerState *ser, char *data, size_t data_len, const char 
       }
       SER_ASSERT(got_size == expected_size);
     }
-    for (int b = 0; b < data_len; b++)
-    {
-      data[b] = ser->bytes[ser->cursor];
-      ser->cursor += 1;
-      SER_ASSERT(ser->cursor <= ser->max_size);
-    }
+    size_t new_cursor = ser->cursor + data_len;
+    SER_ASSERT(new_cursor <= ser->max_size);
+    memcpy(data, ser->bytes + ser->cursor, data_len);
+    ser->cursor = new_cursor;
   }
   return ser_ok;
 }
@@ -1912,14 +1942,6 @@ bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, uns
   }
 }
 
-static THREADLOCAL Entity *grid_to_exclude = NULL;
-static bool merge_filter(Entity *potential_merge)
-{
-  flight_assert(grid_to_exclude != NULL);
-  flight_assert(grid_to_exclude->is_grid);
-  return potential_merge->is_box && potential_merge->box_type == BoxMerge && box_grid(potential_merge) != grid_to_exclude;
-}
-
 // filter func null means everything is ok, if it's not null and returns false, that means
 // exclude it from the selection. This returns the closest box entity!
 Entity *closest_box_to_point_in_radius(struct GameState *gs, cpVect point, double radius, bool (*filter_func)(Entity *))
@@ -1938,20 +1960,18 @@ Entity *closest_box_to_point_in_radius(struct GameState *gs, cpVect point, doubl
 
     if (filter_func != NULL && !filter_func(e))
       continue;
-    double dist = cpvlength((cpvsub(res->pointA, res->pointB)));
+    double dist_sqr = cpvlengthsq((cpvsub(res->pointA, res->pointB)));
     // double dist = -points->points[0].distance;
-    if (dist > closest_to_point_in_radius_result_largest_dist)
+    if (dist_sqr > closest_to_point_in_radius_result_largest_dist)
     {
-      closest_to_point_in_radius_result_largest_dist = dist;
+      closest_to_point_in_radius_result_largest_dist = dist_sqr;
       closest_to_point_in_radius_result = shape;
     }
   }
-
   if (closest_to_point_in_radius_result != NULL)
   {
     return cp_shape_entity(closest_to_point_in_radius_result);
   }
-
   return NULL;
 }
 
@@ -2213,8 +2233,7 @@ void create_bomb_station(GameState *gs, cpVect pos, enum BoxType platonic_type)
 #define BOX_AT_TYPE(grid, pos, type)      \
   {                                       \
     Entity *box = new_entity(gs);         \
-    box_create(gs, box, grid, pos);       \
-    box->box_type = type;                 \
+    box_create(gs, box, grid, pos, type); \
     box->compass_rotation = rot;          \
     box->indestructible = indestructible; \
   }
@@ -2225,8 +2244,7 @@ void create_bomb_station(GameState *gs, cpVect pos, enum BoxType platonic_type)
   grid_create(gs, grid);
   entity_set_pos(grid, pos);
   Entity *platonic_box = new_entity(gs);
-  box_create(gs, platonic_box, grid, (cpVect){0});
-  platonic_box->box_type = platonic_type;
+  box_create(gs, platonic_box, grid, (cpVect){0}, platonic_type);
   platonic_box->is_platonic = true;
   BOX_AT_TYPE(grid, ((cpVect){BOX_SIZE, 0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((cpVect){BOX_SIZE * 2, 0}), BoxHullpiece);
@@ -2264,8 +2282,7 @@ void create_hard_shell_station(GameState *gs, cpVect pos, enum BoxType platonic_
   grid_create(gs, grid);
   entity_set_pos(grid, pos);
   Entity *platonic_box = new_entity(gs);
-  box_create(gs, platonic_box, grid, (cpVect){0});
-  platonic_box->box_type = platonic_type;
+  box_create(gs, platonic_box, grid, (cpVect){0}, platonic_type);
   platonic_box->is_platonic = true;
   BOX_AT_TYPE(grid, ((cpVect){BOX_SIZE * 2, 0}), BoxHullpiece);
   BOX_AT_TYPE(grid, ((cpVect){BOX_SIZE * 3, 0}), BoxHullpiece);
@@ -2684,10 +2701,9 @@ void process(struct GameState *gs, double dt)
                 created_box_position = grid_world_to_local(target_grid, world_build);
               }
               Entity *new_box = new_entity(gs);
-              box_create(gs, new_box, target_grid, created_box_position);
+              box_create(gs, new_box, target_grid, created_box_position, player->input.build_type);
               new_box->owning_squad = player->squad;
               grid_correct_for_holes(gs, target_grid); // no holey ship for you!
-              new_box->box_type = player->input.build_type;
               new_box->compass_rotation = player->input.build_rotation;
               if (new_box->box_type == BoxScanner)
                 new_box->blueprints_learned = player->box_unlocks;
@@ -2715,10 +2731,11 @@ void process(struct GameState *gs, double dt)
         if (!e->exists)
           continue;
 
-        // PROFILE_SCOPE("instant death")
+        if (e->body != NULL && cpvlengthsq((entity_pos(e))) > (INSTANT_DEATH_DISTANCE_FROM_CENTER * INSTANT_DEATH_DISTANCE_FROM_CENTER))
         {
-          cpFloat dist_from_center = cpvlengthsq((entity_pos(e)));
-          if (e->body != NULL && dist_from_center > (INSTANT_DEATH_DISTANCE_FROM_CENTER * INSTANT_DEATH_DISTANCE_FROM_CENTER))
+#ifdef INTENSIVE_PROFILING
+          PROFILE_SCOPE("instant death")
+#endif
           {
             bool platonic_found = false;
             if (e->is_grid)
@@ -2759,7 +2776,9 @@ void process(struct GameState *gs, double dt)
 
             if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
             {
-              // PROFILE_SCOPE("Grid processing")
+#ifdef INTENSIVE_PROFILING
+              PROFILE_SCOPE("Grid processing")
+#endif
               {
                 sqdist = cpvlengthsq(cpvsub((entity_pos(e)), (entity_pos(i.sun))));
                 if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))
@@ -2771,7 +2790,9 @@ void process(struct GameState *gs, double dt)
 
             if (e->body != NULL)
             {
+#ifdef INTENSIVE_PROFILING
               PROFILE_SCOPE("Body processing")
+#endif
               {
                 cpVect accel = sun_gravity_accel_for_entity(e, i.sun);
                 cpVect new_vel = entity_vel(gs, e);
@@ -2849,7 +2870,9 @@ void process(struct GameState *gs, double dt)
 
         if (e->is_box)
         {
-          // PROFILE_SCOPE("Box processing")
+#ifdef INTENSIVE_PROFILING
+          PROFILE_SCOPE("Box processing")
+#endif
           {
             if (e->is_platonic)
             {
@@ -2869,63 +2892,83 @@ void process(struct GameState *gs, double dt)
             }
             if (e->box_type == BoxMerge)
             {
-              Entity *from_merge = e;
-              flight_assert(from_merge != NULL);
-
-              grid_to_exclude = box_grid(from_merge);
-              Entity *other_merge = closest_box_to_point_in_radius(gs, entity_pos(from_merge), MERGE_MAX_DIST, merge_filter);
-
-              if (other_merge == NULL && from_merge->wants_disconnect)
-                from_merge->wants_disconnect = false;
-
-              if (!from_merge->wants_disconnect && other_merge != NULL && !other_merge->wants_disconnect)
+#ifdef INTENSIVE_PROFILING
+              PROFILE_SCOPE("Merge box")
+#endif
               {
-                flight_assert(box_grid(from_merge) != box_grid(other_merge));
+                Entity *from_merge = e;
+                flight_assert(from_merge != NULL);
 
-                Entity *from_grid = box_grid(from_merge);
-                Entity *other_grid = box_grid(other_merge);
+                Entity *grid_to_exclude = box_grid(from_merge);
+                // Entity *other_merge = closest_box_to_point_in_radius(gs, entity_pos(from_merge), MERGE_MAX_DIST, merge_filter);
+                cpVect along = box_facing_vector(from_merge);
+                cpVect from = cpvadd(entity_pos(from_merge), cpvmult(along, BOX_SIZE / 2.0 + 0.03));
+                cpVect to = cpvadd(from, cpvmult(along, MERGE_MAX_DIST));
+                found_merge_shape = NULL;
+                cpSpaceSegmentQuery(gs->space, from, to, 0.0, FILTER_ONLY_MERGE_BOX, raycast_query_callback, (void *)grid_to_exclude);
+                cpShape *other_merge_shape = found_merge_shape;
 
-                // the merges are near eachother, but are they facing eachother...
-                bool from_facing_other = cpvdot(box_facing_vector(from_merge), cpvnormalize(cpvsub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8;
-                bool other_facing_from = cpvdot(box_facing_vector(other_merge), cpvnormalize(cpvsub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8;
+                Entity *other_merge = NULL;
+                if (other_merge_shape != NULL)
+                  other_merge = cp_shape_entity(other_merge_shape);
 
-                // using this stuff to detect if when the other grid's boxes are snapped, they'll be snapped
-                // to be next to the from merge box
-                cpVect actual_new_pos = grid_snapped_box_pos(from_grid, entity_pos(other_merge));
-                cpVect needed_new_pos = cpvadd(entity_pos(from_merge), cpvmult(box_facing_vector(from_merge), BOX_SIZE));
-                if (from_facing_other && other_facing_from && cpvnear(needed_new_pos, actual_new_pos, 0.01))
+                if (other_merge == NULL && from_merge->wants_disconnect)
+                  from_merge->wants_disconnect = false;
+
+                if (!from_merge->wants_disconnect && other_merge != NULL && !other_merge->wants_disconnect)
                 {
-                  // do the merge
-                  cpVect facing_vector_needed = cpvmult(box_facing_vector(from_merge), -1.0);
-                  cpVect current_facing_vector = box_facing_vector(other_merge);
-                  double angle_diff = cpvanglediff(current_facing_vector, facing_vector_needed);
-                  if (angle_diff == FLT_MIN)
-                    angle_diff = 0.0;
-                  flight_assert(!isnan(angle_diff));
-
-                  cpBodySetAngle(other_grid->body, cpBodyGetAngle(other_grid->body) + angle_diff);
-
-                  cpVect moved_because_angle_change = cpvsub(needed_new_pos, entity_pos(other_merge));
-                  cpBodySetPosition(other_grid->body, (cpvadd(entity_pos(other_grid), moved_because_angle_change)));
-
-                  // cpVect snap_movement_vect = cpvsub(actual_new_pos, entity_pos(other_merge));
-                  cpVect snap_movement_vect = (cpVect){0};
-
-                  Entity *cur = get_entity(gs, other_grid->boxes);
-
-                  other_grid->boxes = (EntityID){0};
-                  while (cur != NULL)
+#ifdef INTENSIVE_PROFILING
+                  PROFILE_SCOPE("Do actual merge")
+#endif
                   {
-                    Entity *next = get_entity(gs, cur->next_box);
-                    cpVect world = entity_pos(cur);
-                    enum CompassRotation new_rotation = facing_vector_to_compass(from_grid, other_grid, box_facing_vector(cur));
-                    cur->compass_rotation = new_rotation;
-                    cpVect new_cur_pos = grid_snapped_box_pos(from_grid, cpvadd(snap_movement_vect, world));
-                    box_create(gs, cur, from_grid, grid_world_to_local(from_grid, new_cur_pos)); // destroys next/prev fields on cur
-                    flight_assert(box_grid(cur) == box_grid(from_merge));
-                    cur = next;
+                    flight_assert(box_grid(from_merge) != box_grid(other_merge));
+
+                    Entity *from_grid = box_grid(from_merge);
+                    Entity *other_grid = box_grid(other_merge);
+
+                    // the merges are near eachother, but are they facing eachother...
+                    bool from_facing_other = cpvdot(box_facing_vector(from_merge), cpvnormalize(cpvsub(entity_pos(other_merge), entity_pos(from_merge)))) > 0.8;
+                    bool other_facing_from = cpvdot(box_facing_vector(other_merge), cpvnormalize(cpvsub(entity_pos(from_merge), entity_pos(other_merge)))) > 0.8;
+
+                    // using this stuff to detect if when the other grid's boxes are snapped, they'll be snapped
+                    // to be next to the from merge box
+                    cpVect actual_new_pos = grid_snapped_box_pos(from_grid, entity_pos(other_merge));
+                    cpVect needed_new_pos = cpvadd(entity_pos(from_merge), cpvmult(box_facing_vector(from_merge), BOX_SIZE));
+                    if (from_facing_other && other_facing_from && cpvnear(needed_new_pos, actual_new_pos, 0.01))
+                    {
+                      // do the merge
+                      cpVect facing_vector_needed = cpvmult(box_facing_vector(from_merge), -1.0);
+                      cpVect current_facing_vector = box_facing_vector(other_merge);
+                      double angle_diff = cpvanglediff(current_facing_vector, facing_vector_needed);
+                      if (angle_diff == FLT_MIN)
+                        angle_diff = 0.0;
+                      flight_assert(!isnan(angle_diff));
+
+                      cpBodySetAngle(other_grid->body, cpBodyGetAngle(other_grid->body) + angle_diff);
+
+                      cpVect moved_because_angle_change = cpvsub(needed_new_pos, entity_pos(other_merge));
+                      cpBodySetPosition(other_grid->body, (cpvadd(entity_pos(other_grid), moved_because_angle_change)));
+
+                      // cpVect snap_movement_vect = cpvsub(actual_new_pos, entity_pos(other_merge));
+                      cpVect snap_movement_vect = (cpVect){0};
+
+                      Entity *cur = get_entity(gs, other_grid->boxes);
+
+                      other_grid->boxes = (EntityID){0};
+                      while (cur != NULL)
+                      {
+                        Entity *next = get_entity(gs, cur->next_box);
+                        cpVect world = entity_pos(cur);
+                        enum CompassRotation new_rotation = facing_vector_to_compass(from_grid, other_grid, box_facing_vector(cur));
+                        cur->compass_rotation = new_rotation;
+                        cpVect new_cur_pos = grid_snapped_box_pos(from_grid, cpvadd(snap_movement_vect, world));
+                        box_create(gs, cur, from_grid, grid_world_to_local(from_grid, new_cur_pos), cur->box_type); // destroys next/prev fields on cur
+                        flight_assert(box_grid(cur) == box_grid(from_merge));
+                        cur = next;
+                      }
+                      entity_destroy(gs, other_grid);
+                    }
                   }
-                  entity_destroy(gs, other_grid);
                 }
               }
             }

@@ -84,7 +84,9 @@ void init_profiling_mythread(uint32_t id);
 void end_profiling();
 void end_profiling_mythread();
 
-#define PROFILE_SCOPE(name) DeferLoop(SpallTraceBeginLenTidPid(&spall_ctx, &spall_buffer, name, sizeof(name) - 1, my_thread_id, 0, get_time_in_micros()), SpallTraceEndTidPid(&spall_ctx, &spall_buffer, my_thread_id, 0, get_time_in_micros()))
+#define STRINGIZE(x) STRINGIZE2(x)
+#define STRINGIZE2(x) #x
+#define PROFILE_SCOPE(name) DeferLoop(SpallTraceBeginLenTidPid(&spall_ctx, &spall_buffer, "L" STRINGIZE(__LINE__) " " name , sizeof("L" STRINGIZE(__LINE__) " " name) - 1, my_thread_id, 0, get_time_in_micros()), SpallTraceEndTidPid(&spall_ctx, &spall_buffer, my_thread_id, 0, get_time_in_micros()))
 
 #else // PROFILING
 
