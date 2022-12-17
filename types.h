@@ -89,7 +89,6 @@
 #define TIME_BETWEEN_WORLD_SAVE 30.0f
 #endif
 
-
 #define BOMB_EXPLOSION_PUSH 5.0f
 #define BOMB_EXPLOSION_RADIUS 1.0f
 

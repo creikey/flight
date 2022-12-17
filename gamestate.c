@@ -288,7 +288,7 @@ typedef struct QueryResult
   cpVect pointA;
   cpVect pointB;
 } QueryResult;
-static THREADLOCAL char query_result_data[QUEUE_SIZE_FOR_ELEMENTS(sizeof(QueryResult), 128)] = {0};
+static THREADLOCAL char query_result_data[QUEUE_SIZE_FOR_ELEMENTS(sizeof(QueryResult), 256)] = {0};
 // the data starts off NULL, on the first call sets it to result data
 static THREADLOCAL Queue query_result = {0};
 
@@ -3157,7 +3157,7 @@ void process(struct GameState *gs, double dt)
                     */
 
                     circle_query(gs->space, entity_pos(cur_box), SCANNER_MAX_RANGE);
-                    cpBody *body_results[128] = {0};
+                    cpBody *body_results[512] = {0};
                     size_t cur_results_len = 0;
 
                     QUEUE_ITER(&query_result, QueryResult, res)
