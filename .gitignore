@@ -8,6 +8,7 @@ enc_temp_folder/
 *.spall # profiling
 *.bin # world files
 debug_world.bin
+no-suns.bin
 flight*.zip
 flight_server
 flight.zip

@@ -724,6 +724,64 @@ void fill_time_string(char *to_fill, size_t max_length)
   // to_fill[filled_length - 4] = '\0'; // remove the newline
 }
 
+Entity *grid_box_at_local_pos(GameState *gs, Entity *grid, cpVect wanted_local_pos)
+{
+  Entity *box_in_direction = NULL;
+  BOXES_ITER(gs, cur, grid)
+  {
+    if (cpvnear(entity_shape_pos(cur), wanted_local_pos, 0.01))
+    {
+      box_in_direction = cur;
+      break;
+    }
+  }
+  if (box_in_direction != NULL)
+    flight_assert(box_in_direction->is_box);
+  if (box_in_direction != NULL)
+    flight_assert(box_grid(box_in_direction) == grid);
+  return box_in_direction;
+}
+
+bool merge_box_is_merged(GameState *gs, Entity *merge_box)
+{
+  flight_assert(merge_box->is_box);
+  flight_assert(merge_box->box_type == BoxMerge);
+  cpVect facing = box_compass_vector(merge_box);
+  Entity *potentially_merged_with = grid_box_at_local_pos(gs, box_grid(merge_box), cpvadd(entity_shape_pos(merge_box), cpvmult(facing, BOX_SIZE)));
+  if (potentially_merged_with != NULL && cpvnear(box_compass_vector(potentially_merged_with), cpvmult(facing, -1.0), 0.01))
+  {
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+}
+bool box_interactible(GameState *gs, Player *for_player, Entity *box)
+{
+  flight_assert(box->is_box);
+
+  if (box->box_type == BoxCockpit || box->box_type == BoxMedbay)
+  {
+    return true;
+  }
+  else
+  {
+    if (box->box_type == BoxMerge)
+    {
+      return merge_box_is_merged(gs, box);
+    }
+    else if (box->box_type == BoxScanner)
+    {
+      return (for_player->box_unlocks | box->blueprints_learned) != for_player->box_unlocks;
+    }
+    else
+    {
+      return false;
+    }
+  }
+}
+
 // removes boxes from grid, then ensures that the rule that grids must not have
 // holes in them is applied.
 static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
@@ -803,20 +861,13 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
             // @Robust @Speed faster method, not O(N^2), of getting the box
             // in the direction currently needed
             cpVect compass_vect = box_compass_vector(N);
-            if (N->box_type == BoxMerge && N->wants_disconnect && cpvnear(compass_vect, dir, 0.01))
+            if (N->box_type == BoxMerge && N->wants_disconnect && cpvnear(compass_vect, dir, 0.01) && merge_box_is_merged(gs, N))
             {
             }
             else
             {
               cpVect wanted_local_pos = cpvadd(cur_local_pos, cpvmult(dir, BOX_SIZE));
-              BOXES_ITER(gs, cur, grid)
-              {
-                if (cpvnear(entity_shape_pos(cur), wanted_local_pos, 0.01))
-                {
-                  box_in_direction = get_id(gs, cur);
-                  break;
-                }
-              }
+              box_in_direction = get_id(gs, grid_box_at_local_pos(gs, grid, wanted_local_pos));
             }
 
             Entity *newbox = get_entity(gs, box_in_direction);
@@ -2555,14 +2606,14 @@ void process(struct GameState *gs, double dt)
               Entity *potential_seat = cp_shape_entity(result);
               flight_assert(potential_seat->is_box);
 
+              // IMPORTANT: if you update these, make sure you update box_interactible so
+              // the button prompt still works
               if (potential_seat->box_type == BoxScanner) // learn everything from the scanner
               {
-                flight_assert(box_interactible(potential_seat->box_type));
                 player->box_unlocks |= potential_seat->blueprints_learned;
               }
               if (potential_seat->box_type == BoxMerge) // disconnect!
               {
-                flight_assert(box_interactible(potential_seat->box_type));
                 potential_seat->wants_disconnect = true;
                 grid_correct_for_holes(gs, box_grid(potential_seat));
                 flight_assert(potential_seat->exists);
@@ -2571,7 +2622,6 @@ void process(struct GameState *gs, double dt)
               }
               if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay)
               {
-                flight_assert(box_interactible(potential_seat->box_type));
                 // don't let players get inside of cockpits that somebody else is already inside of
                 if (get_entity(gs, potential_seat->player_who_is_inside_of_me) == NULL)
                 {
@@ -3191,22 +3241,27 @@ void process(struct GameState *gs, double dt)
                         {
                           rel_vect = cpvmult(cpvnormalize(rel_vect), SCANNER_MAX_RANGE);
                         }
-                        
+
                         enum ScannerPointKind kind = Platonic;
-                        Entity *body_entity =cp_body_entity(body_results[i]) ;
-                        if(body_entity->is_grid) {
+                        Entity *body_entity = cp_body_entity(body_results[i]);
+                        if (body_entity->is_grid)
+                        {
                           kind = Neutral;
                           BOXES_ITER(gs, cur_potential_platonic, body_entity)
                           {
-                            if(cur_potential_platonic->is_platonic)
+                            if (cur_potential_platonic->is_platonic)
                             {
                               kind = Platonic;
                               break;
                             }
                           }
-                        } else if(body_entity->is_player) {
+                        }
+                        else if (body_entity->is_player)
+                        {
                           kind = Neutral;
-                        } else {
+                        }
+                        else
+                        {
                           kind = Enemy;
                         }
                         cur_box->scanner_points[i] = (struct ScannerPoint){

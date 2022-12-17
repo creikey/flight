@@ -188,20 +188,6 @@ enum BoxType
   BoxLast,
 };
 
-static inline bool box_interactible(enum BoxType type)
-{
-  enum BoxType types[] = {
-      BoxCockpit,
-      BoxMedbay,
-      BoxMerge,
-      BoxScanner,
-  };
-  for (int i = 0; i < ARRLEN(types); i++)
-    if (types[i] == type)
-      return true;
-  return false;
-}
-
 enum CompassRotation
 {
   Right,
@@ -507,6 +493,7 @@ Entity *get_entity(struct GameState *gs, EntityID id);
 Entity *new_entity(struct GameState *gs);
 EntityID get_id(struct GameState *gs, Entity *e);
 cpVect entity_pos(Entity *e);
+bool box_interactible(GameState *gs, Player *for_player, Entity *box);
 void entity_set_rotation(Entity *e, double rot);
 void entity_set_pos(Entity *e, cpVect pos);
 double entity_rotation(Entity *e);

@@ -734,6 +734,22 @@ static void draw_texture_centered(cpVect center, double size)
 {
   draw_texture_rectangle_centered(center, (cpVect){size, size});
 }
+static void draw_flipped_texture_rectangle_centered(cpVect center, cpVect width_height)
+{
+  transform_scope()
+  {
+    scale_at(1.0, -1.0, center.x, center.y);
+    draw_texture_rectangle_centered(center, width_height);
+  }
+}
+static void draw_flipped_texture_centered(cpVect center, double size)
+{
+  transform_scope()
+  {
+    scale_at(1.0, -1.0, center.x, center.y);
+    draw_texture_centered(center, size);
+  }
+}
 
 sgp_point V2point(cpVect v)
 {
@@ -827,14 +843,9 @@ static void ui(bool draw, double dt, double width, double height)
       set_color_values(1.0, 1.0, 1.0, alpha);
 
       sgp_set_image(0, image_rothelp);
-      cpVect draw_at = cpv(width / 2.0, height * 0.25);
-      transform_scope()
-      {
-        scale_at(1.0, -1.0, draw_at.x, draw_at.y);
-        pipeline_scope(goodpixel_pipeline)
-            draw_texture_centered(draw_at, 200.0);
-        sgp_reset_image(0);
-      }
+      pipeline_scope(goodpixel_pipeline)
+          draw_flipped_texture_centered(cpv(width / 2.0, height * 0.25), 200.0);
+      sgp_reset_image(0);
     }
 
     // zooming zoomeasy
@@ -842,14 +853,9 @@ static void ui(bool draw, double dt, double width, double height)
       double alpha = 1.0 - clamp01(zoomeasy_learned);
       set_color_values(1.0, 1.0, 1.0, alpha);
       sgp_set_image(0, image_zoomeasyhelp);
-      cpVect draw_at = cpv(width * 0.1, height * 0.5);
-      transform_scope()
-      {
-        scale_at(1.0, -1.0, draw_at.x, draw_at.y);
-        pipeline_scope(goodpixel_pipeline)
-            draw_texture_centered(draw_at, 200.0);
-        sgp_reset_image(0);
-      }
+      pipeline_scope(goodpixel_pipeline)
+          draw_flipped_texture_centered(cpv(width * 0.1, height * 0.5), 200.0);
+      sgp_reset_image(0);
     }
   }
 
@@ -941,13 +947,9 @@ static void ui(bool draw, double dt, double width, double height)
           {
             sgp_set_image(0, image_mystery);
           }
-          transform_scope()
-          {
-            scale_at(1.0, -1.0, item_x + item_width / 2.0, item_y + item_height / 2.0);
-            pipeline_scope(goodpixel_pipeline)
-                draw_textured_rect(item_x, item_y, item_width, item_height);
-            sgp_reset_image(0);
-          }
+          pipeline_scope(goodpixel_pipeline)
+              draw_flipped_texture_rectangle_centered(cpv(item_x + item_width / 2.0, item_y + item_width / 2.0), cpv(item_width, item_height));
+          sgp_reset_image(0);
         }
 
         cur_column++;
@@ -998,45 +1000,32 @@ static void ui(bool draw, double dt, double width, double height)
       if (invited)
         draw_as_squad = myentity()->squad_invited_to;
 
-      transform_scope()
+      pipeline_scope(hueshift_pipeline)
       {
-        pipeline_scope(hueshift_pipeline)
-        {
-          set_color_values(1.0, 1.0, 1.0, 1.0);
-          sgp_set_image(0, image_squad_invite);
-          setup_hueshift(draw_as_squad);
-          scale_at(1.0, -1.0, x,
-                   invite_y); // images upside down by default :(
-          draw_texture_centered((cpVect){x, invite_y}, size);
-          sgp_reset_image(0);
-        }
+        set_color_values(1.0, 1.0, 1.0, 1.0);
+        sgp_set_image(0, image_squad_invite);
+        setup_hueshift(draw_as_squad);
+        draw_flipped_texture_centered(cpv(x, invite_y), size);
+        sgp_reset_image(0);
       }
 
       // yes
-      transform_scope()
+      set_color_values(1.0, 1.0, 1.0, 1.0);
+      sgp_set_image(0, image_check);
+      pipeline_scope(goodpixel_pipeline)
       {
-        set_color_values(1.0, 1.0, 1.0, 1.0);
-        scale_at(1.0, -1.0, yes_x, buttons_y);
-        sgp_set_image(0, image_check);
-        pipeline_scope(goodpixel_pipeline)
-        {
-          draw_texture_centered((cpVect){yes_x, buttons_y}, yes_size);
-        }
-        sgp_reset_image(0);
+        draw_flipped_texture_centered(cpv(yes_x, buttons_y), yes_size);
       }
+      sgp_reset_image(0);
 
       // no
-      transform_scope()
+      set_color_values(1.0, 1.0, 1.0, 1.0);
+      sgp_set_image(0, image_no);
+      pipeline_scope(goodpixel_pipeline)
       {
-        set_color_values(1.0, 1.0, 1.0, 1.0);
-        scale_at(1.0, -1.0, no_x, buttons_y);
-        sgp_set_image(0, image_no);
-        pipeline_scope(goodpixel_pipeline)
-        {
-          draw_texture_centered((cpVect){no_x, buttons_y}, no_size);
-        }
-        sgp_reset_image(0);
+        draw_flipped_texture_centered(cpv(no_x, buttons_y), no_size);
       }
+      sgp_reset_image(0);
     }
   }
 
@@ -1050,16 +1039,9 @@ static void ui(bool draw, double dt, double width, double height)
       draw_circle(pos, 28.0 + sin(exec_time * 5.0) * 6.5);
 
       sgp_set_image(0, image_rightclick);
-
-      cpVect draw_at = cpvadd(pos, cpv(0, 50.0));
-
-      transform_scope()
+      pipeline_scope(goodpixel_pipeline)
       {
-        pipeline_scope(goodpixel_pipeline)
-        {
-          scale_at(1.0, -1.0, draw_at.x, draw_at.y);
-          draw_texture_centered(draw_at, 100.0 + sin(exec_time * 5.0) * 10.0);
-        }
+        draw_flipped_texture_centered(cpvadd(pos, cpv(0, 50.0)), 100.0 + sin(exec_time * 5.0) * 10.0);
       }
 
       sgp_reset_image(0);
@@ -1084,28 +1066,24 @@ static void ui(bool draw, double dt, double width, double height)
           confirm_invite_this_player = true;
       }
       if (draw)
-        transform_scope()
+      {
+        const double size = 64.0;
+
+        if (selecting_to_invite)
         {
-          const double size = 64.0;
-
-          if (selecting_to_invite)
-          {
-            set_color_values(0.5, 0.5, 0.5, 0.4);
-            draw_filled_rect(pos.x - size / 2.0, pos.y - size / 2.0, size,
-                             size);
-            set_color_values(1.0, 1.0, 1.0, 1.0);
-          }
-          pipeline_scope(hueshift_pipeline)
-          {
-            setup_hueshift(myplayer()->squad);
-
-            scale_at(1.0, -1.0, pos.x,
-                     pos.y); // images upside down by default :(
-            sgp_set_image(0, image_squad_invite);
-            draw_texture_centered(pos, size);
-            sgp_reset_image(0);
-          }
+          set_color_values(0.5, 0.5, 0.5, 0.4);
+          draw_filled_rect(pos.x - size / 2.0, pos.y - size / 2.0, size,
+                           size);
+          set_color_values(1.0, 1.0, 1.0, 1.0);
         }
+        pipeline_scope(hueshift_pipeline)
+        {
+          setup_hueshift(myplayer()->squad);
+          sgp_set_image(0, image_squad_invite);
+          draw_flipped_texture_centered(pos, size);
+          sgp_reset_image(0);
+        }
+      }
     }
   }
 
@@ -1224,9 +1202,7 @@ static void ui(bool draw, double dt, double width, double height)
             setup_hueshift(this_squad);
 
             rotate_at(flag_rot[i], flag_pos[i].x, flag_pos[i].y);
-            scale_at(1.0, -1.0, flag_pos[i].x,
-                     flag_pos[i].y); // images upside down by default :(
-            draw_texture_centered(flag_pos[i], size);
+            draw_flipped_texture_centered(flag_pos[i], size);
 
             sgp_reset_image(0);
           }
@@ -1266,9 +1242,7 @@ static void ui(bool draw, double dt, double width, double height)
       sgp_set_image(0, image_mic_unmuted);
     transform_scope()
     {
-      scale_at(1.0, -1.0, button.x + button.width / 2.0,
-               button.y + button.height / 2.0);
-      draw_textured_rect(button.x, button.y, button.width, button.height);
+      draw_flipped_texture_rectangle_centered(cpv(button.x + button.width / 2.0, button.y + button.height / 2.0), cpv(button.width, button.height));
       sgp_reset_image(0);
     }
   }
@@ -1348,8 +1322,6 @@ static void ui(bool draw, double dt, double width, double height)
         {
           double item_x = x + item_offset_x;
           double item_y = y + item_offset_y;
-          scale_at(1.0, -1.0, item_x + item_width / 2.0,
-                   item_y + item_height / 2.0);
 
           pipeline_scope(goodpixel_pipeline)
           {
@@ -1360,7 +1332,7 @@ static void ui(bool draw, double dt, double width, double height)
                 sgp_set_image(0, info.image);
               else
                 sgp_set_image(0, image_mystery);
-              draw_textured_rect(item_x, item_y, item_width, item_height);
+              draw_flipped_texture_rectangle_centered(cpv(item_x + item_width / 2.0, item_y + item_height / 2.0), cpv(item_width, item_height));
 
               sgp_reset_image(0);
             }
@@ -1371,7 +1343,7 @@ static void ui(bool draw, double dt, double width, double height)
               double switch_item_height = item_height * switch_scaling;
               item_x -= (switch_item_width - item_width) / 2.0;
               item_y -= (switch_item_height - item_height) / 2.0;
-              draw_textured_rect(item_x, item_y + 20.0, switch_item_width, switch_item_height);
+              draw_flipped_texture_rectangle_centered(cpv(item_x + switch_item_width / 2.0, item_y - 20.0 + switch_item_height / 2.0), cpv(switch_item_width, switch_item_height));
               sgp_reset_image(0);
             }
           }
@@ -2090,7 +2062,7 @@ static void frame(void)
                   set_color_values(1.0, 1.0, 1.0, 1.0 - b->sun_amount);
                 }
 
-                if (box_interactible(b->box_type))
+                if (myplayer() != NULL && box_interactible(&gs, myplayer(), b))
                 {
                   if (box_has_point((BoxCentered){
                                         .pos = entity_pos(b),
@@ -2225,28 +2197,27 @@ static void frame(void)
                   sgp_set_image(0, image_radardot);
                   for (int i = 0; i < SCANNER_MAX_POINTS; i++)
                   {
-                    if(b->scanner_points[i].x != 0 && b->scanner_points[i].y != 0)
+                    if (b->scanner_points[i].x != 0 && b->scanner_points[i].y != 0)
                     {
                       struct ScannerPoint point = b->scanner_points[i];
-                      switch(point.kind)
+                      switch (point.kind)
                       {
-                        case Platonic:
-                          set_color(GOLD);
-                          break;
-                        case Neutral:
-                          set_color(WHITE);
-                          break;
-                        case Enemy:
-                          set_color(RED);
-                          break;
-                        default:
-                          set_color(WHITE); // @Robust assert false in serialization if  unexpected kind
-                          break;
+                      case Platonic:
+                        set_color(GOLD);
+                        break;
+                      case Neutral:
+                        set_color(WHITE);
+                        break;
+                      case Enemy:
+                        set_color(RED);
+                        break;
+                      default:
+                        set_color(WHITE); // @Robust assert false in serialization if  unexpected kind
+                        break;
                       }
                       cpVect rel = cpv(
-                        ((double)point.x / 128.0) * SCANNER_RADIUS,
-                        ((double)point.y / 128.0) * SCANNER_RADIUS
-                      );
+                          ((double)point.x / 128.0) * SCANNER_RADIUS,
+                          ((double)point.y / 128.0) * SCANNER_RADIUS);
                       cpVect to = cpvadd(entity_pos(b), rel);
                       dbg_rect(to);
                       dbg_rect(entity_pos(b));
