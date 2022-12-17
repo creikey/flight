@@ -88,9 +88,8 @@ void __flight_assert(bool cond, const char *file, int line, const char *cond_str
   {
 #define MESSAGE_BUFFER_SIZE 2048
     char message_buffer[MESSAGE_BUFFER_SIZE] = {0};
-    Log("Assertion failure\n"); // so that I have the time in the logs for when the assertion failed. Too lazy to fill a time string here
     snprintf(message_buffer, MESSAGE_BUFFER_SIZE, "%s:%d | Assertion %s failed\n", file, line, cond_string);
-    fprintf(stderr, "%s", message_buffer);
+    Log("%s", message_buffer);
     if (log_file != NULL)
     {
       fprintf(log_file, "%s", message_buffer);
