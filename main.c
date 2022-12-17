@@ -127,6 +127,7 @@ static sg_image image_gyrospin;
 static sg_image image_noenergy;
 static sg_image image_orb;
 static sg_image image_orb_frozen;
+static sg_image image_radardot;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
     BoxHullpiece,
@@ -657,6 +658,7 @@ static void init(void)
     image_noenergy = load_image("loaded/no_energy.png");
     image_orb = load_image("loaded/orb.png");
     image_orb_frozen = load_image("loaded/orb_frozen.png");
+    image_radardot = load_image("loaded/radardot.png");
   }
 
   // socket initialization
@@ -2171,13 +2173,6 @@ static void frame(void)
                   sgp_reset_image(0);
                 }
 
-                // scanner range, visualizes what scanner can scan
-                if (b->box_type == BoxScanner)
-                {
-                  set_color(BLUE);
-                  draw_circle(entity_pos(b), SCANNER_RADIUS);
-                  set_color(WHITE);
-                }
                 set_color_values(0.5, 0.1, 0.1, b->damage);
                 draw_color_rect_centered(entity_pos(b), BOX_SIZE);
 
@@ -2215,13 +2210,52 @@ static void frame(void)
 
               if (b->box_type == BoxScanner)
               {
-                if (b->platonic_detection_strength > 0.0)
+                if (b->energy_effectiveness >= 1.0)
                 {
+                  // maximum scanner range
+                  set_color(BLUE);
+                  draw_circle(entity_pos(b), SCANNER_RADIUS);
+                  set_color_values(0.0, 0.0, 1.0, 0.3);
+                  draw_circle(entity_pos(b), SCANNER_RADIUS * 0.25);
+                  draw_circle(entity_pos(b), SCANNER_RADIUS * 0.5);
+                  draw_circle(entity_pos(b), SCANNER_RADIUS * 0.75);
+                  set_color(WHITE);
+
                   set_color(colhexcode(0xf2d75c));
-                  cpVect to = cpvadd(entity_pos(b), cpvmult(b->platonic_nearest_direction, b->platonic_detection_strength));
-                  dbg_rect(to);
-                  dbg_rect(entity_pos(b));
-                  draw_line(entity_pos(b).x, entity_pos(b).y, to.x, to.y);
+                  sgp_set_image(0, image_radardot);
+                  for (int i = 0; i < SCANNER_MAX_POINTS; i++)
+                  {
+                    if(b->scanner_points[i].x != 0 && b->scanner_points[i].y != 0)
+                    {
+                      struct ScannerPoint point = b->scanner_points[i];
+                      switch(point.kind)
+                      {
+                        case Platonic:
+                          set_color(GOLD);
+                          break;
+                        case Neutral:
+                          set_color(WHITE);
+                          break;
+                        case Enemy:
+                          set_color(RED);
+                          break;
+                        default:
+                          set_color(WHITE); // @Robust assert false in serialization if  unexpected kind
+                          break;
+                      }
+                      cpVect rel = cpv(
+                        ((double)point.x / 128.0) * SCANNER_RADIUS,
+                        ((double)point.y / 128.0) * SCANNER_RADIUS
+                      );
+                      cpVect to = cpvadd(entity_pos(b), rel);
+                      dbg_rect(to);
+                      dbg_rect(entity_pos(b));
+                      pipeline_scope(goodpixel_pipeline)
+                          draw_texture_centered(to, BOX_SIZE / 2.0);
+                    }
+                  }
+                  sgp_reset_image(0);
+                  // draw_line(entity_pos(b).x, entity_pos(b).y, to.x, to.y);
                 }
               }
               if (b->box_type == BoxMissileLauncher)

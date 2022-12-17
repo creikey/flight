@@ -348,6 +348,14 @@ static void raycast_query_callback(cpShape *shape, cpVect point, cpVect normal, 
   }
 }
 
+static THREADLOCAL cpVect from_point = {0};
+static int sort_bodies_callback(const void *a, const void *b)
+{
+  double a_dist = cpvdist(cpBodyGetPosition((cpBody *)a), from_point);
+  double b_dist = cpvdist(cpBodyGetPosition((cpBody *)b), from_point);
+  return (int)(a_dist - b_dist);
+}
+
 LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
 {
   double to_face = 0.0;
@@ -1517,8 +1525,10 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
       SER_MAYBE_RETURN(ser_f(ser, &e->currently_scanning_progress));
       SER_VAR(&e->blueprints_learned);
       SER_MAYBE_RETURN(ser_f(ser, &e->scanner_head_rotate));
-      SER_MAYBE_RETURN(ser_fV2(ser, &e->platonic_nearest_direction));
-      SER_MAYBE_RETURN(ser_f(ser, &e->platonic_detection_strength));
+      for (int i = 0; i < SCANNER_MAX_POINTS; i++)
+      {
+        SER_VAR(&e->scanner_points[i]);
+      }
       break;
     case BoxCloaking:
       SER_MAYBE_RETURN(ser_f(ser, &e->cloaking_power));
@@ -3123,13 +3133,11 @@ void process(struct GameState *gs, double dt)
                 // only the server knows all the positions of all the solids
                 if (gs->server_side_computing)
                 {
-                  if (cur_box->energy_effectiveness < 1.0)
+                  for (int i = 0; i < SCANNER_MAX_POINTS; i++)
+                    cur_box->scanner_points[i] = (struct ScannerPoint){0};
+                  if (cur_box->energy_effectiveness >= 1.0)
                   {
-                    cur_box->platonic_detection_strength = 0.0;
-                    cur_box->platonic_nearest_direction = (cpVect){0};
-                  }
-                  else
-                  {
+                    /*
                     cpVect from_pos = entity_pos(cur_box);
                     cpVect nearest = {0};
                     double nearest_dist = INFINITY;
@@ -3146,15 +3154,67 @@ void process(struct GameState *gs, double dt)
                         }
                       }
                     }
-                    if (nearest_dist < INFINITY)
+                    */
+
+                    circle_query(gs->space, entity_pos(cur_box), SCANNER_MAX_RANGE);
+                    cpBody *body_results[128] = {0};
+                    size_t cur_results_len = 0;
+
+                    QUEUE_ITER(&query_result, QueryResult, res)
                     {
-                      cur_box->platonic_nearest_direction = cpvnormalize(cpvsub(nearest, from_pos));
-                      cur_box->platonic_detection_strength = fmax(0.1, 1.0 - fmin(1.0, nearest_dist / 100.0));
+                      cpBody *cur_body = cpShapeGetBody(res->shape);
+                      bool unique_body = true;
+                      for (int i = 0; i < cur_results_len; i++)
+                      {
+                        if (body_results[i] == cur_body)
+                        {
+                          unique_body = false;
+                          break;
+                        }
+                      }
+                      if (unique_body && cur_results_len < ARRLEN(body_results))
+                      {
+                        body_results[cur_results_len] = cur_body;
+                        cur_results_len++;
+                      }
                     }
-                    else
+                    from_point = entity_pos(cur_box);
+                    qsort(body_results, cur_results_len, sizeof(cpBody *), sort_bodies_callback);
+                    size_t bodies_detected = cur_results_len < SCANNER_MAX_POINTS ? cur_results_len : SCANNER_MAX_POINTS;
+                    for (int i = 0; i < bodies_detected; i++)
                     {
-                      cur_box->platonic_nearest_direction = (cpVect){0};
-                      cur_box->platonic_detection_strength = 0.0;
+                      cpVect rel_vect = cpvsub(cpBodyGetPosition(body_results[i]), from_point);
+                      double vect_length = cpvlength(rel_vect);
+                      if (vect_length > SCANNER_MIN_RANGE)
+                      {
+                        if (vect_length > SCANNER_MAX_RANGE)
+                        {
+                          rel_vect = cpvmult(cpvnormalize(rel_vect), SCANNER_MAX_RANGE);
+                        }
+                        
+                        enum ScannerPointKind kind = Platonic;
+                        Entity *body_entity =cp_body_entity(body_results[i]) ;
+                        if(body_entity->is_grid) {
+                          kind = Neutral;
+                          BOXES_ITER(gs, cur_potential_platonic, body_entity)
+                          {
+                            if(cur_potential_platonic->is_platonic)
+                            {
+                              kind = Platonic;
+                              break;
+                            }
+                          }
+                        } else if(body_entity->is_player) {
+                          kind = Neutral;
+                        } else {
+                          kind = Enemy;
+                        }
+                        cur_box->scanner_points[i] = (struct ScannerPoint){
+                            .kind = (char)kind,
+                            .x = (char)((rel_vect.x / SCANNER_MAX_RANGE) * 128.0),
+                            .y = (char)((rel_vect.y / SCANNER_MAX_RANGE) * 128.0),
+                        };
+                      }
                     }
                   }
                 }
@@ -3173,7 +3233,8 @@ void process(struct GameState *gs, double dt)
                   cur_box->currently_scanning = new_id;
                 }
 
-                double target_head_rotate_speed = cur_box->platonic_detection_strength > 0.0 ? 3.0 : 0.0;
+                // double target_head_rotate_speed = cur_box->platonic_detection_strength > 0.0 ? 3.0 : 0.0;
+                double target_head_rotate_speed = 3.0 * cur_box->energy_effectiveness;
                 if (to_learn != NULL)
                 {
                   cur_box->currently_scanning_progress += dt * SCANNER_SCAN_RATE;

@@ -10,14 +10,7 @@
 #define MAX_ENTITIES 1024 * 25
 #define BOX_SIZE 0.25f
 #define MERGE_MAX_DIST (BOX_SIZE / 2.0f + 0.01f)
-#define PLAYER_SIZE ((cpVect){.x = BOX_SIZE, .y = BOX_SIZE})
-#define PLAYER_MASS 0.5f
-#ifdef FAT_THRUSTERS
-#define PLAYER_JETPACK_FORCE 200.0f
-#else
-#define PLAYER_JETPACK_FORCE 3.5f
-#endif
-#define PLAYER_JETPACK_TORQUE 0.05f
+
 #define MISSILE_RANGE 4.0f
 #define MISSILE_BURN_TIME 1.5f
 #define MISSILE_ARM_TIME 0.5f
@@ -30,6 +23,17 @@
 #define MISSILE_SPRITE_SIZE ((cpVect){.x = BOX_SIZE, .y = BOX_SIZE})
 #define MISSILE_COLLIDER_SIZE ((cpVect){.x = BOX_SIZE * 0.5f, .y = BOX_SIZE * 0.5f})
 #define MISSILE_SPAWN_DIST (sqrt((BOX_SIZE / 2.0) * (BOX_SIZE / 2.0) * 2.0) + MISSILE_COLLIDER_SIZE.x / 2.0 + 0.1)
+#define MISSILE_EXPLOSION_PUSH 2.5f
+#define MISSILE_EXPLOSION_RADIUS 0.4f
+
+#define PLAYER_SIZE ((cpVect){.x = BOX_SIZE, .y = BOX_SIZE})
+#define PLAYER_MASS 0.5f
+#ifdef FAT_THRUSTERS
+#define PLAYER_JETPACK_FORCE 200.0f
+#else
+#define PLAYER_JETPACK_FORCE 3.5f
+#endif
+#define PLAYER_JETPACK_TORQUE 0.05f
 #define PLAYER_JETPACK_ROTATION_ENERGY_PER_SECOND 0.2f
 #define PLAYER_JETPACK_SPICE_PER_SECOND 0.08f
 #define PLAYER_BIG_SCALING 300.0
@@ -43,22 +47,30 @@
 #define ORB_HEAL_RATE 0.2
 #define ORB_MAX_FORCE 200.0
 
-#define SCANNER_ENERGY_USE 0.05f
+#define VISION_RADIUS 12.0f
 #define MAX_HAND_REACH 1.0f
-#define SCANNER_SCAN_RATE 0.5f
-#define SCANNER_RADIUS 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
 #define BOX_MASS 1.0f
 #define COLLISION_DAMAGE_SCALING 0.15f
+
 #define THRUSTER_FORCE 24.0f
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.005f
+
 #define GYROSCOPE_ENERGY_USED_PER_SECOND 0.005f
 #define GYROSCOPE_TORQUE 1.5f
 #define GYROSCOPE_PROPORTIONAL_INERTIAL_RESPONSE 0.7 // between 0-1. How strongly responds to rotation, to stop the rotation
+
 #define CLOAKING_ENERGY_USE 0.1f
 #define CLOAKING_PANEL_SIZE BOX_SIZE * 3.0f
-#define VISION_RADIUS 12.0f
+
+#define SCANNER_ENERGY_USE 0.05f
+#define SCANNER_SCAN_RATE 0.5f
+#define SCANNER_RADIUS 1.0f
+#define SCANNER_MAX_RANGE 1500.0
+#define SCANNER_MIN_RANGE 1.0
+#define SCANNER_MAX_POINTS 10
+
 #define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
 #define GRAVITY_CONSTANT 0.05f
@@ -77,8 +89,6 @@
 #define TIME_BETWEEN_WORLD_SAVE 30.0f
 #endif
 
-#define MISSILE_EXPLOSION_PUSH 2.5f
-#define MISSILE_EXPLOSION_RADIUS 0.4f
 
 #define BOMB_EXPLOSION_PUSH 5.0f
 #define BOMB_EXPLOSION_RADIUS 1.0f
@@ -95,7 +105,7 @@
 
 // multiplayer
 #define CAUTIOUS_MULTIPLIER 0.8 // how overboard to go with the time ahead predicting, makes it less likely that inputs are lost
-#define TICKS_BEHIND_DO_SNAP 6 // when this many ticks behind, instead of dilating time SNAP to the healthy ticks ahead
+#define TICKS_BEHIND_DO_SNAP 6  // when this many ticks behind, instead of dilating time SNAP to the healthy ticks ahead
 #define MAX_MS_SPENT_REPREDICTING 30.0f
 #define TIME_BETWEEN_SEND_GAMESTATE (1.0f / 20.0f)
 #define TIME_BETWEEN_INPUT_PACKETS (1.0f / 20.0f)
@@ -224,6 +234,13 @@ static inline bool entityids_same(EntityID a, EntityID b)
   return (a.generation == b.generation) && (a.index == b.index);
 }
 
+enum ScannerPointKind
+{
+  Platonic,
+  Neutral,
+  Enemy,
+};
+
 // when updated, must update serialization, comparison in main.c, and the server
 // on input received processing function
 typedef struct InputFrame
@@ -267,8 +284,8 @@ typedef struct Entity
   // what the shape's parent entity is
   bool is_circle_shape;
   EntityID shape_parent_entity; // can't be zero if shape is nonzero
-  double shape_radius; // only when circle shape
-  cpVect shape_size; // only when rect shape
+  double shape_radius;          // only when circle shape
+  cpVect shape_size;            // only when rect shape
 
   // player
   bool is_player;
@@ -328,12 +345,11 @@ typedef struct Entity
   // used by medbay and cockpit
   EntityID player_who_is_inside_of_me;
 
-
   // only serialized when box_type is thruster or gyroscope, used for both. Thrust
   // can mean rotation thrust!
   double wanted_thrust; // the thrust command applied to the thruster
   double thrust;        // the actual thrust it can provide based on energy sources in the grid
-  
+
   // only gyroscope, velocity not serialized. Cosmetic
   double gyrospin_angle;
   double gyrospin_velocity;
@@ -353,8 +369,13 @@ typedef struct Entity
   BOX_UNLOCKS_TYPE blueprints_learned;
   double scanner_head_rotate_speed; // not serialized, cosmetic
   double scanner_head_rotate;
-  cpVect platonic_nearest_direction;  // normalized
-  double platonic_detection_strength; // from zero to one
+
+  struct ScannerPoint
+  {
+    char kind; // is of ScannerPointKind
+    char x;
+    char y;
+  } scanner_points[SCANNER_MAX_POINTS];
 } Entity;
 
 typedef struct Player
@@ -583,7 +604,7 @@ typedef struct BoxCentered
 static inline bool box_has_point(BoxCentered box, cpVect point)
 {
   cpVect local_point = cpvspin(cpvsub(point, box.pos), -box.rotation);
-  return has_point((AABB){.x = -box.size.x/2.0, .y = -box.size.y/2.0, .width = box.size.x, .height = box.size.y}, local_point);
+  return has_point((AABB){.x = -box.size.x / 2.0, .y = -box.size.y / 2.0, .width = box.size.x, .height = box.size.y}, local_point);
 }
 
 static double sign(double f)
