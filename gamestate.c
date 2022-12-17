@@ -522,7 +522,8 @@ cpVect player_vel(GameState *gs, Entity *player)
   if (potential_seat != NULL && !potential_seat->is_box)
   {
     Log("Weird ass motherfucking bug where the seat inside of is an explosion or some shit\n");
-    flight_assert(potential_seat->is_box);
+    return (cpBodyGetVelocity(player->body));
+    // flight_assert(potential_seat->is_box);
   }
   else
   {
