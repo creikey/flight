@@ -18,6 +18,7 @@
 #include "sokol_glue.h"
 #include "sokol_gp.h"
 #include "sokol_time.h"
+#include "sokol_args.h"
 #pragma warning(default : 33010)
 #pragma warning(disable : 6262) // warning about using a lot of stack, lol that's how stb image is
 #define STB_IMAGE_IMPLEMENTATION
@@ -58,6 +59,7 @@ typedef struct KeyPressed
 } KeyPressed;
 static KeyPressed keypressed[MAX_KEYDOWN] = {0};
 static cpVect mouse_pos = {0};
+static FILE * record_inputs_to = NULL;
 static bool fullscreened = false;
 static bool picking_new_boxtype = false;
 static double exec_time = 0.0; // cosmetic bouncing, network stats
@@ -498,12 +500,39 @@ static void init(void)
 {
   fopen_s(&log_file, "astris_log.txt", "a");
   Log("Another day, another game of astris! Git release tag %d\n", GIT_RELEASE_TAG);
+
   queue_init(&packets_to_play, sizeof(OpusPacket), packets_to_play_data,
              ARRLEN(packets_to_play_data));
   queue_init(&packets_to_send, sizeof(OpusPacket), packets_to_send_data,
              ARRLEN(packets_to_send_data));
   queue_init(&input_queue, sizeof(InputFrame), input_queue_data,
              ARRLEN(input_queue_data));
+
+  // commandline
+  {
+    printf(
+      "Usage: astris.exe [option]=data , the =stuff is required\n"
+      "host - hosts a server locally if exists in commandline, like `astris.exe host=yes`\n"
+      "record_inputs_to - records inputs to the file specified"
+    );
+    if(sargs_exists("host"))
+    {
+      server_thread_handle = (void *)_beginthread(server, 0, (void *)&server_info);
+      sapp_set_window_title("Flight Hosting");
+    }
+    if(sargs_exists("record_inputs_to"))
+    {
+      const char *filename = sargs_value("record_inputs_to");
+      if(filename == NULL){
+        quit_with_popup("Failed to record inputs, filename not specified", "Failed to record inputs");
+      }
+      fopen_s(&record_inputs_to, filename, "wb");
+      if(record_inputs_to == NULL)
+      {
+        quit_with_popup("Failed to open file to record inputs into", "Failed to record inputs");
+      }
+    }
+  }
 
   // audio
   {
@@ -1710,11 +1739,6 @@ static void frame(void)
           interact_pressed = false;
         }
       }
-      ENTITIES_ITER(cur)
-      {
-        {
-        }
-      }
 
       // Create and send input packet, and predict a frame of gamestate
       static InputFrame cur_input_frame = {
@@ -1802,8 +1826,7 @@ static void frame(void)
             *to_push_to = cur_input_frame;
 
             if (myplayer() != NULL)
-              myplayer()->input =
-                  cur_input_frame; // for the client side prediction!
+              myplayer()->input = cur_input_frame; // for the client side prediction!
 
             cur_input_frame = (InputFrame){0};
             cur_input_frame.take_over_squad = -1; // @Robust make this zero initialized
@@ -2426,6 +2449,7 @@ static void frame(void)
 
 void cleanup(void)
 {
+  sargs_shutdown();
   fclose(log_file);
   sg_destroy_pipeline(hueshift_pipeline);
 
@@ -2567,21 +2591,16 @@ extern void do_crash_handler();
 
 sapp_desc sokol_main(int argc, char *argv[])
 {
-  // do_crash_handler();
+  sargs_setup(&(sargs_desc){
+      .argc = argc,
+      .argv = argv
+  });
 
-  bool hosting = false;
   stm_setup();
   ma_mutex_init(&server_info.info_mutex);
   server_info.world_save = "debug_world.bin";
   init_profiling("astris.spall");
   init_profiling_mythread(0);
-  if (argc > 1)
-  {
-    server_thread_handle =
-        (void *)_beginthread(server, 0, (void *)&server_info);
-    hosting = true;
-  }
-  (void)argv;
   return (sapp_desc){
       .init_cb = init,
       .frame_cb = frame,
@@ -2589,7 +2608,7 @@ sapp_desc sokol_main(int argc, char *argv[])
       .width = 640,
       .height = 480,
       .gl_force_gles2 = true,
-      .window_title = hosting ? "Flight Hosting" : "Flight Not Hosting",
+      .window_title = "Flight Not Hosting",
       .icon.sokol_default = true,
       .event_cb = event,
       .win32_console_attach = true,
