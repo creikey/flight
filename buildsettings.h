@@ -26,8 +26,8 @@
 #define DEBUG_TOOLS
 #define CHIPMUNK_INTEGRITY_CHECK
 // #define FAT_THRUSTERS
-#define NO_GRAVITY
-#define NO_SUNS
+// #define NO_GRAVITY
+// #define NO_SUNS
 
 #else
 

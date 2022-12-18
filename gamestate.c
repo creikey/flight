@@ -2367,9 +2367,9 @@ void create_initial_world(GameState *gs)
 {
   const double mass_multiplier = 10.0;
   EntityID suns[] = {
-      create_sun(gs, new_entity(gs), ((cpVect){800.0, 0.0}), ((cpVect){0.0, 0.0}), 1000000.0 * mass_multiplier, 30.0),
-      create_sun(gs, new_entity(gs), ((cpVect){800.0, 100.0}), ((cpVect){60.0, 0.0}), 10000.0 * mass_multiplier, 20.0),
-      create_sun(gs, new_entity(gs), ((cpVect){800.0, -100.0}), ((cpVect){-60.0, 0.0}), 10000.0 * mass_multiplier, 20.0),
+      create_sun(gs, new_entity(gs), ((cpVect){500.0, 0.0}), ((cpVect){0.0, 0.0}), 1000000.0 * mass_multiplier, 30.0),
+      create_sun(gs, new_entity(gs), ((cpVect){500.0, 100.0}), ((cpVect){30.0, 0.0}), 10000.0 * mass_multiplier, 20.0),
+      create_sun(gs, new_entity(gs), ((cpVect){500.0, -100.0}), ((cpVect){-30.0, 0.0}), 10000.0 * mass_multiplier, 20.0),
       create_sun(gs, new_entity(gs), ((cpVect){-7000.0, -50.0}), ((cpVect){0.0, 0.0}), 100000.0 * mass_multiplier, 20.0),
   };
 
@@ -2390,11 +2390,12 @@ void create_initial_world(GameState *gs)
   {
     ORB_AT(cpv(x, 0.0));
   }
-  create_bomb_station(gs, (cpVect){800.0, 800.0}, BoxExplosive);
-  // create_hard_shell_station(gs, (cpVect){800.0, 400.0}, BoxGyroscope);
-  create_bomb_station(gs, (cpVect){800.0, -800.0}, BoxCloaking);
-  create_bomb_station(gs, (cpVect){1600.0, 800.0}, BoxMissileLauncher);
-  create_hard_shell_station(gs, (cpVect){-7000.0, 200.0}, BoxMerge);
+#define SUN_POS(index) (entity_pos(get_entity(gs, suns[index])))
+  create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(0.0, 300.0)), BoxExplosive);
+  create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(0.0, -300.0)), BoxCloaking);
+  create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(300.0, 0.0)), BoxMissileLauncher);
+  create_bomb_station(gs, cpvadd(SUN_POS(3), cpv(0.0, 300.0)), BoxMerge);
+#undef SUN_POS
 #else
   Log("Creating debug world\n");
 
@@ -3237,7 +3238,7 @@ void process(struct GameState *gs, double dt)
                       double vect_length = cpvlength(rel_vect);
                       if (vect_length > SCANNER_MIN_RANGE)
                       {
-                        if (vect_length > SCANNER_MAX_RANGE)
+                        if (vect_length > SCANNER_MAX_VIEWPORT_RANGE)
                         {
                           rel_vect = cpvmult(cpvnormalize(rel_vect), SCANNER_MAX_RANGE);
                         }
@@ -3266,8 +3267,8 @@ void process(struct GameState *gs, double dt)
                         }
                         cur_box->scanner_points[i] = (struct ScannerPoint){
                             .kind = (char)kind,
-                            .x = (char)((rel_vect.x / SCANNER_MAX_RANGE) * 128.0),
-                            .y = (char)((rel_vect.y / SCANNER_MAX_RANGE) * 128.0),
+                            .x = (char)((rel_vect.x / SCANNER_MAX_VIEWPORT_RANGE) * 128.0),
+                            .y = (char)((rel_vect.y / SCANNER_MAX_VIEWPORT_RANGE) * 128.0),
                         };
                       }
                     }

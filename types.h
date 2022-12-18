@@ -47,7 +47,7 @@
 #define ORB_HEAL_RATE 0.2
 #define ORB_MAX_FORCE 200.0
 
-#define VISION_RADIUS 12.0f
+#define VISION_RADIUS 20.0f
 #define MAX_HAND_REACH 1.0f
 #define GOLD_COLLECT_RADIUS 0.3f
 #define BUILD_BOX_SNAP_DIST_TO_SHIP 0.2f
@@ -67,14 +67,15 @@
 #define SCANNER_ENERGY_USE 0.05f
 #define SCANNER_SCAN_RATE 0.5f
 #define SCANNER_RADIUS 1.0f
-#define SCANNER_MAX_RANGE 1500.0
+#define SCANNER_MAX_RANGE 2000.0
+#define SCANNER_MAX_VIEWPORT_RANGE 400.0
 #define SCANNER_MIN_RANGE 1.0
 #define SCANNER_MAX_POINTS 10
 
 #define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
-#define GRAVITY_CONSTANT 0.05f
-#define GRAVITY_SMALLEST 0.01f // used to determine when gravity is clamped to 0.0f
+#define GRAVITY_CONSTANT 0.01f
+#define GRAVITY_SMALLEST 0.05f // used to determine when gravity is clamped to 0.0f
 #define INSTANT_DEATH_DISTANCE_FROM_CENTER 10000.0f
 #define SOLAR_ENERGY_PER_SECOND 0.09f
 #define DAMAGE_TO_PLAYER_PER_BLOCK 0.1f
