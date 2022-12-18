@@ -278,8 +278,7 @@ typedef struct Entity
   enum Squad owning_squad; // also controls what the player can see, because of cloaking!
   EntityID currently_inside_of_box;
   enum Squad squad_invited_to; // if squad none, then no squad invite
-  double goldness;             // how much the player is a winner
-
+  
   // explosion
   bool is_explosion;
   cpVect explosion_pos;
@@ -496,6 +495,7 @@ EntityID get_id(struct GameState *gs, Entity *e);
 cpVect entity_pos(Entity *e);
 bool box_interactible(GameState *gs, Player *for_player, Entity *box);
 void entity_set_rotation(Entity *e, double rot);
+bool could_learn_from_scanner(Player *for_player, Entity *box);
 void entity_set_pos(Entity *e, cpVect pos);
 double entity_rotation(Entity *e);
 void entity_ensure_in_orbit(GameState *gs, Entity *e);

@@ -38,8 +38,10 @@
 // shaders
 #include "goodpixel.gen.h"
 #include "hueshift.gen.h"
+#include "lightning.gen.h"
 static sg_pipeline hueshift_pipeline;
 static sg_pipeline goodpixel_pipeline;
+static sg_pipeline lightning_pipeline;
 
 static struct GameState gs = {0};
 static int my_player_index = -1;
@@ -59,6 +61,7 @@ static cpVect mouse_pos = {0};
 static bool fullscreened = false;
 static bool picking_new_boxtype = false;
 static double exec_time = 0.0; // cosmetic bouncing, network stats
+static float iTime = 0.0; // fmodded to 1000, shader trick http://the-witness.net/news/2022/02/a-shader-trick/
 // for network statistics, printed to logs with F3
 static uint64_t total_bytes_sent = 0;
 static uint64_t total_bytes_received = 0;
@@ -618,6 +621,21 @@ static void init(void)
         quit_with_popup("Couldn't make a shader! Uhhh ooooohhhhhh!!!", "Shader error BONED");
       }
     }
+    
+    {
+      sgp_pipeline_desc pip_desc = {
+          .shader = *lightning_program_shader_desc(sg_query_backend()),
+          .blend_mode = SGP_BLENDMODE_BLEND,
+      };
+
+      lightning_pipeline = sgp_make_pipeline(&pip_desc);
+      sg_resource_state errstate = sg_query_pipeline_state(lightning_pipeline);
+      if (errstate != SG_RESOURCESTATE_VALID)
+      {
+        Log("Failed to make lightning pipeline\n");
+        quit_with_popup("Couldn't make a shader! Uhhh ooooohhhhhh!!!", "Shader error BONED");
+      }
+    }
   }
 
   // images loading
@@ -734,6 +752,7 @@ static void draw_texture_centered(cpVect center, double size)
 {
   draw_texture_rectangle_centered(center, (cpVect){size, size});
 }
+
 static void draw_flipped_texture_rectangle_centered(cpVect center, cpVect width_height)
 {
   transform_scope()
@@ -1469,6 +1488,7 @@ static void frame(void)
     double width = (float)sapp_width(), height = (float)sapp_height();
     double dt = sapp_frame_duration();
     exec_time += dt;
+    iTime = (float)fmod(exec_time, 1000.0);
 
     // pressed input management
     {
@@ -2116,6 +2136,20 @@ static void frame(void)
 
                 if (b->box_type == BoxScanner)
                 {
+                  if (myplayer() != NULL && could_learn_from_scanner(myplayer(), b))
+                  {
+                    set_color(WHITE);
+                    pipeline_scope(lightning_pipeline)
+                    {
+                      sgp_set_image(0, (sg_image){0});
+                      lightning_uniforms_t uniform = {
+                        .iTime = iTime,
+                      };
+                      sgp_set_uniform(&uniform, sizeof(uniform));
+                      draw_color_rect_centered(entity_pos(b), BOX_SIZE*2.0);
+                      sgp_reset_image(0);
+                    }
+                  }
                   sgp_set_image(0, image_scanner_head);
                   transform_scope()
                   {
@@ -2301,21 +2335,25 @@ static void frame(void)
           {
             if (e != myentity() && has_point(centered_at(entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling)), world_mouse_pos))
               hovering_this_player = get_id(&gs, e);
-            if (get_entity(&gs, e->currently_inside_of_box) == NULL)
-              transform_scope()
-              {
-                rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
-                set_color_values(1.0, 1.0, 1.0, 1.0);
 
-                pipeline_scope(hueshift_pipeline)
+            // the body
+            {
+              if (get_entity(&gs, e->currently_inside_of_box) == NULL)
+                transform_scope()
                 {
-                  setup_hueshift(e->owning_squad);
-                  sgp_set_image(0, image_player);
-                  draw_texture_rectangle_centered(
-                      entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling));
-                  sgp_reset_image(0);
+                  rotate_at(entity_rotation(e), entity_pos(e).x, entity_pos(e).y);
+                  set_color_values(1.0, 1.0, 1.0, 1.0);
+
+                  pipeline_scope(hueshift_pipeline)
+                  {
+                    setup_hueshift(e->owning_squad);
+                    sgp_set_image(0, image_player);
+                    draw_texture_rectangle_centered(
+                        entity_pos(e), cpvmult(PLAYER_SIZE, player_scaling));
+                    sgp_reset_image(0);
+                  }
                 }
-              }
+            }
           }
 
           // draw explosion

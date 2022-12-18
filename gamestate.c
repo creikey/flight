@@ -352,7 +352,15 @@ static int sort_bodies_callback(const void *a, const void *b)
 {
   double a_dist = cpvdist(cpBodyGetPosition((cpBody *)a), from_point);
   double b_dist = cpvdist(cpBodyGetPosition((cpBody *)b), from_point);
-  return (int)(a_dist - b_dist);
+  if (a_dist - b_dist < 0.0)
+  {
+    return -1;
+  }
+  else
+  {
+    return 1;
+  }
+  // return (int)(a_dist - b_dist);
 }
 
 LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
@@ -757,6 +765,14 @@ bool merge_box_is_merged(GameState *gs, Entity *merge_box)
     return false;
   }
 }
+
+bool could_learn_from_scanner(Player *for_player, Entity *box)
+{
+  flight_assert(box->is_box);
+  flight_assert(box->box_type == BoxScanner);
+  return (for_player->box_unlocks | box->blueprints_learned) != for_player->box_unlocks;
+}
+
 bool box_interactible(GameState *gs, Player *for_player, Entity *box)
 {
   flight_assert(box->is_box);
@@ -770,10 +786,6 @@ bool box_interactible(GameState *gs, Player *for_player, Entity *box)
     if (box->box_type == BoxMerge)
     {
       return merge_box_is_merged(gs, box);
-    }
-    else if (box->box_type == BoxScanner)
-    {
-      return (for_player->box_unlocks | box->blueprints_learned) != for_player->box_unlocks;
     }
     else
     {
@@ -1286,6 +1298,7 @@ SerMaybeFailure ser_var(SerState *ser, char *var_pointer, size_t var_size, const
 enum GameVersion
 {
   VInitial,
+  VNoGold,
   VMax, // this minus one will be the version used
 };
 
@@ -1495,7 +1508,12 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 
     SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
     SER_VAR(&e->squad_invited_to);
-    SER_MAYBE_RETURN(ser_f(ser, &e->goldness));
+
+    if (ser->version < VNoGold)
+    {
+      double goldness;
+      SER_VAR_NAME(&goldness, "&e->goldness");
+    }
   }
 
   SER_VAR(&e->is_explosion);
@@ -2397,19 +2415,35 @@ void create_initial_world(GameState *gs)
   create_bomb_station(gs, cpvadd(SUN_POS(3), cpv(0.0, 300.0)), BoxMerge);
 #undef SUN_POS
 #else
+
+#if 0 // present the stations
   Log("Creating debug world\n");
 
   // pos, mass, radius
   create_bomb_station(gs, (cpVect){-5.0, 0.0}, BoxExplosive);
   create_bomb_station(gs, (cpVect){0.0, 5.0}, BoxGyroscope);
   create_hard_shell_station(gs, (cpVect){-5.0, 5.0}, BoxCloaking);
+#endif
 
+#if 1 // scanner box
   bool indestructible = false;
+  enum CompassRotation rot = Right;
+  {
+    Entity *grid = new_entity(gs);
+    grid_create(gs, grid);
+    entity_set_pos(grid, cpv(1.5, 0.0));
+    BOX_AT_TYPE(grid, cpv(0.0, 0.0), BoxExplosive);
+    BOX_AT_TYPE(grid, cpv(-BOX_SIZE, 0.0), BoxScanner);
+    BOX_AT_TYPE(grid, cpv(-BOX_SIZE, BOX_SIZE), BoxSolarPanel);
+    BOX_AT_TYPE(grid, cpv(-BOX_SIZE, BOX_SIZE * 2.0), BoxSolarPanel);
+    entity_ensure_in_orbit(gs, grid);
+  }
+#endif
 
+#if 0  // merge box
+  bool indestructible = false;
   double theta = deg2rad(65.0);
-
   cpVect from = (cpVect){BOX_SIZE * 4.0, -1};
-
   enum CompassRotation rot = Right;
   {
     Entity *grid = new_entity(gs);
@@ -2437,7 +2471,9 @@ void create_initial_world(GameState *gs)
     cpBodySetVelocity(grid->body, (cpvspin((cpVect){-0.4, 0.0}, theta)));
     entity_ensure_in_orbit(gs, grid);
   }
-#endif
+#endif // grid tests
+
+#endif // debug world
 }
 
 void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
@@ -2643,6 +2679,20 @@ void process(struct GameState *gs, double dt)
           }
         }
 #endif
+
+        // general player logic
+        {
+          circle_query(gs->space, entity_pos(p), SCANNER_RADIUS);
+          QUEUE_ITER(&query_result, QueryResult, res)
+          {
+            Entity *maybe_scanner = cp_shape_entity(res->shape);
+            if (maybe_scanner->box_type == BoxScanner && could_learn_from_scanner(player, maybe_scanner))
+            {
+              player->box_unlocks |= maybe_scanner->blueprints_learned;
+              // @Cosmetic here
+            }
+          }
+        }
 
         // process movement
         {
