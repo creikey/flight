@@ -14,11 +14,11 @@
 #define SOKOL_IMPL
 #define SOKOL_D3D11
 #include "sokol_app.h"
+#include "sokol_args.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "sokol_gp.h"
 #include "sokol_time.h"
-#include "sokol_args.h"
 #pragma warning(default : 33010)
 #pragma warning(disable : 6262) // warning about using a lot of stack, lol that's how stb image is
 #define STB_IMAGE_IMPLEMENTATION
@@ -59,17 +59,17 @@ typedef struct KeyPressed
 } KeyPressed;
 static KeyPressed keypressed[MAX_KEYDOWN] = {0};
 static cpVect mouse_pos = {0};
-static FILE * record_inputs_to = NULL;
+static FILE *record_inputs_to = NULL;
 static bool fullscreened = false;
 static bool picking_new_boxtype = false;
 static double exec_time = 0.0; // cosmetic bouncing, network stats
-static float iTime = 0.0; // fmodded to 1000, shader trick http://the-witness.net/news/2022/02/a-shader-trick/
+static float iTime = 0.0;      // fmodded to 1000, shader trick http://the-witness.net/news/2022/02/a-shader-trick/
 // for network statistics, printed to logs with F3
 static uint64_t total_bytes_sent = 0;
 static uint64_t total_bytes_received = 0;
+static double dilating_time_factor = 1.0;
 
 static bool build_pressed = false;
-static double dilating_time_factor = 1.0;
 static double time_to_process = 0.0;
 static bool interact_pressed = false;
 #define MAX_MOUSEBUTTON (SAPP_MOUSEBUTTON_MIDDLE + 1)
@@ -80,6 +80,7 @@ typedef struct MousePressed
   uint64_t frame;
 } MousePressed;
 static MousePressed mousepressed[MAX_MOUSEBUTTON] = {0};
+
 static EntityID maybe_inviting_this_player = {0};
 static EntityID hovering_this_player = {0};
 bool confirm_invite_this_player = false;
@@ -511,23 +512,23 @@ static void init(void)
   // commandline
   {
     printf(
-      "Usage: astris.exe [option]=data , the =stuff is required\n"
-      "host - hosts a server locally if exists in commandline, like `astris.exe host=yes`\n"
-      "record_inputs_to - records inputs to the file specified"
-    );
-    if(sargs_exists("host"))
+        "Usage: astris.exe [option]=data , the =stuff is required\n"
+        "host - hosts a server locally if exists in commandline, like `astris.exe host=yes`\n"
+        "record_inputs_to - records inputs to the file specified");
+    if (sargs_exists("host"))
     {
       server_thread_handle = (void *)_beginthread(server, 0, (void *)&server_info);
       sapp_set_window_title("Flight Hosting");
     }
-    if(sargs_exists("record_inputs_to"))
+    if (sargs_exists("record_inputs_to"))
     {
       const char *filename = sargs_value("record_inputs_to");
-      if(filename == NULL){
+      if (filename == NULL)
+      {
         quit_with_popup("Failed to record inputs, filename not specified", "Failed to record inputs");
       }
       fopen_s(&record_inputs_to, filename, "wb");
-      if(record_inputs_to == NULL)
+      if (record_inputs_to == NULL)
       {
         quit_with_popup("Failed to open file to record inputs into", "Failed to record inputs");
       }
@@ -650,7 +651,7 @@ static void init(void)
         quit_with_popup("Couldn't make a shader! Uhhh ooooohhhhhh!!!", "Shader error BONED");
       }
     }
-    
+
     {
       sgp_pipeline_desc pip_desc = {
           .shader = *lightning_program_shader_desc(sg_query_backend()),
@@ -1585,8 +1586,12 @@ static void frame(void)
             {
               PROFILE_SCOPE("Deserializing data")
               {
-                server_to_client_deserialize(&msg, decompressed,
-                                             decompressed_max_len, false);
+                SerState ser = init_deserializing(&gs, decompressed, decompressed_max_len, false);
+                SerMaybeFailure maybe_fail = ser_server_to_client(&ser, &msg);
+                if (maybe_fail.failed)
+                {
+                  Log("Failed to deserialize game state packet line %d %s\n", maybe_fail.line, maybe_fail.expression);
+                }
                 applied_gamestate_packet = true;
               }
               my_player_index = msg.your_player;
@@ -1857,9 +1862,10 @@ static void frame(void)
               .input_data = &input_queue,
           };
           unsigned char serialized[MAX_CLIENT_TO_SERVER] = {0};
-          size_t out_len = 0;
-          if (client_to_server_serialize(&gs, &to_send, serialized, &out_len,
-                                         MAX_CLIENT_TO_SERVER))
+          SerState ser = init_serializing(&gs, serialized, MAX_CLIENT_TO_SERVER, NULL, false);
+          SerMaybeFailure maybe_fail = ser_client_to_server(&ser, &to_send);
+          size_t out_len = ser_size(&ser);
+          if (!maybe_fail.failed)
           {
             unsigned char compressed[MAX_CLIENT_TO_SERVER] = {0};
             char lzo_working_mem[LZO1X_1_MEM_COMPRESS] = {0};
@@ -1885,7 +1891,7 @@ static void frame(void)
           }
           else
           {
-            Log("Failed to serialize client to server!\n");
+            Log("Failed to serialize client to server: %d %s\n", maybe_fail.line, maybe_fail.expression);
           }
           ma_mutex_unlock(&send_packets_mutex);
         }
@@ -2166,10 +2172,10 @@ static void frame(void)
                     {
                       sgp_set_image(0, (sg_image){0});
                       lightning_uniforms_t uniform = {
-                        .iTime = iTime,
+                          .iTime = iTime,
                       };
                       sgp_set_uniform(&uniform, sizeof(uniform));
-                      draw_color_rect_centered(entity_pos(b), BOX_SIZE*2.0);
+                      draw_color_rect_centered(entity_pos(b), BOX_SIZE * 2.0);
                       sgp_reset_image(0);
                     }
                   }
@@ -2254,7 +2260,7 @@ static void frame(void)
                   sgp_set_image(0, image_radardot);
                   for (int i = 0; i < SCANNER_MAX_POINTS; i++)
                   {
-                    if (b->scanner_points[i].x != 0 && b->scanner_points[i].y != 0)
+                    if (b->scanner_points[i].x != 0 || b->scanner_points[i].y != 0)
                     {
                       struct ScannerPoint point = b->scanner_points[i];
                       switch (point.kind)
@@ -2593,8 +2599,7 @@ sapp_desc sokol_main(int argc, char *argv[])
 {
   sargs_setup(&(sargs_desc){
       .argc = argc,
-      .argv = argv
-  });
+      .argv = argv});
 
   stm_setup();
   ma_mutex_init(&server_info.info_mutex);

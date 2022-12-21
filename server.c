@@ -22,6 +22,12 @@
 
 #include "profiling.h"
 
+static void panicquit()
+{
+  flight_assert(false);
+  exit(-1);
+}
+
 // started in a thread from host
 void server(void *info_raw)
 {
@@ -39,7 +45,6 @@ void server(void *info_raw)
   gs.server_side_computing = true;
   Log("Allocated %zu bytes for entities\n", entities_size);
 
-
   create_initial_world(&gs);
 
   // inputs
@@ -56,9 +61,6 @@ void server(void *info_raw)
   OpusEncoder *player_encoders[MAX_PLAYERS] = {0};
   OpusDecoder *player_decoders[MAX_PLAYERS] = {0};
 
-#ifdef DEBUG_WORLD
-  world_save_name = NULL;
-#endif
   if (world_save_name != NULL)
   {
     size_t read_game_data_buffer_size = entities_size;
@@ -76,13 +78,18 @@ void server(void *info_raw)
       if (actual_length <= 1)
       {
         Log("Could only read %zu bytes, error: errno %d\n", actual_length, errno);
-        exit(-1);
+        panicquit();
       }
       Log("Read %zu bytes from save file\n", actual_length);
       ServerToClient msg = (ServerToClient){
           .cur_gs = &gs,
       };
-      server_to_client_deserialize(&msg, read_game_data, actual_length, true);
+      SerState ser = init_deserializing(&gs, read_game_data, actual_length, true);
+      SerMaybeFailure maybe_fail = ser_server_to_client(&ser, &msg);
+      if (maybe_fail.failed)
+      {
+        Log("Failed to deserialize game world from save file: %d %s\n", maybe_fail.line, maybe_fail.expression);
+      }
       fclose(file);
     }
 
@@ -97,11 +104,10 @@ void server(void *info_raw)
   }
 #define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)
 
-
   if (enet_initialize() != 0)
   {
     fprintf(stderr, "An error occurred while initializing ENet.\n");
-    exit(-1);
+    panicquit();
   }
 
   ENetAddress address;
@@ -122,7 +128,7 @@ void server(void *info_raw)
   {
     fprintf(stderr,
             "An error occurred while trying to create an ENet server host.\n");
-    exit(-1);
+    panicquit();
   }
 
   Log("Serving on port %d...\n", SERVER_PORT);
@@ -229,9 +235,11 @@ void server(void *info_raw)
 
               if (return_value == LZO_E_OK)
               {
-                if (!client_to_server_deserialize(&gs, &received, decompressed, decompressed_max_len))
+                SerState ser = init_deserializing(&gs, decompressed, decompressed_max_len, false);
+                SerMaybeFailure maybe_fail = ser_client_to_server(&ser, &received);
+                if (maybe_fail.failed)
                 {
-                  Log("Bad packet from client %d\n", (int)player_slot);
+                  Log("Bad packet from client %d | %d %s\n", (int)player_slot, maybe_fail.line, maybe_fail.expression);
                 }
               }
               else
@@ -309,8 +317,10 @@ void server(void *info_raw)
           ServerToClient msg = (ServerToClient){
               .cur_gs = &gs,
           };
-          size_t out_len = 0;
-          if (server_to_client_serialize(&msg, world_save_buffer, &out_len, entities_size, NULL, true))
+          SerState ser = init_serializing(&gs, world_save_buffer, entities_size, NULL, true);
+          SerMaybeFailure maybe_fail = ser_server_to_client(&ser, &msg);
+          size_t out_len = ser_size(&ser);
+          if (!maybe_fail.failed)
           {
             FILE *save_file = NULL;
             fopen_s(&save_file, (const char *)world_save_name, "wb");
@@ -334,7 +344,7 @@ void server(void *info_raw)
           }
           else
           {
-            Log("URGENT: FAILED TO SAVE WORLD FILE!\n");
+            Log("URGENT: FAILED TO SAVE WORLD FILE! Failed at line %d expression %s\n", maybe_fail.line, maybe_fail.expression);
           }
         }
       }
@@ -431,13 +441,15 @@ void server(void *info_raw)
                 .audio_playback_buffer = &buffer_to_play,
             };
 
-            size_t len = 0;
-            if (server_to_client_serialize(&to_send, bytes_buffer, &len, MAX_SERVER_TO_CLIENT, this_player_entity, false))
+            SerState ser = init_serializing(&gs, bytes_buffer, MAX_SERVER_TO_CLIENT, this_player_entity, false);
+            SerMaybeFailure maybe_fail = ser_server_to_client(&ser, &to_send);
+            size_t len = ser_size(&ser);
+            if (!maybe_fail.failed)
             {
               if (len > MAX_SERVER_TO_CLIENT - 8)
               {
                 Log("Too much data quitting!\n");
-                exit(-1);
+                panicquit();
               }
 
               size_t compressed_len = 0;

@@ -1152,28 +1152,6 @@ void update_from(cpBody *body, struct BodyData *data)
   cpBodySetAngularVelocity(body, data->angular_velocity);
 }
 
-typedef struct SerState
-{
-  unsigned char *bytes;
-  bool serializing;
-  size_t cursor; // points to next available byte, is the size of current message after serializing something
-  size_t max_size;
-  Entity *for_player;
-  size_t max_entity_index; // for error checking
-  bool write_varnames;
-  bool save_or_load_from_disk;
-
-  // output
-  uint32_t version;
-  uint32_t git_release_tag;
-} SerState;
-
-typedef struct SerMaybeFailure
-{
-  bool failed;
-  int line;
-  const char *expression;
-} SerMaybeFailure;
 const static SerMaybeFailure ser_ok = {0};
 #define SER_ASSERT(cond)                                                                            \
   if (!(cond))                                                                                      \
@@ -1424,6 +1402,7 @@ SerMaybeFailure ser_player(SerState *ser, Player *p)
 SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 {
   SER_VAR(&e->no_save_to_disk);
+  SER_VAR(&e->always_visible);
   SER_VAR(&e->generation);
   SER_MAYBE_RETURN(ser_f(ser, &e->damage));
 
@@ -1561,7 +1540,6 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 
     SER_VAR(&e->owning_squad);
 
-    SER_VAR(&e->always_visible);
     SER_MAYBE_RETURN(ser_entityid(ser, &e->next_box));
     SER_MAYBE_RETURN(ser_entityid(ser, &e->prev_box));
     SER_VAR(&e->compass_rotation);
@@ -1853,6 +1831,14 @@ SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s)
   return ser_ok;
 }
 
+// On serialize:
+// 1. put struct's data into bytes, for a specific player or not, and to disk or not
+// 2. output the number of bytes it took to put the struct's data into bytes
+
+// On deserialize:
+// 1. put bytes into a struct for a specific player, from disk or not
+// 2. perform operations on those bytes to initialize the struct
+
 // for_this_player can be null then the entire world will be sent
 bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk)
 {
@@ -1965,60 +1951,47 @@ SerMaybeFailure ser_client_to_server(SerState *ser, ClientToServer *msg)
   }
   return ser_ok;
 }
-
-bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, unsigned char *bytes, size_t *out_len, size_t max_len)
+size_t ser_size(SerState *ser)
 {
-  SerState ser = (SerState){
+  flight_assert(ser->cursor > 0); // if this fails, haven't serialized anything yet!
+  return ser->cursor + 1;
+}
+
+SerState init_serializing(GameState *gs, unsigned char *bytes, size_t max_size, Entity *for_player, bool to_disk)
+{
+  bool write_varnames = to_disk;
+#ifdef WRITE_VARNAMES
+  write_varnames = true;
+#endif
+  return (SerState){
       .bytes = bytes,
       .serializing = true,
       .cursor = 0,
-      .max_size = max_len,
-      .for_player = NULL,
       .max_entity_index = gs->cur_next_entity,
+      .max_size = max_size,
+      .for_player = for_player,
       .version = VMax - 1,
+      .save_or_load_from_disk = to_disk,
+      .write_varnames = write_varnames,
   };
-#ifdef WRITE_VARNAMES
-  ser.write_varnames = true;
-#endif
-
-  SerMaybeFailure result = ser_client_to_server(&ser, msg);
-  *out_len = ser.cursor + 1; // see other comment for server to client
-  if (result.failed)
-  {
-    Log("Failed to serialize client to server because %s was false, line %d\n", result.expression, result.line);
-    return false;
-  }
-  else
-  {
-    return true;
-  }
 }
 
-bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, unsigned char *bytes, size_t max_len)
+SerState init_deserializing(GameState *gs, unsigned char *bytes, size_t max_size, bool from_disk)
 {
-  SerState servar = (SerState){
+  bool has_varnames = from_disk;
+#ifdef WRITE_VARNAMES
+  has_varnames = true;
+#endif
+  return (SerState){
       .bytes = bytes,
       .serializing = false,
       .cursor = 0,
-      .max_size = max_len,
-      .max_entity_index = gs->cur_next_entity,
-      .save_or_load_from_disk = false,
+      .max_size = max_size,
+      .max_entity_index = gs->max_entities,
+      .for_player = NULL,
+      .save_or_load_from_disk = from_disk,
+      .write_varnames = has_varnames,
   };
-#ifdef WRITE_VARNAMES
-  servar.write_varnames = true;
-#endif
-
-  SerState *ser = &servar;
-  SerMaybeFailure result = ser_client_to_server(ser, msg);
-  if (result.failed)
-  {
-    Log("Failed to deserialize client to server on line %d because of %s\n", result.line, result.expression);
-    return false;
-  }
-  else
-  {
-    return true;
-  }
 }
 
 // filter func null means everything is ok, if it's not null and returns false, that means
@@ -2434,10 +2407,19 @@ void create_initial_world(GameState *gs)
     entity_set_pos(grid, cpv(1.5, 0.0));
     BOX_AT_TYPE(grid, cpv(0.0, 0.0), BoxExplosive);
     BOX_AT_TYPE(grid, cpv(-BOX_SIZE, 0.0), BoxScanner);
-    BOX_AT_TYPE(grid, cpv(-BOX_SIZE, BOX_SIZE), BoxSolarPanel);
-    BOX_AT_TYPE(grid, cpv(-BOX_SIZE, BOX_SIZE * 2.0), BoxSolarPanel);
+    BOX_AT_TYPE(grid, cpv(-BOX_SIZE*2.0, 0.0), BoxSolarPanel);
+    BOX_AT_TYPE(grid, cpv(-BOX_SIZE*3.0, 0.0), BoxSolarPanel);
     entity_ensure_in_orbit(gs, grid);
   }
+
+  {
+    Entity *grid = new_entity(gs);
+    grid_create(gs, grid);
+    entity_set_pos(grid, cpv(0.0, 10.0));
+    BOX_AT_TYPE(grid, cpv(0.0, 0.0), BoxHullpiece);
+    entity_ensure_in_orbit(gs, grid);
+  }
+  
 #endif
 
 #if 0  // merge box

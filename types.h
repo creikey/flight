@@ -253,6 +253,7 @@ typedef struct Entity
   bool exists;
   EntityID next_free_entity;
   unsigned int generation;
+  bool always_visible; // always serialized to the player.
 
   bool no_save_to_disk; // stuff generated later on, like player's bodies or space stations that respawn.
 
@@ -310,7 +311,6 @@ typedef struct Entity
   bool is_box;
   enum BoxType box_type;
   bool is_platonic;    // can't be destroyed, unaffected by physical forces
-  bool always_visible; // always serialized to the player. @Robust check if not used
   EntityID next_box;   // for the grid!
   EntityID prev_box;   // doubly linked so can remove in middle of chain
   enum CompassRotation compass_rotation;
@@ -481,11 +481,36 @@ double sun_dist_no_gravity(Entity *sun);
 
 void quit_with_popup(const char *message_utf8, const char *title_utf8);
 
+// serialization stuff
+typedef struct SerState
+{
+  unsigned char *bytes;
+  bool serializing;
+  size_t cursor; // points to next available byte, is the size of current message after serializing something
+  size_t max_size;
+  Entity *for_player;
+  size_t max_entity_index; // for error checking
+  bool write_varnames;
+  bool save_or_load_from_disk;
+
+  // output
+  uint32_t version;
+  uint32_t git_release_tag; // release tag, unlike version, is about the game version not the serialization verson
+} SerState;
+
+typedef struct SerMaybeFailure
+{
+  bool failed;
+  int line;
+  const char *expression;
+} SerMaybeFailure;
+
 // all of these return if successful or not
-bool server_to_client_serialize(struct ServerToClient *msg, unsigned char *bytes, size_t *out_len, size_t max_len, Entity *for_this_player, bool to_disk);
-bool server_to_client_deserialize(struct ServerToClient *msg, unsigned char *bytes, size_t max_len, bool from_disk);
-bool client_to_server_deserialize(GameState *gs, struct ClientToServer *msg, unsigned char *bytes, size_t max_len);
-bool client_to_server_serialize(GameState *gs, struct ClientToServer *msg, unsigned char *bytes, size_t *out_len, size_t max_len);
+size_t ser_size(SerState *ser);
+SerState init_serializing(GameState *gs, unsigned char *bytes, size_t max_size, Entity *for_player, bool to_disk);
+SerState init_deserializing(GameState *gs, unsigned char *bytes, size_t max_size, bool from_disk);
+SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s);
+SerMaybeFailure ser_client_to_server(SerState *ser, ClientToServer *msg);
 
 // entities
 bool is_burning(Entity *missile);
