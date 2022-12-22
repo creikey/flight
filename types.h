@@ -232,6 +232,9 @@ enum ScannerPointKind
 typedef struct InputFrame
 {
   uint64_t tick;
+
+  bool been_processed; // not serialized, used by server just to keep track of what inputs have been processed
+  
   cpVect movement;
   double rotation;
 
@@ -511,6 +514,7 @@ SerState init_serializing(GameState *gs, unsigned char *bytes, size_t max_size, 
 SerState init_deserializing(GameState *gs, unsigned char *bytes, size_t max_size, bool from_disk);
 SerMaybeFailure ser_server_to_client(SerState *ser, ServerToClient *s);
 SerMaybeFailure ser_client_to_server(SerState *ser, ClientToServer *msg);
+SerMaybeFailure ser_inputframe(SerState *ser, InputFrame *i);
 
 // entities
 bool is_burning(Entity *missile);

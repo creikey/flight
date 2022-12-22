@@ -225,8 +225,11 @@ void server(void *info_raw)
               if (get_entity(&gs, gs.players[player_slot].entity) == NULL)
                 buffer_to_fill = &throwaway_buffer;
 
-              queue_clear(&player_input_queues[player_slot]);
-              struct ClientToServer received = {.mic_data = buffer_to_fill, .input_data = &player_input_queues[player_slot]};
+              Queue new_inputs = {0};
+              char new_inputs_data[QUEUE_SIZE_FOR_ELEMENTS(sizeof(InputFrame), INPUT_QUEUE_MAX)] = {0};
+              queue_init(&new_inputs, sizeof(InputFrame), new_inputs_data, ARRLEN(new_inputs_data));
+
+              struct ClientToServer received = {.mic_data = buffer_to_fill, .input_data = &new_inputs};
               unsigned char decompressed[MAX_CLIENT_TO_SERVER] = {0};
               size_t decompressed_max_len = MAX_CLIENT_TO_SERVER;
               flight_assert(LZO1X_MEM_DECOMPRESS == 0);
@@ -240,6 +243,26 @@ void server(void *info_raw)
                 if (maybe_fail.failed)
                 {
                   Log("Bad packet from client %d | %d %s\n", (int)player_slot, maybe_fail.line, maybe_fail.expression);
+                }
+                else
+                {
+                  QUEUE_ITER(&new_inputs, InputFrame, new_input)
+                  {
+                    QUEUE_ITER(&player_input_queues[player_slot], InputFrame, existing_input)
+                    {
+                      if (existing_input->tick == new_input->tick && existing_input->been_processed)
+                      {
+                        new_input->been_processed = true;
+                      }
+                    }
+                  }
+                  queue_clear(&player_input_queues[player_slot]);
+                  QUEUE_ITER(&new_inputs, InputFrame, cur)
+                  {
+                    InputFrame *new_elem = queue_push_element(&player_input_queues[player_slot]);
+                    flight_assert(new_elem != NULL);
+                    *new_elem = *cur;
+                  }
                 }
               }
               else
@@ -291,15 +314,20 @@ void server(void *info_raw)
       {
         PROFILE_SCOPE("World Processing")
         {
-          CONNECTED_PEERS(enet_host, cur)
+          CONNECTED_PEERS(enet_host, cur_peer)
           {
-            int this_player_index = (int)(int64_t)cur->data;
+            int this_player_index = (int)(int64_t)cur_peer->data;
             QUEUE_ITER(&player_input_queues[this_player_index], InputFrame, cur)
             {
               if (cur->tick == tick(&gs))
               {
                 gs.players[this_player_index].input = *cur;
+                cur->been_processed = true;
                 break;
+              }
+              if (cur->tick < tick(&gs) && !cur->been_processed)
+              {
+                Log("Did not process input from client %d %llu ticks ago!\n", this_player_index,tick(&gs) - cur->tick);
               }
             }
           }

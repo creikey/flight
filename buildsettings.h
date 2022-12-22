@@ -16,7 +16,7 @@
 
 // #define PROFILING
 // Intensive profiling means profiling a lot of little tiny stuff. Not always enabled because tanks performance
-#define INTENSIVE_PROFILING
+// #define INTENSIVE_PROFILING
 // #define DEBUG_RENDERING
 #define DEBUG_WORLD
 // #define UNLOCK_ALL

@@ -60,6 +60,7 @@ typedef struct KeyPressed
 static KeyPressed keypressed[MAX_KEYDOWN] = {0};
 static cpVect mouse_pos = {0};
 static FILE *record_inputs_to = NULL;
+static FILE *replay_inputs_from = NULL;
 static bool fullscreened = false;
 static bool picking_new_boxtype = false;
 static double exec_time = 0.0; // cosmetic bouncing, network stats
@@ -267,6 +268,16 @@ struct SquadMeta squad_meta(enum Squad squad)
   }
   Log("Could not find squad %d!\n", squad);
   return (struct SquadMeta){0};
+}
+
+static size_t serialized_inputframe_length()
+{
+  InputFrame frame = {0};
+  unsigned char serialized[1024 * 5] = {0};
+  SerState ser = init_serializing(&gs, serialized, ARRLEN(serialized), NULL, false);
+  ser_inputframe(&ser, &frame);
+  flight_assert(ser_size(&ser) > 1);
+  return ser_size(&ser);
 }
 
 static enum BoxType currently_building()
@@ -514,7 +525,8 @@ static void init(void)
     printf(
         "Usage: astris.exe [option]=data , the =stuff is required\n"
         "host - hosts a server locally if exists in commandline, like `astris.exe host=yes`\n"
-        "record_inputs_to - records inputs to the file specified");
+        "record_inputs_to - records inputs to the file specified\n"
+        "replay_inputs_from - replays inputs from the file specified\n");
     if (sargs_exists("host"))
     {
       server_thread_handle = (void *)_beginthread(server, 0, (void *)&server_info);
@@ -523,14 +535,30 @@ static void init(void)
     if (sargs_exists("record_inputs_to"))
     {
       const char *filename = sargs_value("record_inputs_to");
+      Log("Recording inputs to %s\n", filename);
       if (filename == NULL)
       {
         quit_with_popup("Failed to record inputs, filename not specified", "Failed to record inputs");
       }
-      fopen_s(&record_inputs_to, filename, "wb");
+      errno_t error = fopen_s(&record_inputs_to, filename, "wb");
+      Log("%d\n", error);
       if (record_inputs_to == NULL)
       {
         quit_with_popup("Failed to open file to record inputs into", "Failed to record inputs");
+      }
+    }
+    if (sargs_exists("replay_inputs_from"))
+    {
+      const char *filename = sargs_value("replay_inputs_from");
+      Log("Replaying inputs from %s\n", filename);
+      if (filename == NULL)
+      {
+        quit_with_popup("Failed to replay inputs, filename not specified", "Failed to replay inputs");
+      }
+      fopen_s(&replay_inputs_from, filename, "rb");
+      if (replay_inputs_from == NULL)
+      {
+        quit_with_popup("Failed to open file to replay inputs from", "Failed to replay inputs");
       }
     }
   }
@@ -1634,11 +1662,8 @@ static void frame(void)
         if (applied_gamestate_packet)
         {
           uint64_t server_current_tick = tick(&gs);
-
           int ticks_should_repredict = (int)predicted_to_tick - (int)server_current_tick;
-
           int healthy_num_ticks_ahead = (int)ceil((((double)peer->roundTripTime + (double)peer->roundTripTimeVariance * CAUTIOUS_MULTIPLIER) / 1000.0) / TIMESTEP) + 6;
-
           int ticks_to_repredict = ticks_should_repredict;
 
           if (ticks_should_repredict < healthy_num_ticks_ahead - 1)
@@ -1746,8 +1771,7 @@ static void frame(void)
       }
 
       // Create and send input packet, and predict a frame of gamestate
-      static InputFrame cur_input_frame = {
-          0}; // keep across frames for high refresh rate screens
+      static InputFrame cur_input_frame = {0}; // keep across frames for high refresh rate screens
       static size_t last_input_committed_tick = 0;
       {
         // prepare the current input frame, such that when processed next,
@@ -1814,10 +1838,36 @@ static void frame(void)
         do
         {
           // "commit" the input. each input must be on a successive tick.
-          if (tick(&gs) > last_input_committed_tick)
+          // if (tick(&gs) > last_input_committed_tick)
+          while(tick(&gs) > last_input_committed_tick)
           {
-            cur_input_frame.tick = tick(&gs);
-            last_input_committed_tick = tick(&gs);
+            if (replay_inputs_from != NULL)
+            {
+              unsigned char deserialized[2048] = {0};
+              flight_assert(ARRLEN(deserialized) >= serialized_inputframe_length());
+
+              size_t bytes_read = fread(deserialized, 1, serialized_inputframe_length(), replay_inputs_from);
+              if (bytes_read != serialized_inputframe_length())
+              {
+                // no more inputs in the saved file
+                flight_assert(myentity() != NULL);
+                Entity *should_be_medbay = get_entity(&gs, myentity()->currently_inside_of_box);
+                flight_assert(should_be_medbay != NULL);
+                flight_assert(should_be_medbay->is_box && should_be_medbay->box_type == BoxMedbay);
+                exit(0);
+              }
+              SerState ser = init_deserializing(&gs, deserialized, serialized_inputframe_length(), false);
+              SerMaybeFailure maybe_fail = ser_inputframe(&ser, &cur_input_frame);
+              flight_assert(!maybe_fail.failed);
+              flight_assert(serialized_inputframe_length() == ser_size(&ser));
+            }
+            else
+            {
+              cur_input_frame.tick = last_input_committed_tick + 1;
+              // cur_input_frame.tick = tick(&gs);
+            }
+
+            last_input_committed_tick = cur_input_frame.tick;
 
             InputFrame *to_push_to = queue_push_element(&input_queue);
             if (to_push_to == NULL)
@@ -1830,8 +1880,40 @@ static void frame(void)
 
             *to_push_to = cur_input_frame;
 
+            /*
+              optionally save the current input frame for debugging purposes
+                ░░░░░▄▄▄▄▀▀▀▀▀▀▀▀▄▄▄▄▄▄░░░░░░░
+                ░░░░░█░░░░▒▒▒▒▒▒▒▒▒▒▒▒░░▀▀▄░░░░
+                ░░░░█░░░▒▒▒▒▒▒░░░░░░░░▒▒▒░░█░░░
+                ░░░█░░░░░░▄██▀▄▄░░░░░▄▄▄░░░░█░░
+                ░▄▀▒▄▄▄▒░█▀▀▀▀▄▄█░░░██▄▄█░░░░█░
+                █░▒█▒▄░▀▄▄▄▀░░░░░░░░█░░░▒▒▒▒▒░█
+                █░▒█░█▀▄▄░░░░░█▀░░░░▀▄░░▄▀▀▀▄▒█
+                ░█░▀▄░█▄░█▀▄▄░▀░▀▀░▄▄▀░░░░█░░█░
+                ░░█░░░▀▄▀█▄▄░█▀▀▀▄▄▄▄▀▀█▀██░█░░
+                ░░░█░░░░██░░▀█▄▄▄█▄▄█▄████░█░░░
+                ░░░░█░░░░▀▀▄░█░░░█░█▀██████░█░░
+                ░░░░░▀▄░░░░░▀▀▄▄▄█▄█▄█▄█▄▀░░█░░
+                ░░░░░░░▀▄▄░▒▒▒▒░░░░░░░░░░▒░░░█░
+                ░░░░░░░░░░▀▀▄▄░▒▒▒▒▒▒▒▒▒▒░░░░█░
+                ░░░░░░░░░░░░░░▀▄▄▄▄▄░░░░░░░░█░░
+                le informative comment
+            */
+            if (record_inputs_to != NULL)
+            {
+              unsigned char serialized[2048] = {0};
+              SerState ser = init_serializing(&gs, serialized, ARRLEN(serialized), NULL, false);
+              SerMaybeFailure maybe_fail = ser_inputframe(&ser, &cur_input_frame);
+              flight_assert(!maybe_fail.failed);
+              flight_assert(serialized_inputframe_length() == ser_size(&ser));
+              size_t written = fwrite(serialized, 1, ser_size(&ser), record_inputs_to);
+              flight_assert(written == ser_size(&ser));
+            }
+
             if (myplayer() != NULL)
+            {
               myplayer()->input = cur_input_frame; // for the client side prediction!
+            }
 
             cur_input_frame = (InputFrame){0};
             cur_input_frame.take_over_squad = -1; // @Robust make this zero initialized
@@ -2456,7 +2538,13 @@ static void frame(void)
 void cleanup(void)
 {
   sargs_shutdown();
+
   fclose(log_file);
+  if (record_inputs_to != NULL)
+    fclose(record_inputs_to);
+  if (replay_inputs_from != NULL)
+    fclose(replay_inputs_from);
+
   sg_destroy_pipeline(hueshift_pipeline);
 
   ma_mutex_lock(&server_info.info_mutex);
