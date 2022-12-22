@@ -2389,7 +2389,7 @@ void create_initial_world(GameState *gs)
 #undef SUN_POS
 #else
 
-#if 0 // present the stations
+#if 1 // present the stations
   Log("Creating debug world\n");
 
   // pos, mass, radius

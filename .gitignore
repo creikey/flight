@@ -1,3 +1,5 @@
+# elf objects
+elf_objects/
 # profiling results
 *.spall
 # logs
