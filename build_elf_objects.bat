@@ -16,10 +16,11 @@ pushd thirdparty\Chipmunk2D\src
 popd
 
 @REM /DENET_DEBUG=1^
-gcc -c^
+clang -target x86_64-pc-windows-elf -c^
   -I"thirdparty" -I"thirdparty\minilzo" -I"thirdparty\enet\include" -I"thirdparty\Chipmunk2D\include\chipmunk" -I"thirdparty\Chipmunk2D\include" -I"thirdparty\opus\include" -I"thirdparty\opus\src"^
   %MUNKSRC%
 
+rmdir /S /Q elf_objects
 mkdir elf_objects
 move *.o elf_objects
 
