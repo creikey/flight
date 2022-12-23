@@ -38,11 +38,13 @@
 
 // shaders
 #include "goodpixel.gen.h"
+#include "horizontal_lightning.gen.h"
 #include "hueshift.gen.h"
 #include "lightning.gen.h"
 static sg_pipeline hueshift_pipeline;
 static sg_pipeline goodpixel_pipeline;
 static sg_pipeline lightning_pipeline;
+static sg_pipeline horizontal_lightning_pipeline;
 
 static struct GameState gs = {0};
 static int my_player_index = -1;
@@ -691,6 +693,20 @@ static void init(void)
       if (errstate != SG_RESOURCESTATE_VALID)
       {
         Log("Failed to make lightning pipeline\n");
+        quit_with_popup("Couldn't make a shader! Uhhh ooooohhhhhh!!!", "Shader error BONED");
+      }
+    }
+    {
+      sgp_pipeline_desc pip_desc = {
+          .shader = *horizontal_lightning_program_shader_desc(sg_query_backend()),
+          .blend_mode = SGP_BLENDMODE_BLEND,
+      };
+
+      horizontal_lightning_pipeline = sgp_make_pipeline(&pip_desc);
+      sg_resource_state errstate = sg_query_pipeline_state(horizontal_lightning_pipeline);
+      if (errstate != SG_RESOURCESTATE_VALID)
+      {
+        Log("Failed to make horizontal_lightning pipeline\n");
         quit_with_popup("Couldn't make a shader! Uhhh ooooohhhhhh!!!", "Shader error BONED");
       }
     }
@@ -1839,7 +1855,7 @@ static void frame(void)
         {
           // "commit" the input. each input must be on a successive tick.
           // if (tick(&gs) > last_input_committed_tick)
-          while(tick(&gs) > last_input_committed_tick)
+          while (tick(&gs) > last_input_committed_tick)
           {
             if (replay_inputs_from != NULL)
             {
@@ -2338,6 +2354,29 @@ static void frame(void)
                   draw_circle(entity_pos(b), SCANNER_RADIUS * 0.75);
                   set_color(WHITE);
 
+
+                  for (int i = 0; i < SCANNER_MAX_PLATONICS; i++)
+                    if (b->detected_platonics[i].intensity > 0.0)
+                    {
+
+                      pipeline_scope(horizontal_lightning_pipeline)
+                      {
+                        sgp_set_image(0, (sg_image){0});
+                        horizontal_lightning_uniforms_t uniform = {
+                            .iTime = (float)(iTime + hash11((double)get_id(&gs, b).index)),
+                            .alpha = (float)b->detected_platonics[i].intensity,
+                        };
+                        sgp_set_uniform(&uniform, sizeof(uniform));
+                        transform_scope()
+                        {
+                          cpVect pos = cpvadd(entity_pos(b) , cpvmult(b->detected_platonics[i].direction, SCANNER_RADIUS/2.0));
+                          rotate_at(cpvangle(b->detected_platonics[i].direction), pos.x,pos.y);
+                          draw_color_rect_centered(pos, SCANNER_RADIUS);
+                        }
+                        sgp_reset_image(0);
+                      }
+                    }
+                  
                   set_color(colhexcode(0xf2d75c));
                   sgp_set_image(0, image_radardot);
                   for (int i = 0; i < SCANNER_MAX_POINTS; i++)

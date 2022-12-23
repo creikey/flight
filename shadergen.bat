@@ -6,4 +6,5 @@ IF %ERRORLEVEL% NEQ 0 ECHO ERROR download sokol-shdc from https://github.com/flo
 @REM example of how to compile shaders: sokol-shdc.exe --input triangle.glsl --output triangle.gen.h --slang glsl330:hlsl5:metal_macos
 sokol-shdc.exe --format sokol --input hueshift.glsl --output hueshift.gen.h --slang glsl330:hlsl5:metal_macos
 sokol-shdc.exe --format sokol --input lightning.glsl --output lightning.gen.h --slang glsl330:hlsl5:metal_macos
+sokol-shdc.exe --format sokol --input horizontal_lightning.glsl --output horizontal_lightning.gen.h --slang glsl330:hlsl5:metal_macos
 sokol-shdc.exe --format sokol --input goodpixel.glsl --output goodpixel.gen.h --slang glsl330:hlsl5:metal_macos

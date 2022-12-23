@@ -71,6 +71,7 @@
 #define SCANNER_MAX_VIEWPORT_RANGE 400.0
 #define SCANNER_MIN_RANGE 1.0
 #define SCANNER_MAX_POINTS 10
+#define SCANNER_MAX_PLATONICS 3
 
 #define MAX_SERVER_TO_CLIENT 1024 * 512 // maximum size of serialized gamestate buffer
 #define MAX_CLIENT_TO_SERVER 1024 * 10  // maximum size of serialized inputs and mic data
@@ -217,7 +218,8 @@ typedef struct EntityID
 
 static inline bool entityids_same(EntityID a, EntityID b)
 {
-  return (a.generation == b.generation) && (a.index == b.index);
+ 
+ return (a.generation == b.generation) && (a.index == b.index);
 }
 
 enum ScannerPointKind
@@ -250,6 +252,12 @@ typedef struct InputFrame
   enum BoxType build_type;
   enum CompassRotation build_rotation;
 } InputFrame;
+
+typedef struct PlatonicDetection
+{
+  cpVect direction;
+  double intensity;
+} PlatonicDetection;
 
 typedef struct Entity
 {
@@ -357,6 +365,8 @@ typedef struct Entity
   BOX_UNLOCKS_TYPE blueprints_learned;
   double scanner_head_rotate_speed; // not serialized, cosmetic
   double scanner_head_rotate;
+
+  PlatonicDetection detected_platonics[SCANNER_MAX_PLATONICS]; // intensity of 0.0 means undetected
 
   struct ScannerPoint
   {

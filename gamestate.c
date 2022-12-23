@@ -350,8 +350,10 @@ static void raycast_query_callback(cpShape *shape, cpVect point, cpVect normal, 
 static THREADLOCAL cpVect from_point = {0};
 static int sort_bodies_callback(const void *a, const void *b)
 {
-  double a_dist = cpvdist(cpBodyGetPosition((cpBody *)a), from_point);
-  double b_dist = cpvdist(cpBodyGetPosition((cpBody *)b), from_point);
+  cpVect a_pos = cpBodyGetPosition(* (cpBody **)a);
+  cpVect b_pos = cpBodyGetPosition(* (cpBody **)b);
+  double a_dist = cpvdist(a_pos, from_point);
+  double b_dist = cpvdist(b_pos, from_point);
   if (a_dist - b_dist < 0.0)
   {
     return -1;
@@ -692,6 +694,29 @@ void box_create(GameState *gs, Entity *new_box, Entity *grid, cpVect pos, enum B
   }
 
   box_add_to_boxes(gs, grid, new_box);
+}
+
+int platonic_detection_compare(const void *a, const void *b)
+{
+  PlatonicDetection *a_detection = (PlatonicDetection *)a;
+  PlatonicDetection *b_detection = (PlatonicDetection *)b;
+  double a_intensity = a_detection->intensity;
+  double b_intensity = b_detection->intensity;
+  if(a_detection->intensity == 0.0) a_intensity = INFINITY;
+  if(b_detection->intensity == 0.0) b_intensity = INFINITY;
+  double result = (a_intensity - b_intensity);
+  if (result < 0.0)
+  {
+    return -1;
+  }
+  else if (result > 0.0)
+  {
+    return 1;
+  }
+  else
+  {
+    return 0;
+  }
 }
 
 cpVect box_compass_vector(Entity *box)
@@ -1572,6 +1597,11 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
       SER_MAYBE_RETURN(ser_f(ser, &e->currently_scanning_progress));
       SER_VAR(&e->blueprints_learned);
       SER_MAYBE_RETURN(ser_f(ser, &e->scanner_head_rotate));
+      for (int i = 0; i < SCANNER_MAX_PLATONICS; i++)
+      {
+        SER_MAYBE_RETURN(ser_V2(ser, &e->detected_platonics[i].direction));
+        SER_MAYBE_RETURN(ser_f(ser, &e->detected_platonics[i].intensity));
+      }
       for (int i = 0; i < SCANNER_MAX_POINTS; i++)
       {
         SER_VAR(&e->scanner_points[i]);
@@ -2407,8 +2437,8 @@ void create_initial_world(GameState *gs)
     entity_set_pos(grid, cpv(1.5, 0.0));
     BOX_AT_TYPE(grid, cpv(0.0, 0.0), BoxExplosive);
     BOX_AT_TYPE(grid, cpv(-BOX_SIZE, 0.0), BoxScanner);
-    BOX_AT_TYPE(grid, cpv(-BOX_SIZE*2.0, 0.0), BoxSolarPanel);
-    BOX_AT_TYPE(grid, cpv(-BOX_SIZE*3.0, 0.0), BoxSolarPanel);
+    BOX_AT_TYPE(grid, cpv(-BOX_SIZE * 2.0, 0.0), BoxSolarPanel);
+    BOX_AT_TYPE(grid, cpv(-BOX_SIZE * 3.0, 0.0), BoxSolarPanel);
     entity_ensure_in_orbit(gs, grid);
   }
 
@@ -2419,7 +2449,7 @@ void create_initial_world(GameState *gs)
     BOX_AT_TYPE(grid, cpv(0.0, 0.0), BoxHullpiece);
     entity_ensure_in_orbit(gs, grid);
   }
-  
+
 #endif
 
 #if 0  // merge box
@@ -3218,26 +3248,32 @@ void process(struct GameState *gs, double dt)
                 {
                   for (int i = 0; i < SCANNER_MAX_POINTS; i++)
                     cur_box->scanner_points[i] = (struct ScannerPoint){0};
+                  for (int i = 0; i < SCANNER_MAX_PLATONICS; i++)
+                    cur_box->detected_platonics[i] = (PlatonicDetection){0};
                   if (cur_box->energy_effectiveness >= 1.0)
                   {
-                    /*
                     cpVect from_pos = entity_pos(cur_box);
-                    cpVect nearest = {0};
-                    double nearest_dist = INFINITY;
+                    PlatonicDetection detections[MAX_BOX_TYPES] = {0};
                     for (int i = 0; i < MAX_BOX_TYPES; i++)
                     {
                       cpVect cur_pos = gs->platonic_positions[i];
                       if (cpvlength(cur_pos) > 0.0) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
                       {
-                        double length_to_cur = cpvdist(from_pos, cur_pos);
-                        if (length_to_cur < nearest_dist)
-                        {
-                          nearest_dist = length_to_cur;
-                          nearest = cur_pos;
-                        }
+                        cpVect towards = cpvsub(cur_pos, from_pos);
+                        double length_to_cur = cpvlength(towards);
+                        detections[i].direction = cpvnormalize(towards);
+                        detections[i].intensity = length_to_cur; // so it sorts correctly, changed to intensity correctly after sorting
                       }
                     }
-                    */
+                    qsort(detections, MAX_BOX_TYPES, sizeof(detections[0]), platonic_detection_compare);
+                    for (int i = 0; i < SCANNER_MAX_PLATONICS; i++)
+                    {
+                      cur_box->detected_platonics[i] = detections[i];
+                      if (cur_box->detected_platonics[i].intensity > 0.0)
+                      {
+                        cur_box->detected_platonics[i].intensity = max(0.1, 1.0 - clamp01(cur_box->detected_platonics[i].intensity / 100.0));
+                      }
+                    }
 
                     circle_query(gs->space, entity_pos(cur_box), SCANNER_MAX_RANGE);
                     cpBody *body_results[512] = {0};
@@ -3262,18 +3298,16 @@ void process(struct GameState *gs, double dt)
                       }
                     }
                     from_point = entity_pos(cur_box);
-                    qsort(body_results, cur_results_len, sizeof(cpBody *), sort_bodies_callback);
+                    size_t sizeof_element = sizeof(body_results[0]);
+                    qsort(body_results, cur_results_len, sizeof_element, sort_bodies_callback);
                     size_t bodies_detected = cur_results_len < SCANNER_MAX_POINTS ? cur_results_len : SCANNER_MAX_POINTS;
                     for (int i = 0; i < bodies_detected; i++)
                     {
                       cpVect rel_vect = cpvsub(cpBodyGetPosition(body_results[i]), from_point);
                       double vect_length = cpvlength(rel_vect);
-                      if (vect_length > SCANNER_MIN_RANGE)
+                      if (SCANNER_MIN_RANGE < vect_length && vect_length < SCANNER_MAX_RANGE)
                       {
-                        if (vect_length > SCANNER_MAX_VIEWPORT_RANGE)
-                        {
-                          rel_vect = cpvmult(cpvnormalize(rel_vect), SCANNER_MAX_RANGE);
-                        }
+                        cpVect radar_vect = cpvmult(cpvnormalize(rel_vect), clamp01(vect_length / SCANNER_MAX_VIEWPORT_RANGE));
 
                         enum ScannerPointKind kind = Platonic;
                         Entity *body_entity = cp_body_entity(body_results[i]);
@@ -3297,10 +3331,13 @@ void process(struct GameState *gs, double dt)
                         {
                           kind = Enemy;
                         }
+                        cpVect into_char_vect = cpvmult(radar_vect, 126.0);
+                        flight_assert(fabs(into_char_vect.x) <= 126.0);
+                        flight_assert(fabs(into_char_vect.y) <= 126.0);
                         cur_box->scanner_points[i] = (struct ScannerPoint){
                             .kind = (char)kind,
-                            .x = (char)((rel_vect.x / SCANNER_MAX_VIEWPORT_RANGE) * 128.0),
-                            .y = (char)((rel_vect.y / SCANNER_MAX_VIEWPORT_RANGE) * 128.0),
+                            .x = (char)(into_char_vect.x),
+                            .y = (char)(into_char_vect.y),
                         };
                       }
                     }

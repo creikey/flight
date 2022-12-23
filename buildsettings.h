@@ -18,7 +18,7 @@
 // Intensive profiling means profiling a lot of little tiny stuff. Not always enabled because tanks performance
 // #define INTENSIVE_PROFILING
 // #define DEBUG_RENDERING
-#define DEBUG_WORLD
+// #define DEBUG_WORLD
 // #define UNLOCK_ALL
 #define TIME_BETWEEN_WORLD_SAVE 1000000.0f
 // #define TIME_BETWEEN_WORLD_SAVE 1.0f
@@ -26,7 +26,7 @@
 #define DEBUG_TOOLS
 #define CHIPMUNK_INTEGRITY_CHECK
 // #define FAT_THRUSTERS
-#define NO_GRAVITY
+// #define NO_GRAVITY
 // #define NO_SUNS
 
 #else
