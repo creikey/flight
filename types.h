@@ -703,3 +703,6 @@ static inline double deg2rad(double deg)
 {
   return (deg / 360.0f) * 2.0f * PI;
 }
+
+#define min(X,Y) (((X) < (Y)) ? (X) : (Y))
+#define max(X,Y) (((X) > (Y)) ? (X) : (Y))
