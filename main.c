@@ -137,6 +137,7 @@ static sg_image image_noenergy;
 static sg_image image_orb;
 static sg_image image_orb_frozen;
 static sg_image image_radardot;
+static sg_image image_pip;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
     BoxHullpiece,
@@ -260,6 +261,42 @@ static struct SquadMeta
         .hue = 291.0 / 360.0,
     },
 };
+
+typedef struct Particle
+{
+  bool alive;
+  cpVect pos;
+  cpVect vel;
+  double alive_for;
+  double scaling;
+} Particle;
+
+#define MAX_PARTICLES 1000
+static Particle particles[MAX_PARTICLES] = {0};
+
+#define PARTICLES_ITER(p) for (Particle *p = &particles[0]; p < particles + MAX_PARTICLES; p++)
+
+static void new_particle(cpVect pos, cpVect vel)
+{
+  bool created = false;
+  PARTICLES_ITER(p)
+  {
+    if (!p->alive)
+    {
+      *p = (Particle){0};
+      p->pos = pos;
+      p->vel = vel;
+      p->alive = true;
+      p->scaling = 1.0 + hash11(exec_time) * 0.2;
+      created = true;
+      break;
+    }
+  }
+  if (!created)
+  {
+    Log("TOO MANY PARTICLES");
+  }
+}
 
 struct SquadMeta squad_meta(enum Squad squad)
 {
@@ -751,6 +788,7 @@ static void init(void)
     image_orb = load_image("loaded/orb.png");
     image_orb_frozen = load_image("loaded/orb_frozen.png");
     image_radardot = load_image("loaded/radardot.png");
+    image_pip = load_image("loaded/pip.png");
   }
 
   // socket initialization
@@ -2148,6 +2186,28 @@ static void frame(void)
         player_scaling = lerp(player_scaling, player_scaling_target, dt * 15.0);
         hovering_this_player = (EntityID){0};
 
+        // draw particles drawn in world space
+        set_color(WHITE);
+        PARTICLES_ITER(p)
+        {
+          if (p->alive)
+          {
+            p->alive_for += dt;
+            p->pos = cpvadd(p->pos, cpvmult(p->vel, dt));
+            if (p->alive_for > 1.0)
+            {
+              p->alive = false;
+            }
+            set_color_values(1.0, 1.0, 1.0, 1.0 - clamp01(p->alive_for));
+            pipeline_scope(goodpixel_pipeline)
+            {
+              sgp_set_image(0, image_pip);
+              draw_texture_centered(p->pos, 0.15 * p->scaling);
+              sgp_reset_image(0);
+            }
+          }
+        }
+
         // draw all types of entities
         ENTITIES_ITER(e)
         {
@@ -2170,11 +2230,14 @@ static void frame(void)
               }
               transform_scope()
               {
-                rotate_at(entity_rotation(g) + rotangle(b->compass_rotation),
-                          entity_pos(b).x, entity_pos(b).y);
+                rotate_at(entity_rotation(g) + rotangle(b->compass_rotation), entity_pos(b).x, entity_pos(b).y);
 
                 if (b->box_type == BoxThruster)
                 {
+                  cpVect particle_vel = box_vel(b);
+                  particle_vel = cpvadd(particle_vel, cpvmult(box_facing_vector(b), 0.5 + hash11(exec_time)*0.2)); // move outwards from thruster
+                  particle_vel = cpvspin(particle_vel, hash11(exec_time)*0.1);
+                  new_particle(cpvadd(entity_pos(b), cpvmult(box_facing_vector(b), BOX_SIZE * 0.5)), particle_vel);
                   transform_scope()
                   {
                     set_color_values(1.0, 1.0, 1.0, 1.0);
@@ -2354,7 +2417,6 @@ static void frame(void)
                   draw_circle(entity_pos(b), SCANNER_RADIUS * 0.75);
                   set_color(WHITE);
 
-
                   for (int i = 0; i < SCANNER_MAX_PLATONICS; i++)
                     if (b->detected_platonics[i].intensity > 0.0)
                     {
@@ -2369,14 +2431,14 @@ static void frame(void)
                         sgp_set_uniform(&uniform, sizeof(uniform));
                         transform_scope()
                         {
-                          cpVect pos = cpvadd(entity_pos(b) , cpvmult(b->detected_platonics[i].direction, SCANNER_RADIUS/2.0));
-                          rotate_at(cpvangle(b->detected_platonics[i].direction), pos.x,pos.y);
+                          cpVect pos = cpvadd(entity_pos(b), cpvmult(b->detected_platonics[i].direction, SCANNER_RADIUS / 2.0));
+                          rotate_at(cpvangle(b->detected_platonics[i].direction), pos.x, pos.y);
                           draw_color_rect_centered(pos, SCANNER_RADIUS);
                         }
                         sgp_reset_image(0);
                       }
                     }
-                  
+
                   set_color(colhexcode(0xf2d75c));
                   sgp_set_image(0, image_radardot);
                   for (int i = 0; i < SCANNER_MAX_POINTS; i++)
@@ -2549,6 +2611,7 @@ static void frame(void)
 
         set_color_values(1.0, 1.0, 1.0, 1.0);
         dbg_drawall();
+
       } // world space transform end
 
       // low health

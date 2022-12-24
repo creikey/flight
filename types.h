@@ -696,7 +696,7 @@ static inline double hash11(double p)
   p = fract(p * .1031f);
   p *= p + 33.33f;
   p *= p + p;
-  return fract(p);
+  return 2.0 * fract(p) - 1.0;
 }
 
 static inline double deg2rad(double deg)
