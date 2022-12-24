@@ -1593,6 +1593,7 @@ static cpVect get_global_hand_pos(cpVect world_mouse_pos, bool *hand_at_arms_len
   global_hand_pos = cpvadd(global_hand_pos, entity_pos(myentity()));
   return global_hand_pos;
 }
+
 static void frame(void)
 {
   PROFILE_SCOPE("frame")
@@ -1977,6 +1978,24 @@ static void frame(void)
           {
             uint64_t tick_to_predict = tick(&gs);
             apply_this_tick_of_input_to_player(tick_to_predict);
+
+            // process particles
+            {
+              double dt = TIMESTEP;
+              PARTICLES_ITER(p)
+              {
+                if (p->alive)
+                {
+                  p->alive_for += dt;
+                  p->pos = cpvadd(p->pos, cpvmult(p->vel, dt));
+                  if (p->alive_for > 1.0)
+                  {
+                    p->alive = false;
+                  }
+                }
+              }
+            }
+
             process(&gs, TIMESTEP);
             time_to_process -= TIMESTEP;
           }
@@ -2192,17 +2211,11 @@ static void frame(void)
         {
           if (p->alive)
           {
-            p->alive_for += dt;
-            p->pos = cpvadd(p->pos, cpvmult(p->vel, dt));
-            if (p->alive_for > 1.0)
-            {
-              p->alive = false;
-            }
             set_color_values(1.0, 1.0, 1.0, 1.0 - clamp01(p->alive_for));
             pipeline_scope(goodpixel_pipeline)
             {
               sgp_set_image(0, image_pip);
-              draw_texture_centered(p->pos, 0.15 * p->scaling);
+              draw_texture_centered(p->pos, 0.2 * p->scaling);
               sgp_reset_image(0);
             }
           }
@@ -2234,10 +2247,14 @@ static void frame(void)
 
                 if (b->box_type == BoxThruster)
                 {
-                  cpVect particle_vel = box_vel(b);
-                  particle_vel = cpvadd(particle_vel, cpvmult(box_facing_vector(b), 0.5 + hash11(exec_time)*0.2)); // move outwards from thruster
-                  particle_vel = cpvspin(particle_vel, hash11(exec_time)*0.1);
-                  new_particle(cpvadd(entity_pos(b), cpvmult(box_facing_vector(b), BOX_SIZE * 0.5)), particle_vel);
+                  // spawn particles
+                  {
+                    cpVect particle_vel = box_vel(b);
+                    cpVect additional_vel = cpvmult(box_facing_vector(b), 0.5 + hash11(exec_time) * 0.2); // move outwards from thruster
+                    additional_vel = cpvspin(additional_vel, hash11(exec_time) * 0.1);                    // some spin
+                    particle_vel = cpvadd(particle_vel, additional_vel);
+                    new_particle(cpvadd(entity_pos(b), cpvmult(box_facing_vector(b), BOX_SIZE * 0.5)), particle_vel);
+                  }
                   transform_scope()
                   {
                     set_color_values(1.0, 1.0, 1.0, 1.0);
