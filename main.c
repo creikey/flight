@@ -1980,6 +1980,7 @@ static void frame(void)
             apply_this_tick_of_input_to_player(tick_to_predict);
 
             // process particles
+            // without processing them at fixed timestep, there is jitter
             {
               double dt = TIMESTEP;
               PARTICLES_ITER(p)
