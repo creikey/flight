@@ -2249,10 +2249,12 @@ static void frame(void)
                 if (b->box_type == BoxThruster)
                 {
                   // spawn particles
+                  if(b->thrust > 0.0)
                   {
                     cpVect particle_vel = box_vel(b);
-                    cpVect additional_vel = cpvmult(box_facing_vector(b), 0.5 + hash11(exec_time) * 0.2); // move outwards from thruster
-                    additional_vel = cpvspin(additional_vel, hash11(exec_time) * 0.1);                    // some spin
+                    double hash_offset = (double)get_id(&gs,b).index; // to make each thruster have a unique pattern of exhaust
+                    cpVect additional_vel = cpvmult(box_facing_vector(b), 0.5 + hash11(exec_time + hash_offset) * 0.2); // move outwards from thruster
+                    additional_vel = cpvspin(additional_vel, hash11(exec_time + hash_offset) * 0.1);                    // some spin
                     particle_vel = cpvadd(particle_vel, additional_vel);
                     new_particle(cpvadd(entity_pos(b), cpvmult(box_facing_vector(b), BOX_SIZE * 0.5)), particle_vel);
                   }
