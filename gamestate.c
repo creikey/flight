@@ -350,8 +350,8 @@ static void raycast_query_callback(cpShape *shape, cpVect point, cpVect normal, 
 static THREADLOCAL cpVect from_point = {0};
 static int sort_bodies_callback(const void *a, const void *b)
 {
-  cpVect a_pos = cpBodyGetPosition(* (cpBody **)a);
-  cpVect b_pos = cpBodyGetPosition(* (cpBody **)b);
+  cpVect a_pos = cpBodyGetPosition(*(cpBody **)a);
+  cpVect b_pos = cpBodyGetPosition(*(cpBody **)b);
   double a_dist = cpvdist(a_pos, from_point);
   double b_dist = cpvdist(b_pos, from_point);
   if (a_dist - b_dist < 0.0)
@@ -702,8 +702,10 @@ int platonic_detection_compare(const void *a, const void *b)
   PlatonicDetection *b_detection = (PlatonicDetection *)b;
   double a_intensity = a_detection->intensity;
   double b_intensity = b_detection->intensity;
-  if(a_detection->intensity == 0.0) a_intensity = INFINITY;
-  if(b_detection->intensity == 0.0) b_intensity = INFINITY;
+  if (a_detection->intensity == 0.0)
+    a_intensity = INFINITY;
+  if (b_detection->intensity == 0.0)
+    b_intensity = INFINITY;
   double result = (a_intensity - b_intensity);
   if (result < 0.0)
   {
@@ -3152,8 +3154,20 @@ void process(struct GameState *gs, double dt)
               {
                 cur_box->energy_effectiveness = batteries_use_energy(gs, grid, &non_battery_energy_left_over, cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt);
                 cur_box->thrust = cur_box->energy_effectiveness * cur_box->wanted_thrust;
-                if (cur_box->thrust >= 0.0)
+                if (cur_box->thrust > 0.0)
+                {
                   cpBodyApplyForceAtWorldPoint(grid->body, (thruster_force(cur_box)), (entity_pos(cur_box)));
+                  rect_query(gs->space, (BoxCentered){
+                                            .pos = cpvadd(entity_pos(cur_box), cpvmult(box_facing_vector(cur_box), BOX_SIZE)),
+                                            .rotation = box_rotation(cur_box),
+                                            .size = cpv(BOX_SIZE/2.0 - 0.03, BOX_SIZE/2.0 - 0.03),
+                                        });
+                  QUEUE_ITER(&query_result, QueryResult, res)
+                  {
+                    flight_assert(cp_shape_entity(res->shape) != NULL);
+                    cp_shape_entity(res->shape)->damage += THRUSTER_DAMAGE_PER_SEC * dt;
+                  }
+                }
               }
               if (cur_box->box_type == BoxGyroscope)
               {
