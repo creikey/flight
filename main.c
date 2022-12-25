@@ -37,6 +37,7 @@
 #include "profiling.h"
 
 // shaders
+#include "fire.gen.h"
 #include "goodpixel.gen.h"
 #include "horizontal_lightning.gen.h"
 #include "hueshift.gen.h"
@@ -45,6 +46,7 @@ static sg_pipeline hueshift_pipeline;
 static sg_pipeline goodpixel_pipeline;
 static sg_pipeline lightning_pipeline;
 static sg_pipeline horizontal_lightning_pipeline;
+static sg_pipeline fire_pipeline;
 
 static struct GameState gs = {0};
 static int my_player_index = -1;
@@ -138,6 +140,9 @@ static sg_image image_orb;
 static sg_image image_orb_frozen;
 static sg_image image_radardot;
 static sg_image image_pip;
+
+static sg_image fire_rendertarget;
+static sg_pass fire_pass;
 
 static enum BoxType toolbar[TOOLBAR_SLOTS] = {
     BoxHullpiece,
@@ -452,8 +457,6 @@ void recalculate_camera_pos()
   }
 }
 
-// drawing
-
 #define WHITE                                  \
   (Color)                                      \
   {                                            \
@@ -519,7 +522,7 @@ void set_color_values(double r, double g, double b, double a)
 }
 
 // @Robust make the transform stack actually use double precision logic, and
-// fix the debug drawing after that as well
+// fix the debug draw after that as well
 void translate(double x, double y)
 {
   sgp_translate((float)x, (float)y);
@@ -545,6 +548,17 @@ void draw_line(double ax, double ay, double bx, double by)
 void draw_textured_rect(double x, double y, double w, double h)
 {
   sgp_draw_textured_rect((float)x, (float)y, (float)w, (float)h);
+}
+
+static void transform_worldspace_zoom(double width, double height)
+{
+  translate(width / 2, height / 2);
+  scale_at(zoom, -zoom, 0.0, 0.0);
+}
+
+static void transform_worldspace_camera()
+{
+  translate(-camera_pos.x, -camera_pos.y);
 }
 
 static void init(void)
@@ -747,6 +761,55 @@ static void init(void)
         quit_with_popup("Couldn't make a shader! Uhhh ooooohhhhhh!!!", "Shader error BONED");
       }
     }
+
+    {
+      sgp_pipeline_desc pip_desc = {
+          .shader = *fire_program_shader_desc(sg_query_backend()),
+          .blend_mode = SGP_BLENDMODE_BLEND,
+      };
+
+      fire_pipeline = sgp_make_pipeline(&pip_desc);
+      sg_resource_state errstate = sg_query_pipeline_state(fire_pipeline);
+      if (errstate != SG_RESOURCESTATE_VALID)
+      {
+        Log("Failed to make fire pipeline\n");
+        quit_with_popup("Couldn't make a shader! Uhhh ooooohhhhhh!!!", "Shader error BONED");
+      }
+    }
+  }
+
+  // initialize buffers
+  {
+    fire_rendertarget = sg_make_image(
+        &(sg_image_desc){
+            .width = sapp_width(),
+            .height = sapp_height(),
+            .pixel_format = SG_PIXELFORMAT_BGRA8,
+            .min_filter = SG_FILTER_LINEAR,
+            .mag_filter = SG_FILTER_LINEAR,
+            .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
+            .render_target = true,
+        });
+    sg_image fire_depth = sg_make_image(
+        &(sg_image_desc){
+            .width = sapp_width(),
+            .height = sapp_height(),
+            .pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL,
+            .min_filter = SG_FILTER_LINEAR,
+            .mag_filter = SG_FILTER_LINEAR,
+            .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
+            .render_target = true,
+        });
+    flight_assert(fire_rendertarget.id != SG_INVALID_ID);
+    fire_pass = sg_make_pass(&(sg_pass_desc){
+        .color_attachments[0] = (sg_pass_attachment_desc){
+            .image = fire_rendertarget,
+        },
+        .depth_stencil_attachment = (sg_pass_attachment_desc){
+            .image = fire_depth,
+        }
+
+    });
   }
 
   // images loading
@@ -1652,8 +1715,7 @@ static void frame(void)
           case ENET_EVENT_TYPE_RECEIVE:
           {
             total_bytes_received += event.packet->dataLength;
-            unsigned char *decompressed = malloc(
-                sizeof *decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
+            unsigned char *decompressed = malloc(sizeof *decompressed * MAX_SERVER_TO_CLIENT); // @Robust no malloc
             size_t decompressed_max_len = MAX_SERVER_TO_CLIENT;
             flight_assert(LZO1X_MEM_DECOMPRESS == 0);
 
@@ -1987,7 +2049,7 @@ static void frame(void)
               {
                 if (p->alive)
                 {
-                  p->alive_for += dt;
+                  p->alive_for += dt*1.5;
                   p->pos = cpvadd(p->pos, cpvmult(p->vel, dt));
                   if (p->alive_for > 1.0)
                   {
@@ -2082,6 +2144,54 @@ static void frame(void)
     // drawing
     PROFILE_SCOPE("drawing")
     {
+
+      // draw particles in separate buffer so shader can operate on the buffer as a whole
+      PROFILE_SCOPE("drawing particles")
+      {
+        sgp_begin((int)width, (int)height);
+        sgp_viewport(0, 0, (int)width, (int)height);
+        sgp_project(0.0f, (float)width, 0.0f, (float)height);
+        sgp_set_blend_mode(SGP_BLENDMODE_BLEND);
+
+        set_color_values(1.0, 1.0, 1.0, 0.0);
+        sgp_clear();
+
+        // actually draw them
+        transform_scope()
+        {
+          transform_worldspace_zoom(width, height);
+          transform_worldspace_camera();
+          set_color(WHITE);
+
+          PARTICLES_ITER(p)
+          {
+            if (p->alive)
+            {
+              // Color birth_col = colhexcode(0xc32c69);
+              // Color death_col = colhexcode(0xeca274);
+
+              // Color col = Collerp(birth_col, death_col, p->alive_for);
+              // set_color_values(col.r, col.g, col.b, 1.0 - clamp01(p->alive_for));
+              set_color_values(1.0, 1.0, 1.0, 1.0 - clamp01(p->alive_for));
+              // pipeline_scope(goodpixel_pipeline)
+              {
+                sgp_set_image(0, image_pip);
+                draw_texture_centered(p->pos, 0.2 * p->scaling);
+                sgp_reset_image(0);
+              }
+            }
+          }
+        }
+
+        sg_pass_action pass_action = {0};
+        sg_begin_pass(fire_pass, &pass_action);
+        // sg_begin_default_pass(&pass_action, (int)width, (int)height);
+        sgp_flush();
+        sgp_end();
+        sg_end_pass();
+        sg_commit();
+      }
+
       sgp_begin((int)width, (int)height);
       sgp_viewport(0, 0, (int)width, (int)height);
       sgp_project(0.0f, (float)width, 0.0f, (float)height);
@@ -2089,16 +2199,14 @@ static void frame(void)
 
       // Draw background color
       set_color(colhexcode(0x000000));
-      // set_color_values(0.1, 0.1, 0.1, 1.0);
       sgp_clear();
 
-      // WORLD SPACE
-      // world space coordinates are +Y up, -Y down. Like normal cartesian coords
+      draw_circle(cpv(10, 10), 100);
+
+      // draw background stuff
       transform_scope()
       {
-        translate(width / 2, height / 2);
-        scale_at(zoom, -zoom, 0.0, 0.0);
-
+        transform_worldspace_zoom(width, height);
         // parllax layers, just the zooming, but not 100% of the camera panning
 #if 1 // space background
         transform_scope()
@@ -2153,10 +2261,27 @@ static void frame(void)
           draw_dots(scaled_camera_pos, 2.0);
         }
 #endif
+      }
 
+      // draw particles pass in screen space
+
+#if 1 // whether to apply fire shader to the buffer
+      pipeline_scope(fire_pipeline)
+#endif
+      {
+        sgp_set_image(0, fire_rendertarget);
+        set_color(WHITE);
+        sgp_draw_textured_rect(0.0f, 0.0f, (float)width, (float)height);
+        sgp_reset_image(0);
+      }
+
+      // WORLD SPACE
+      // world space coordinates are +Y up, -Y down. Like normal cartesian coords
+      transform_scope()
+      {
+        transform_worldspace_zoom(width, height);
         // camera go to player
-        translate(-camera_pos.x, -camera_pos.y);
-
+        transform_worldspace_camera();
         draw_dots(camera_pos, 1.5); // in plane dots
 
         // hand reached limit circle
@@ -2206,22 +2331,6 @@ static void frame(void)
         player_scaling = lerp(player_scaling, player_scaling_target, dt * 15.0);
         hovering_this_player = (EntityID){0};
 
-        // draw particles drawn in world space
-        set_color(WHITE);
-        PARTICLES_ITER(p)
-        {
-          if (p->alive)
-          {
-            set_color_values(1.0, 1.0, 1.0, 1.0 - clamp01(p->alive_for));
-            pipeline_scope(goodpixel_pipeline)
-            {
-              sgp_set_image(0, image_pip);
-              draw_texture_centered(p->pos, 0.2 * p->scaling);
-              sgp_reset_image(0);
-            }
-          }
-        }
-
         // draw all types of entities
         ENTITIES_ITER(e)
         {
@@ -2249,15 +2358,16 @@ static void frame(void)
                 if (b->box_type == BoxThruster)
                 {
                   // spawn particles
-                  if(b->thrust > 0.0)
+                  if (b->thrust > 0.0)
                   {
                     cpVect particle_vel = box_vel(b);
-                    double hash_offset = (double)get_id(&gs,b).index; // to make each thruster have a unique pattern of exhaust
+                    double hash_offset = (double)get_id(&gs, b).index;                                                  // to make each thruster have a unique pattern of exhaust
                     cpVect additional_vel = cpvmult(box_facing_vector(b), 0.5 + hash11(exec_time + hash_offset) * 0.2); // move outwards from thruster
                     additional_vel = cpvspin(additional_vel, hash11(exec_time + hash_offset) * 0.1);                    // some spin
                     particle_vel = cpvadd(particle_vel, additional_vel);
                     new_particle(cpvadd(entity_pos(b), cpvmult(box_facing_vector(b), BOX_SIZE * 0.5)), particle_vel);
                   }
+                  /*
                   transform_scope()
                   {
                     set_color_values(1.0, 1.0, 1.0, 1.0);
@@ -2270,6 +2380,7 @@ static void frame(void)
                     }
                     sgp_reset_image(0);
                   }
+                  */
                 }
                 sg_image img = boxinfo(b->box_type).image;
                 if (b->box_type == BoxCockpit)
