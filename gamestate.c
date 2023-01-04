@@ -2897,16 +2897,18 @@ void process(struct GameState *gs, double dt)
             cpVect pos_rel_sun = (cpvsub(entity_pos(e), (entity_pos(i.sun))));
             cpFloat sqdist = cpvlengthsq(pos_rel_sun);
 
-            bool is_entity_dangerous = false;
-            is_entity_dangerous |= e->is_missile;
-            if (e->is_box)
+            if(i.sun->sun_is_safe)
             {
-              is_entity_dangerous |= e->box_type == BoxExplosive;
-            }
-            if (is_entity_dangerous && sqdist < sun_dist_no_gravity(i.sun) * sun_dist_no_gravity(i.sun))
-            {
-              e->flag_for_destruction = true;
-              break;
+              bool is_entity_dangerous = false;
+              is_entity_dangerous |= e->is_missile;
+              if (e->is_box)
+              {
+                is_entity_dangerous |= e->box_type == BoxExplosive;
+              }
+              if (is_entity_dangerous && sqdist < sun_dist_no_gravity(i.sun) * sun_dist_no_gravity(i.sun))
+              {
+                e->flag_for_destruction = true;
+              }
             }
 
             if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
