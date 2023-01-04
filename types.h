@@ -130,7 +130,8 @@
 #include "cpVect.h"    // offers vector functions and types for the structs
 #include "miniaudio.h" // @Robust BAD. using miniaudio mutex construct for server thread synchronization. AWFUL!
 
-#include <math.h>   // sqrt and cos vector functions
+#define _USE_MATH_DEFINES
+#include <math.h>   // sqrt and cos vector functions and PI
 #include <stdint.h> // tick is unsigned integer
 #include <stdio.h>  // logging on errors for functions
 
@@ -219,8 +220,8 @@ typedef struct EntityID
 
 static inline bool entityids_same(EntityID a, EntityID b)
 {
- 
- return (a.generation == b.generation) && (a.index == b.index);
+
+  return (a.generation == b.generation) && (a.index == b.index);
 }
 
 enum ScannerPointKind
@@ -237,7 +238,7 @@ typedef struct InputFrame
   uint64_t tick;
 
   bool been_processed; // not serialized, used by server just to keep track of what inputs have been processed
-  
+
   cpVect movement;
   double rotation;
 
@@ -263,6 +264,7 @@ typedef struct PlatonicDetection
 typedef struct Entity
 {
   bool exists;
+  bool flag_for_destruction;
   EntityID next_free_entity;
   unsigned int generation;
   bool always_visible; // always serialized to the player.
@@ -291,7 +293,7 @@ typedef struct Entity
   enum Squad owning_squad; // also controls what the player can see, because of cloaking!
   EntityID currently_inside_of_box;
   enum Squad squad_invited_to; // if squad none, then no squad invite
-  
+
   // explosion
   bool is_explosion;
   cpVect explosion_pos;
@@ -306,6 +308,7 @@ typedef struct Entity
   cpVect sun_pos;
   double sun_mass;
   double sun_radius;
+  bool sun_is_safe;
 
   // missile
   bool is_missile;
@@ -322,9 +325,9 @@ typedef struct Entity
   // boxes
   bool is_box;
   enum BoxType box_type;
-  bool is_platonic;    // can't be destroyed, unaffected by physical forces
-  EntityID next_box;   // for the grid!
-  EntityID prev_box;   // doubly linked so can remove in middle of chain
+  bool is_platonic;  // can't be destroyed, unaffected by physical forces
+  EntityID next_box; // for the grid!
+  EntityID prev_box; // doubly linked so can remove in middle of chain
   enum CompassRotation compass_rotation;
   bool indestructible;
 
@@ -397,6 +400,10 @@ typedef struct SunIter
   for (SunIter i = {0}; i.i < MAX_SUNS; i.i++) \
     if ((i.sun = get_entity(gs_ptr, (gs_ptr)->suns[i.i])) != NULL)
 
+#define ENTITIES_ITER(gs, cur)                                                      \
+  for (Entity *cur = (gs)->entities; cur < (gs)->entities + (gs)->cur_next_entity; cur++) \
+    if (cur->exists)
+
 // gotta update the serialization functions when this changes
 typedef struct GameState
 {
@@ -413,7 +420,7 @@ typedef struct GameState
   bool server_side_computing; // some things only the server should know and calculate, like platonic locations
 
   // Entity arena
-  // ent:ity pointers can't move around because of how the physics engine handles user data.
+  // entity pointers can't move around because of how the physics engine handles user data.
   // if you really need this, potentially refactor to store entity IDs instead of pointers
   // in the shapes and bodies of chipmunk. Would require editing the library I think
   Entity *entities;
@@ -426,8 +433,8 @@ typedef struct GameState
   for (Player *cur = players; cur < players + MAX_PLAYERS; cur++) \
     if (cur->connected)
 
-#define PI 3.14159f
-#define TAU (PI * 2.0f)
+#define PI M_PI
+#define TAU (M_PI * 2.0)
 
 // returns in radians
 static inline double rotangle(enum CompassRotation rot)
@@ -539,7 +546,7 @@ bool could_learn_from_scanner(Player *for_player, Entity *box);
 void entity_set_pos(Entity *e, cpVect pos);
 double entity_rotation(Entity *e);
 void entity_ensure_in_orbit(GameState *gs, Entity *e);
-void entity_destroy(GameState *gs, Entity *e);
+void entity_memory_free(GameState *gs, Entity *e);
 #define BOX_CHAIN_ITER(gs, cur, starting_box) for (Entity *cur = get_entity(gs, starting_box); cur != NULL; cur = get_entity(gs, cur->next_box))
 #define BOXES_ITER(gs, cur, grid_entity_ptr) BOX_CHAIN_ITER(gs, cur, (grid_entity_ptr)->boxes)
 typedef struct LauncherTarget
@@ -705,5 +712,5 @@ static inline double deg2rad(double deg)
   return (deg / 360.0f) * 2.0f * PI;
 }
 
-#define min(X,Y) (((X) < (Y)) ? (X) : (Y))
-#define max(X,Y) (((X) > (Y)) ? (X) : (Y))
+#define min(X, Y) (((X) < (Y)) ? (X) : (Y))
+#define max(X, Y) (((X) > (Y)) ? (X) : (Y))

@@ -282,7 +282,7 @@ void server(void *info_raw)
             Entity *player_body = get_entity(&gs, gs.players[player_index].entity);
             if (player_body != NULL)
             {
-              entity_destroy(&gs, player_body);
+              entity_memory_free(&gs, player_body);
             }
             opus_encoder_destroy(player_encoders[player_index]);
             player_encoders[player_index] = NULL;

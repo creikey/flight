@@ -407,55 +407,7 @@ LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
   return (LauncherTarget){.target_found = target_found, .facing_angle = to_face};
 }
 
-void on_entity_child_shape(cpBody *body, cpShape *shape, void *data); // declared here bc entity_destroy circular dependency
-
-// gs is for iterating over all child shapes and destroying those, too
-static void destroy_body(GameState *gs, cpBody **body)
-{
-  if (*body != NULL)
-  {
-    cpBodyEachShape(*body, on_entity_child_shape, (void *)gs);
-    cpSpaceRemoveBody(gs->space, *body);
-    cpBodyFree(*body);
-    *body = NULL;
-  }
-  *body = NULL;
-}
-
-// will destroy all shapes which are attached to the body in the entity
-void entity_destroy(GameState *gs, Entity *e)
-{
-  flight_assert(e->exists);
-
-  if (e->is_grid)
-  {
-    BOXES_ITER(gs, cur, e)
-    entity_destroy(gs, cur);
-  }
-  if (e->is_box)
-  {
-    box_remove_from_boxes(gs, e);
-  }
-
-  if (e->shape != NULL)
-  {
-    cpSpaceRemoveShape(gs->space, e->shape);
-    cpShapeFree(e->shape);
-    e->shape = NULL;
-  }
-  destroy_body(gs, &e->body);
-
-  Entity *front_of_free_list = get_entity(gs, gs->free_list);
-  if (front_of_free_list != NULL)
-    flight_assert(!front_of_free_list->exists);
-  int gen = e->generation;
-  *e = (Entity){0};
-  e->generation = gen;
-  e->next_free_entity = gs->free_list;
-  gs->free_list = get_id(gs, e);
-}
-
-void on_entity_child_shape(cpBody *body, cpShape *shape, void *data)
+void destroy_child_shape(cpBody *body, cpShape *shape, void *data)
 {
   GameState *gs = (GameState *)data;
   if (cp_shape_entity(shape) == NULL)
@@ -467,8 +419,50 @@ void on_entity_child_shape(cpBody *body, cpShape *shape, void *data)
   }
   else
   {
-    entity_destroy(gs, cp_shape_entity(shape));
+    entity_memory_free(gs, cp_shape_entity(shape));
   }
+}
+
+// Destroys the entity and puts its slot back into the free list. Doesn't obey game rules
+// like making sure grids don't have holes in them, for that you want entity_destroy.
+// *Does* free all owned memory/entities though, e.g grids free the boxes they own.
+void entity_memory_free(GameState *gs, Entity *e)
+{
+  flight_assert(e->exists);
+
+  if (e->is_grid)
+  {
+    BOXES_ITER(gs, cur, e)
+    {
+      entity_memory_free(gs, cur);
+    }
+  }
+  if (e->is_box)
+  {
+    box_remove_from_boxes(gs, e);
+  }
+  if (e->shape != NULL)
+  {
+    cpSpaceRemoveShape(gs->space, e->shape);
+    cpShapeFree(e->shape);
+    e->shape = NULL;
+  }
+  if (e->body != NULL)
+  {
+    cpBodyEachShape(e->body, destroy_child_shape, (void *)gs);
+    cpSpaceRemoveBody(gs->space, e->body);
+    cpBodyFree(e->body);
+    e->body = NULL;
+  }
+
+  Entity *front_of_free_list = get_entity(gs, gs->free_list);
+  if (front_of_free_list != NULL)
+    flight_assert(!front_of_free_list->exists);
+  unsigned int gen = e->generation;
+  *e = (Entity){0};
+  e->generation = gen;
+  e->next_free_entity = gs->free_list;
+  gs->free_list = get_id(gs, e);
 }
 
 Entity *new_entity(GameState *gs)
@@ -828,7 +822,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
   int num_boxes = grid_num_boxes(gs, grid);
   if (num_boxes == 0)
   {
-    entity_destroy(gs, grid);
+    entity_memory_free(gs, grid);
     return;
   }
   if (num_boxes == 1)
@@ -966,15 +960,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
   }
 
   // destroys all the box shapes and the entities attached to those shapes
-  entity_destroy(gs, grid);
-}
-
-static void grid_remove_box(GameState *gs, struct Entity *grid, struct Entity *box)
-{
-  flight_assert(grid->is_grid);
-  flight_assert(box->is_box);
-  entity_destroy(gs, box);
-  grid_correct_for_holes(gs, grid);
+  entity_memory_free(gs, grid);
 }
 
 static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
@@ -1055,7 +1041,7 @@ void destroy(GameState *gs)
   {
     if (gs->entities[i].exists)
     {
-      entity_destroy(gs, &gs->entities[i]);
+      entity_memory_free(gs, &gs->entities[i]);
       gs->entities[i] = (Entity){0};
     }
   }
@@ -1304,6 +1290,7 @@ enum GameVersion
 {
   VInitial,
   VNoGold,
+  VSafeSun,
   VMax, // this minus one will be the version used
 };
 
@@ -1539,6 +1526,8 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     SER_MAYBE_RETURN(ser_V2(ser, &e->sun_pos));
     SER_MAYBE_RETURN(ser_f(ser, &e->sun_mass));
     SER_MAYBE_RETURN(ser_f(ser, &e->sun_radius));
+    if (ser->version >= VSafeSun)
+      SER_VAR(&e->sun_is_safe);
   }
 
   SER_VAR(&e->is_grid);
@@ -2390,11 +2379,11 @@ void create_initial_world(GameState *gs)
 {
   const double mass_multiplier = 10.0;
   EntityID suns[] = {
-      create_sun(gs, new_entity(gs), ((cpVect){500.0, 0.0}), ((cpVect){0.0, 0.0}), 1000000.0 * mass_multiplier, 30.0),
-      create_sun(gs, new_entity(gs), ((cpVect){500.0, 100.0}), ((cpVect){30.0, 0.0}), 10000.0 * mass_multiplier, 20.0),
-      create_sun(gs, new_entity(gs), ((cpVect){500.0, -100.0}), ((cpVect){-30.0, 0.0}), 10000.0 * mass_multiplier, 20.0),
+      create_sun(gs, new_entity(gs), ((cpVect){500.0, 0.0}), ((cpVect){0.0, 0.0}), 1000000.0 * mass_multiplier, 70.0),
       create_sun(gs, new_entity(gs), ((cpVect){-7000.0, -50.0}), ((cpVect){0.0, 0.0}), 100000.0 * mass_multiplier, 20.0),
   };
+
+  get_entity(gs, suns[0])->sun_is_safe = true;
 
   for (int i = 0; i < ARRLEN(suns); i++)
   {
@@ -2417,9 +2406,22 @@ void create_initial_world(GameState *gs)
   create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(0.0, 300.0)), BoxExplosive);
   create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(0.0, -300.0)), BoxCloaking);
   create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(300.0, 0.0)), BoxMissileLauncher);
-  create_bomb_station(gs, cpvadd(SUN_POS(3), cpv(0.0, 300.0)), BoxMerge);
+  create_bomb_station(gs, cpvadd(SUN_POS(1), cpv(0.0, 300.0)), BoxMerge);
 #undef SUN_POS
 #else
+
+#if 1 // basic test
+  {
+    bool indestructible = false;
+    enum CompassRotation rot = Right;
+    Entity *grid = new_entity(gs);
+    grid_create(gs, grid);
+    entity_set_pos(grid, cpv(-1.5, 0.0));
+    BOX_AT_TYPE(grid, cpv(0.0, 0.0), BoxHullpiece);
+    BOX_AT_TYPE(grid, cpv(BOX_SIZE, 0.0), BoxHullpiece);
+    entity_ensure_in_orbit(gs, grid);
+  }
+#endif
 
 #if 1 // present the stations
   Log("Creating debug world\n");
@@ -2551,13 +2553,16 @@ void process(struct GameState *gs, double dt)
           }
         }
 #ifndef NO_GRAVITY
-        from_sun->sun_vel = cpvadd(from_sun->sun_vel, cpvmult(accel, dt));
-        from_sun->sun_pos = cpvadd(from_sun->sun_pos, cpvmult(from_sun->sun_vel, dt));
-
-        if (cpvlength(from_sun->sun_pos) >= INSTANT_DEATH_DISTANCE_FROM_CENTER)
+        if (!from_sun->sun_is_safe)
         {
-          from_sun->sun_vel = cpvmult(from_sun->sun_vel, -0.8);
-          from_sun->sun_pos = cpvmult(cpvnormalize(from_sun->sun_pos), INSTANT_DEATH_DISTANCE_FROM_CENTER);
+          from_sun->sun_vel = cpvadd(from_sun->sun_vel, cpvmult(accel, dt));
+          from_sun->sun_pos = cpvadd(from_sun->sun_pos, cpvmult(from_sun->sun_vel, dt));
+
+          if (cpvlength(from_sun->sun_pos) >= INSTANT_DEATH_DISTANCE_FROM_CENTER)
+          {
+            from_sun->sun_vel = cpvmult(from_sun->sun_vel, -0.8);
+            from_sun->sun_pos = cpvmult(cpvnormalize(from_sun->sun_pos), INSTANT_DEATH_DISTANCE_FROM_CENTER);
+          }
         }
 #endif
       }
@@ -2800,9 +2805,8 @@ void process(struct GameState *gs, double dt)
             Entity *cur_box = cp_shape_entity(maybe_box_to_destroy);
             if (!cur_box->indestructible && !cur_box->is_platonic)
             {
-              Entity *cur_grid = cp_body_entity(cpShapeGetBody(maybe_box_to_destroy));
               p->damage -= DAMAGE_TO_PLAYER_PER_BLOCK * ((BATTERY_CAPACITY - cur_box->energy_used) / BATTERY_CAPACITY);
-              grid_remove_box(gs, cur_grid, cur_box);
+              cur_box->flag_for_destruction = true;
             }
           }
           else if (box_unlocked(player, player->input.build_type))
@@ -2840,7 +2844,7 @@ void process(struct GameState *gs, double dt)
 #endif
         if (p->damage >= 1.0)
         {
-          entity_destroy(gs, p);
+          p->flag_for_destruction = true;
           player->entity = (EntityID){0};
         }
 
@@ -2850,12 +2854,8 @@ void process(struct GameState *gs, double dt)
 
     PROFILE_SCOPE("process entities")
     {
-      for (size_t i = 0; i < gs->cur_next_entity; i++)
+      ENTITIES_ITER(gs, e)
       {
-        Entity *e = &gs->entities[i];
-        if (!e->exists)
-          continue;
-
         if (e->body != NULL && cpvlengthsq((entity_pos(e))) > (INSTANT_DEATH_DISTANCE_FROM_CENTER * INSTANT_DEATH_DISTANCE_FROM_CENTER))
         {
 #ifdef INTENSIVE_PROFILING
@@ -2883,14 +2883,12 @@ void process(struct GameState *gs, double dt)
             }
             else
             {
-              entity_destroy(gs, e);
-              continue;
+              e->flag_for_destruction = true;
             }
-            continue;
           }
         }
 
-        // sun processing for this current entity
+          // sun processing for this current entity
 #ifndef NO_SUNS
         PROFILE_SCOPE("this entity sun processing")
         {
@@ -2899,13 +2897,24 @@ void process(struct GameState *gs, double dt)
             cpVect pos_rel_sun = (cpvsub(entity_pos(e), (entity_pos(i.sun))));
             cpFloat sqdist = cpvlengthsq(pos_rel_sun);
 
+            bool is_entity_dangerous = false;
+            is_entity_dangerous |= e->is_missile;
+            if (e->is_box)
+            {
+              is_entity_dangerous |= e->box_type == BoxExplosive;
+            }
+            if (is_entity_dangerous && sqdist < sun_dist_no_gravity(i.sun) * sun_dist_no_gravity(i.sun))
+            {
+              e->flag_for_destruction = true;
+              break;
+            }
+
             if (!e->is_grid) // grids aren't damaged (this edge case sucks!)
             {
 #ifdef INTENSIVE_PROFILING
               PROFILE_SCOPE("Grid processing")
 #endif
               {
-                sqdist = cpvlengthsq(cpvsub((entity_pos(e)), (entity_pos(i.sun))));
                 if (sqdist < (i.sun->sun_radius * i.sun->sun_radius))
                 {
                   e->damage += 10.0 * dt;
@@ -2938,8 +2947,7 @@ void process(struct GameState *gs, double dt)
             do_explosion(gs, e, dt);
             if (e->explosion_progress >= EXPLOSION_TIME)
             {
-              entity_destroy(gs, e);
-              continue;
+              e->flag_for_destruction = true;
             }
           }
         }
@@ -2987,7 +2995,7 @@ void process(struct GameState *gs, double dt)
               explosion->explosion_vel = cpBodyGetVelocity(e->body);
               explosion->explosion_push_strength = MISSILE_EXPLOSION_PUSH;
               explosion->explosion_radius = MISSILE_EXPLOSION_RADIUS;
-              entity_destroy(gs, e);
+              e->flag_for_destruction = true;
               continue;
             }
           }
@@ -2999,11 +3007,6 @@ void process(struct GameState *gs, double dt)
           PROFILE_SCOPE("Box processing")
 #endif
           {
-            if (e->is_platonic)
-            {
-              e->damage = 0.0;
-              gs->platonic_positions[(int)e->box_type] = entity_pos(e);
-            }
             if (e->box_type == BoxExplosive && e->damage >= EXPLOSION_DAMAGE_THRESHOLD)
             {
               Entity *explosion = new_entity(gs);
@@ -3013,7 +3016,12 @@ void process(struct GameState *gs, double dt)
               explosion->explosion_push_strength = BOMB_EXPLOSION_PUSH;
               explosion->explosion_radius = BOMB_EXPLOSION_RADIUS;
               if (!e->is_platonic)
-                grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
+                e->flag_for_destruction = true;
+            }
+            if (e->is_platonic)
+            {
+              e->damage = 0.0;
+              gs->platonic_positions[(int)e->box_type] = entity_pos(e);
             }
             if (e->box_type == BoxMerge)
             {
@@ -3091,7 +3099,7 @@ void process(struct GameState *gs, double dt)
                         flight_assert(box_grid(cur) == box_grid(from_merge));
                         cur = next;
                       }
-                      entity_destroy(gs, other_grid);
+                      other_grid->flag_for_destruction = true;
                     }
                   }
                 }
@@ -3099,7 +3107,7 @@ void process(struct GameState *gs, double dt)
             }
             if (e->damage >= 1.0)
             {
-              grid_remove_box(gs, get_entity(gs, e->shape_parent_entity), e);
+              e->flag_for_destruction = true;
             }
           }
         }
@@ -3160,7 +3168,7 @@ void process(struct GameState *gs, double dt)
                   rect_query(gs->space, (BoxCentered){
                                             .pos = cpvadd(entity_pos(cur_box), cpvmult(box_facing_vector(cur_box), BOX_SIZE)),
                                             .rotation = box_rotation(cur_box),
-                                            .size = cpv(BOX_SIZE/2.0 - 0.03, BOX_SIZE/2.0 - 0.03),
+                                            .size = cpv(BOX_SIZE / 2.0 - 0.03, BOX_SIZE / 2.0 - 0.03),
                                         });
                   QUEUE_ITER(&query_result, QueryResult, res)
                   {
@@ -3393,6 +3401,22 @@ void process(struct GameState *gs, double dt)
               }
             }
           }
+        }
+      }
+    }
+
+    PROFILE_SCOPE("Delete entities")
+    {
+      ENTITIES_ITER(gs, e)
+      {
+        if (e->flag_for_destruction)
+        {
+          Entity *grid = NULL;
+          if (e->is_box)
+            grid = box_grid(e);
+          entity_memory_free(gs, e);
+          if (grid != NULL)
+            grid_correct_for_holes(gs, grid);
         }
       }
     }

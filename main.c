@@ -233,10 +233,6 @@ static struct BoxInfo
         .image_path = "loaded/merge.png",
     },
 };
-#define ENTITIES_ITER(cur)                                                \
-  for (Entity *cur = gs.entities; cur < gs.entities + gs.cur_next_entity; \
-       cur++)                                                             \
-    if (cur->exists)
 // suppress compiler warning about ^^ above used in floating point context
 #define ARRLENF(arr) ((float)sizeof(arr) / sizeof(*arr))
 static struct SquadMeta
@@ -299,7 +295,7 @@ static void new_particle(cpVect pos, cpVect vel)
   }
   if (!created)
   {
-    Log("TOO MANY PARTICLES");
+    Log("TOO MANY PARTICLES\n");
   }
 }
 
@@ -471,6 +467,11 @@ void recalculate_camera_pos()
   (Color)                                      \
   {                                            \
     .r = 0.0f, .g = 0.0f, .b = 1.0f, .a = 1.0f \
+  }
+#define GREEN                                  \
+  (Color)                                      \
+  {                                            \
+    .r = 0.0f, .g = 1.0f, .b = 0.0f, .a = 1.0f \
   }
 #define GOLD colhex(255, 215, 0)
 
@@ -957,7 +958,7 @@ cpVect pointV2(sgp_point p)
 
 static void draw_circle(cpVect point, double radius)
 {
-#define POINTS 64
+#define POINTS 128
   sgp_line lines[POINTS];
   for (int i = 0; i < POINTS; i++)
   {
@@ -2049,7 +2050,7 @@ static void frame(void)
               {
                 if (p->alive)
                 {
-                  p->alive_for += dt*1.5;
+                  p->alive_for += dt * 1.5;
                   p->pos = cpvadd(p->pos, cpvmult(p->vel, dt));
                   if (p->alive_for > 1.0)
                   {
@@ -2332,7 +2333,7 @@ static void frame(void)
         hovering_this_player = (EntityID){0};
 
         // draw all types of entities
-        ENTITIES_ITER(e)
+        ENTITIES_ITER(&gs, e)
         {
           // draw grid
           if (e->is_grid)
@@ -2734,8 +2735,10 @@ static void frame(void)
             // can draw at 0,0 because everything relative to sun now!
 
             // sun DEATH RADIUS
-
-            set_color(BLUE);
+            if (i.sun->sun_is_safe)
+              set_color(GREEN);
+            else
+              set_color(BLUE);
             draw_circle((cpVect){0}, sun_dist_no_gravity(i.sun));
           }
         }
