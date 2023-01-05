@@ -257,8 +257,12 @@ typedef struct InputFrame
 
 typedef struct PlatonicDetection
 {
+  // only these two are serialized
   cpVect direction;
   double intensity;
+  
+  enum BoxType of_type;
+  bool used_in_scanner_closest_lightning_bolts;
 } PlatonicDetection;
 
 typedef struct Entity

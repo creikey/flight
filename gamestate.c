@@ -2888,7 +2888,7 @@ void process(struct GameState *gs, double dt)
           }
         }
 
-          // sun processing for this current entity
+        // sun processing for this current entity
 #ifndef NO_SUNS
         PROFILE_SCOPE("this entity sun processing")
         {
@@ -2897,7 +2897,7 @@ void process(struct GameState *gs, double dt)
             cpVect pos_rel_sun = (cpvsub(entity_pos(e), (entity_pos(i.sun))));
             cpFloat sqdist = cpvlengthsq(pos_rel_sun);
 
-            if(i.sun->sun_is_safe)
+            if (i.sun->sun_is_safe)
             {
               bool is_entity_dangerous = false;
               is_entity_dangerous |= e->is_missile;
@@ -3281,23 +3281,35 @@ void process(struct GameState *gs, double dt)
                     for (int i = 0; i < MAX_BOX_TYPES; i++)
                     {
                       cpVect cur_pos = gs->platonic_positions[i];
-                      if (cpvlength(cur_pos) > 0.0) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
+                      if (cpvlengthsq(cur_pos) > 0.0) // zero is uninitialized, the platonic solid doesn't exist (probably) @Robust do better
                       {
                         cpVect towards = cpvsub(cur_pos, from_pos);
                         double length_to_cur = cpvlength(towards);
                         detections[i].direction = cpvnormalize(towards);
+                        detections[i].of_type = i;
                         detections[i].intensity = length_to_cur; // so it sorts correctly, changed to intensity correctly after sorting
                       }
                     }
                     qsort(detections, MAX_BOX_TYPES, sizeof(detections[0]), platonic_detection_compare);
                     for (int i = 0; i < SCANNER_MAX_PLATONICS; i++)
                     {
-                      cur_box->detected_platonics[i] = detections[i];
-                      if (cur_box->detected_platonics[i].intensity > 0.0)
+                      for (int detections_i = 0; detections_i < MAX_BOX_TYPES; detections_i++)
                       {
-                        cur_box->detected_platonics[i].intensity = max(0.1, 1.0 - clamp01(cur_box->detected_platonics[i].intensity / 100.0));
+                        // so can be viewed in debugger what causes it not to be used
+                        bool use_this_detection = true;
+                        use_this_detection &= detections[detections_i].intensity > 0.0;
+                        use_this_detection &= !detections[detections_i].used_in_scanner_closest_lightning_bolts;
+                        use_this_detection &= !learned_boxes_has_box(cur_box->blueprints_learned, detections[detections_i].of_type);
+                        if (use_this_detection)
+                        {
+                          detections[detections_i].used_in_scanner_closest_lightning_bolts = true;
+                          cur_box->detected_platonics[i] = detections[detections_i];
+                          cur_box->detected_platonics[i].intensity = max(0.1, 1.0 - clamp01(cur_box->detected_platonics[i].intensity / 100.0));
+                        }
                       }
                     }
+
+                    // after the above logic detections has been modified, do not use
 
                     circle_query(gs->space, entity_pos(cur_box), SCANNER_MAX_RANGE);
                     cpBody *body_results[512] = {0};
