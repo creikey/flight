@@ -911,6 +911,7 @@ static void set_pipeline_and_pull_color(sg_pipeline pip)
   sgp_set_uniform(&sgp_query_state()->color, sizeof(sgp_query_state()->color));
 }
 
+// set uniforms after beginning of scope
 #define pipeline_scope(pipeline) DeferLoop(set_pipeline_and_pull_color(pipeline), sgp_reset_pipeline())
 
 static void draw_color_rect_centered(cpVect center, double size)
@@ -2315,9 +2316,7 @@ static void frame(void)
 
           transform_scope()
           {
-            rotate_at(build_preview.grid_rotation +
-                          rotangle(cur_editing_rotation),
-                      global_hand_pos.x, global_hand_pos.y);
+            rotate_at(build_preview.grid_rotation + rotangle(cur_editing_rotation), global_hand_pos.x, global_hand_pos.y);
             sgp_set_image(0, boxinfo(currently_building()).image);
             set_color_values(0.5, 0.5, 0.5, (sin((float)exec_time * 9.0) + 1.0) / 3.0 + 0.2);
             pipeline_scope(goodpixel_pipeline)
@@ -2715,7 +2714,7 @@ static void frame(void)
         set_color(RED);
         draw_circle((cpVect){0}, INSTANT_DEATH_DISTANCE_FROM_CENTER);
 
-        // the SUN
+        // the suns
         SUNS_ITER(&gs)
         {
           transform_scope()
