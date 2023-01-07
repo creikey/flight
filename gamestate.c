@@ -2793,7 +2793,7 @@ void process(struct GameState *gs, double dt)
 #if 1 // building
         if (player->input.dobuild)
         {
-          player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on its grid with grid_index...
+          player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on it again the next frame
 
           cpPointQueryInfo info = {0};
           cpVect world_build = world_hand_pos;

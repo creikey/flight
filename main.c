@@ -272,7 +272,7 @@ typedef struct Particle
   double scaling;
 } Particle;
 
-#define MAX_PARTICLES 1000
+#define MAX_PARTICLES 2000
 static Particle particles[MAX_PARTICLES] = {0};
 
 #define PARTICLES_ITER(p) for (Particle *p = &particles[0]; p < particles + MAX_PARTICLES; p++)
