@@ -627,6 +627,8 @@ void create_player(Player *player)
 #endif
 }
 
+
+
 void create_orb(GameState *gs, Entity *e)
 {
   create_body(gs, e);
@@ -666,7 +668,7 @@ void box_add_to_boxes(GameState *gs, Entity *grid, Entity *box_to_add)
 // box must be passed as a parameter as the box added to chipmunk uses this pointer in its
 // user data. pos is in local coordinates. Adds the box to the grid's chain of boxes
 // Must pass in a type so it knows what filter to give the collision shape
-void box_create(GameState *gs, Entity *new_box, Entity *grid, cpVect pos, enum BoxType type)
+void create_box(GameState *gs, Entity *new_box, Entity *grid, cpVect pos, enum BoxType type)
 {
   new_box->is_box = true;
   flight_assert(gs->space != NULL);
@@ -951,7 +953,7 @@ static void grid_correct_for_holes(GameState *gs, struct Entity *grid)
       cpShapeSetUserData(cur->shape, NULL);
       cur->shape = NULL;
 
-      box_create(gs, cur, new_grid, new_shape_position, cur->box_type); // destroys next/prev fields on cur
+      create_box(gs, cur, new_grid, new_shape_position, cur->box_type); // destroys next/prev fields on cur
       cur = next;
     }
 
@@ -2306,7 +2308,7 @@ void create_bomb_station(GameState *gs, cpVect pos, enum BoxType platonic_type)
 #define BOX_AT_TYPE(grid, pos, type)      \
   {                                       \
     Entity *box = new_entity(gs);         \
-    box_create(gs, box, grid, pos, type); \
+    create_box(gs, box, grid, pos, type); \
     box->compass_rotation = rot;          \
     box->indestructible = indestructible; \
   }
@@ -2317,7 +2319,7 @@ void create_bomb_station(GameState *gs, cpVect pos, enum BoxType platonic_type)
   grid_create(gs, grid);
   entity_set_pos(grid, pos);
   Entity *platonic_box = new_entity(gs);
-  box_create(gs, platonic_box, grid, (cpVect){0}, platonic_type);
+  create_box(gs, platonic_box, grid, (cpVect){0}, platonic_type);
   platonic_box->is_platonic = true;
   BOX_AT_TYPE(grid, ((cpVect){BOX_SIZE, 0}), BoxExplosive);
   BOX_AT_TYPE(grid, ((cpVect){BOX_SIZE * 2, 0}), BoxHullpiece);
@@ -2355,7 +2357,7 @@ void create_hard_shell_station(GameState *gs, cpVect pos, enum BoxType platonic_
   grid_create(gs, grid);
   entity_set_pos(grid, pos);
   Entity *platonic_box = new_entity(gs);
-  box_create(gs, platonic_box, grid, (cpVect){0}, platonic_type);
+  create_box(gs, platonic_box, grid, (cpVect){0}, platonic_type);
   platonic_box->is_platonic = true;
   BOX_AT_TYPE(grid, ((cpVect){BOX_SIZE * 2, 0}), BoxHullpiece);
   BOX_AT_TYPE(grid, ((cpVect){BOX_SIZE * 3, 0}), BoxHullpiece);
@@ -2793,7 +2795,7 @@ void process(struct GameState *gs, double dt)
 #if 1 // building
         if (player->input.dobuild)
         {
-          player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on it again the next frame
+          player->input.dobuild = false; // handle the input. if didn't do this, after destruction of hovered box, would try to build on it again the next frame. @Robust handle the input in one place
 
           cpPointQueryInfo info = {0};
           cpVect world_build = world_hand_pos;
@@ -2830,7 +2832,7 @@ void process(struct GameState *gs, double dt)
                 created_box_position = grid_world_to_local(target_grid, world_build);
               }
               Entity *new_box = new_entity(gs);
-              box_create(gs, new_box, target_grid, created_box_position, player->input.build_type);
+              create_box(gs, new_box, target_grid, created_box_position, player->input.build_type);
               new_box->owning_squad = player->squad;
               grid_correct_for_holes(gs, target_grid); // no holey ship for you!
               new_box->compass_rotation = player->input.build_rotation;
@@ -3097,7 +3099,7 @@ void process(struct GameState *gs, double dt)
                         enum CompassRotation new_rotation = facing_vector_to_compass(from_grid, other_grid, box_facing_vector(cur));
                         cur->compass_rotation = new_rotation;
                         cpVect new_cur_pos = grid_snapped_box_pos(from_grid, cpvadd(snap_movement_vect, world));
-                        box_create(gs, cur, from_grid, grid_world_to_local(from_grid, new_cur_pos), cur->box_type); // destroys next/prev fields on cur
+                        create_box(gs, cur, from_grid, grid_world_to_local(from_grid, new_cur_pos), cur->box_type); // destroys next/prev fields on cur
                         flight_assert(box_grid(cur) == box_grid(from_merge));
                         cur = next;
                       }

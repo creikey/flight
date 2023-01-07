@@ -99,7 +99,7 @@ void server(void *info_raw)
 #define BOX_AT_TYPE(grid, pos, type) \
   {                                  \
     Entity *box = new_entity(&gs);   \
-    box_create(&gs, box, grid, pos); \
+    create_box(&gs, box, grid, pos); \
     box->box_type = type;            \
   }
 #define BOX_AT(grid, pos) BOX_AT_TYPE(grid, pos, BoxHullpiece)

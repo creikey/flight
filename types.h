@@ -277,7 +277,7 @@ typedef struct Entity
 
   double damage;  // used by box, player, and orb
   cpBody *body;   // used by grid, player, and box
-  cpShape *shape; // must be a box so shape_size can be set appropriately, and serialized
+  cpShape *shape; // see notes on serializing the shape
 
   // players and boxes can be cloaked
   // If this is within 2 timesteps of the current game time, the entity is invisible.
@@ -562,7 +562,7 @@ LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher);
 
 // grid
 void grid_create(struct GameState *gs, Entity *e);
-void box_create(struct GameState *gs, Entity *new_box, Entity *grid, cpVect pos, enum BoxType type);
+void create_box(struct GameState *gs, Entity *new_box, Entity *grid, cpVect pos, enum BoxType type);
 Entity *box_grid(Entity *box);
 cpVect grid_com(Entity *grid);
 cpVect grid_vel(Entity *grid);
