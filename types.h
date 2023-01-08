@@ -256,7 +256,7 @@ typedef struct InputFrame
   bool dobuild;
   enum BoxType build_type;
   enum CompassRotation build_rotation;
-} InputFrame;
+} InputFrame; // the length of this is assumed to be constant
 
 typedef struct PlatonicDetection
 {
