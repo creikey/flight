@@ -177,12 +177,13 @@
       <PreprocessorDefinitions>NDEBUG;RELEASE;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)\thirdparty\enet\include;$(ProjectDir)\thirdparty\Chipmunk2D\include\chipmunk;$(ProjectDir)\thirdparty;$(ProjectDir)\thirdparty\Chipmunk2D\include;$(ProjectDir)\thirdparty\minilzo;$(ProjectDir)\thirdparty\opus\include</AdditionalIncludeDirectories>
+      <OmitFramePointers>false</OmitFramePointers>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
       <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);Ws2_32.lib;winmm.lib;$(ProjectDir)\thirdparty\opus\win32\VS2015\x64\Release\opus.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>

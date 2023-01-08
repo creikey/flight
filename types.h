@@ -58,6 +58,8 @@
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.005
 #define THRUSTER_DAMAGE_PER_SEC 2.0
 
+#define LANDING_GEAR_MAX_DIST (BOX_SIZE * 0.25)
+
 #define GYROSCOPE_ENERGY_USED_PER_SECOND 0.005f
 #define GYROSCOPE_TORQUE 1.5f
 #define GYROSCOPE_PROPORTIONAL_INERTIAL_RESPONSE 0.7 // between 0-1. How strongly responds to rotation, to stop the rotation
@@ -189,6 +191,7 @@ enum BoxType
   BoxCloaking,
   BoxMissileLauncher,
   BoxMerge,
+  BoxLandingGear,
   BoxLast,
 };
 
@@ -373,6 +376,9 @@ typedef struct Entity
   BOX_UNLOCKS_TYPE blueprints_learned;
   double scanner_head_rotate_speed; // not serialized, cosmetic
   double scanner_head_rotate;
+
+  // landing gear only
+  cpConstraint *landed_constraint; // when null is landed
 
   PlatonicDetection detected_platonics[SCANNER_MAX_PLATONICS]; // intensity of 0.0 means undetected
 

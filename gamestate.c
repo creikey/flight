@@ -407,6 +407,13 @@ LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
   return (LauncherTarget){.target_found = target_found, .facing_angle = to_face};
 }
 
+void destroy_constraints(cpBody *body, cpConstraint *constraint, void *data)
+{
+  ((Entity*)cpConstraintGetUserData(constraint))->landed_constraint = NULL;
+  cpSpaceRemoveConstraint(cpBodyGetSpace(body), constraint);
+  cpConstraintFree(constraint);
+}
+
 void destroy_child_shape(cpBody *body, cpShape *shape, void *data)
 {
   GameState *gs = (GameState *)data;
@@ -447,14 +454,22 @@ void entity_memory_free(GameState *gs, Entity *e)
     cpShapeFree(e->shape);
     e->shape = NULL;
   }
+  if (e->landed_constraint != NULL)
+  {
+    cpSpaceRemoveConstraint(gs->space, e->landed_constraint);
+    cpConstraintFree(e->landed_constraint);
+    e->landed_constraint = NULL;
+  }
   if (e->body != NULL)
   {
+    // need to do this here because body which constraint is attached to can be destroyed
+		// NOT TRUE: can't do this here because the handle to the constraint cannot be set to NULL. Constraints are freed by the entities that own them
+    cpBodyEachConstraint(e->body, destroy_constraints, NULL); 
     cpBodyEachShape(e->body, destroy_child_shape, (void *)gs);
     cpSpaceRemoveBody(gs->space, e->body);
     cpBodyFree(e->body);
     e->body = NULL;
   }
-
   Entity *front_of_free_list = get_entity(gs, gs->free_list);
   if (front_of_free_list != NULL)
     flight_assert(!front_of_free_list->exists);
@@ -516,6 +531,12 @@ void create_body(GameState *gs, Entity *e)
   cpBody *body = cpSpaceAddBody(gs->space, cpBodyNew(0.0, 0.0)); // zeros for mass/moment of inertia means automatically calculated from its collision shapes
   e->body = body;
   cpBodySetUserData(e->body, (void *)e);
+}
+
+// must always call this after creating a constraint
+void on_create_constraint(Entity *e, cpConstraint* c)
+{
+  cpConstraintSetUserData(c, (cpDataPointer)e);
 }
 
 cpVect player_vel(GameState *gs, Entity *player)
@@ -626,8 +647,6 @@ void create_player(Player *player)
   unlock_box(player, BoxScanner);
 #endif
 }
-
-
 
 void create_orb(GameState *gs, Entity *e)
 {
@@ -1606,6 +1625,41 @@ SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
     case BoxMissileLauncher:
       SER_MAYBE_RETURN(ser_f(ser, &e->missile_construction_charge));
       break;
+    case BoxLandingGear:
+    {
+      bool is_null = e->landed_constraint == NULL;
+      SER_VAR(&is_null);
+      if (!is_null)
+      {
+        EntityID from = {0};
+        EntityID to = {0};
+        cpVect pin = {0};
+        if (ser->serializing)
+        {
+          from = get_id(gs, cp_body_entity(cpConstraintGetBodyA(e->landed_constraint)));
+          to = get_id(gs, cp_body_entity(cpConstraintGetBodyB(e->landed_constraint)));
+          pin = cpPivotJointGetAnchorA(e->landed_constraint);
+        }
+        SER_MAYBE_RETURN(ser_entityid(ser, &from));
+        SER_MAYBE_RETURN(ser_entityid(ser, &to));
+        SER_MAYBE_RETURN(ser_V2(ser, &pin));
+        if (!ser->serializing)
+        {
+          Entity *from_entity = get_entity(gs, from);
+          Entity *to_entity = get_entity(gs, to);
+          if (from_entity == NULL || to_entity == NULL)
+          {
+          }
+          else
+          {
+            e->landed_constraint = cpPivotJointNew(from_entity->body, to_entity->body, pin);
+            cpSpaceAddConstraint(gs->space, e->landed_constraint);
+            on_create_constraint(e, e->landed_constraint);
+          }
+        }
+      }
+      break;
+    }
     default:
       break;
     }
@@ -2434,7 +2488,7 @@ void create_initial_world(GameState *gs)
   create_hard_shell_station(gs, (cpVect){-5.0, 5.0}, BoxCloaking);
 #endif
 
-#if 1 // scanner box
+#if 0 // scanner box
   bool indestructible = false;
   enum CompassRotation rot = Right;
   {
@@ -2456,6 +2510,29 @@ void create_initial_world(GameState *gs)
     entity_ensure_in_orbit(gs, grid);
   }
 
+#endif
+
+#if 1 // landing gear box
+  bool indestructible = false;
+  cpVect from = cpv(4.0 * BOX_SIZE, 0.0);
+  enum CompassRotation rot = Right;
+  {
+    Entity *grid = new_entity(gs);
+    grid_create(gs, grid);
+    entity_set_pos(grid, from);
+    BOX_AT_TYPE(grid, ((cpVect){0.0, 0.0}), BoxLandingGear);
+    // BOX_AT(grid, ((cpVect){0.0, -BOX_SIZE}));
+    // BOX_AT_TYPE(grid, ((cpVect){BOX_SIZE, 0.0}), BoxMerge);
+    entity_ensure_in_orbit(gs, grid);
+    cpBodySetVelocity(grid->body, cpv(0.1, 0.0));
+  }
+  {
+    Entity *grid = new_entity(gs);
+    grid_create(gs, grid);
+    entity_set_pos(grid, cpvadd(from, cpv(2.0 * BOX_SIZE, 0.0)));
+    BOX_AT_TYPE(grid, ((cpVect){0.0, 0.0}), BoxHullpiece);
+    entity_ensure_in_orbit(gs, grid);
+  }
 #endif
 
 #if 0  // merge box
@@ -3414,6 +3491,27 @@ void process(struct GameState *gs, double dt)
                 cur_box->scanner_head_rotate_speed = lerp(cur_box->scanner_head_rotate_speed, target_head_rotate_speed, dt * 3.0);
                 cur_box->scanner_head_rotate += cur_box->scanner_head_rotate_speed * dt;
                 cur_box->scanner_head_rotate = fmod(cur_box->scanner_head_rotate, 2.0 * PI);
+              }
+              if (cur_box->box_type == BoxLandingGear)
+              {
+                if (cur_box->landed_constraint == NULL)
+                {
+                  cpVect along = box_facing_vector(cur_box);
+                  cpVect from = cpvadd(entity_pos(cur_box), cpvmult(along, BOX_SIZE / 2.0 + 0.03));
+                  cpVect to = cpvadd(from, cpvmult(along, LANDING_GEAR_MAX_DIST));
+
+                  cpSegmentQueryInfo query_result = {0};
+                  cpShape *found = cpSpaceSegmentQueryFirst(gs->space, from, to, 0.0, FILTER_DEFAULT, &query_result);
+                  if (found != NULL && cpShapeGetBody(found) != box_grid(cur_box)->body)
+                  {
+                    cpVect anchor = cpvadd(entity_pos(cur_box), cpvmult(along, BOX_SIZE / 2.0));
+                    cpBody *a = box_grid(cur_box)->body;
+                    cpBody *b = cpShapeGetBody(found);
+                    cur_box->landed_constraint = cpPivotJointNew(a, b, anchor);
+                    cpSpaceAddConstraint(gs->space, cur_box->landed_constraint);
+                    on_create_constraint(cur_box, cur_box->landed_constraint);
+                  }
+                }
               }
             }
           }

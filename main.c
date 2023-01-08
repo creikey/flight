@@ -139,6 +139,7 @@ static sg_image image_noenergy;
 static sg_image image_orb;
 static sg_image image_orb_frozen;
 static sg_image image_radardot;
+static sg_image image_landing_gear;
 static sg_image image_pip;
 
 static sg_image fire_rendertarget;
@@ -231,6 +232,10 @@ static struct BoxInfo
     {
         .type = BoxMerge,
         .image_path = "loaded/merge.png",
+    },
+    {
+        .type = BoxLandingGear,
+        .image_path = "loaded/landing_gear.png",
     },
 };
 // suppress compiler warning about ^^ above used in floating point context
@@ -852,6 +857,7 @@ static void init(void)
     image_orb = load_image("loaded/orb.png");
     image_orb_frozen = load_image("loaded/orb_frozen.png");
     image_radardot = load_image("loaded/radardot.png");
+    image_landing_gear = load_image("loaded/landing_gear.png");
     image_pip = load_image("loaded/pip.png");
   }
 
