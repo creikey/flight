@@ -815,24 +815,22 @@ bool could_learn_from_scanner(Player *for_player, Entity *box)
   return (for_player->box_unlocks | box->blueprints_learned) != for_player->box_unlocks;
 }
 
+bool box_enterable(Entity *box)
+{
+  return box->box_type == BoxMedbay || box->box_type == BoxCockpit;
+}
+
 bool box_interactible(GameState *gs, Player *for_player, Entity *box)
 {
   flight_assert(box->is_box);
 
-  if (box->box_type == BoxCockpit || box->box_type == BoxMedbay)
+  if (box->box_type == BoxMerge)
   {
-    return true;
+    return merge_box_is_merged(gs, box);
   }
   else
   {
-    if (box->box_type == BoxMerge)
-    {
-      return merge_box_is_merged(gs, box);
-    }
-    else
-    {
-      return false;
-    }
+    return false;
   }
 }
 
@@ -1399,6 +1397,7 @@ SerMaybeFailure ser_inputframe(SerState *ser, InputFrame *i)
   SER_MAYBE_RETURN(ser_entityid(ser, &i->invite_this_player));
 
   SER_VAR(&i->seat_action);
+  SER_VAR(&i->interact_action);
   SER_MAYBE_RETURN(ser_fV2(ser, &i->hand_pos));
 
   SER_VAR(&i->dobuild);
@@ -2571,6 +2570,7 @@ void create_initial_world(GameState *gs)
 #endif // debug world
 }
 
+// does not actually set seat in variables so can be used on respawn
 void exit_seat(GameState *gs, Entity *seat_in, Entity *p)
 {
   cpVect pilot_seat_exit_spot = cpvadd(entity_pos(seat_in), cpvmult(box_facing_vector(seat_in), BOX_SIZE));
@@ -2727,7 +2727,31 @@ void process(struct GameState *gs, double dt)
         p->damage = 0.0;
 #endif
 #if 1
+
         cpVect world_hand_pos = get_world_hand_pos(gs, &player->input, p);
+        if(player->input.interact_action)
+        {
+          player->input.interact_action = false;
+          cpPointQueryInfo query_info = {0};
+          cpShape *result = cpSpacePointQueryNearest(gs->space, (world_hand_pos), 0.1, FILTER_ONLY_BOXES, &query_info);
+          if (result != NULL)
+          {
+            Entity *potential_seat = cp_shape_entity(result);
+            flight_assert(potential_seat->is_box);
+            
+            // IMPORTANT: if you update these, make sure you update box_interactible so
+            // the button prompt still works
+            if (potential_seat->box_type == BoxMerge) // disconnect!
+            {
+              potential_seat->wants_disconnect = true;
+              grid_correct_for_holes(gs, box_grid(potential_seat));
+              flight_assert(potential_seat->exists);
+              flight_assert(potential_seat->is_box);
+              flight_assert(potential_seat->box_type == BoxMerge);
+            }
+          }
+        }
+        
         if (player->input.seat_action)
         {
           player->input.seat_action = false; // "handle" the input
@@ -2740,21 +2764,8 @@ void process(struct GameState *gs, double dt)
             {
               Entity *potential_seat = cp_shape_entity(result);
               flight_assert(potential_seat->is_box);
-
-              // IMPORTANT: if you update these, make sure you update box_interactible so
+              // IMPORTANT: if you update these, make sure you update box_enterable so
               // the button prompt still works
-              if (potential_seat->box_type == BoxScanner) // learn everything from the scanner
-              {
-                player->box_unlocks |= potential_seat->blueprints_learned;
-              }
-              if (potential_seat->box_type == BoxMerge) // disconnect!
-              {
-                potential_seat->wants_disconnect = true;
-                grid_correct_for_holes(gs, box_grid(potential_seat));
-                flight_assert(potential_seat->exists);
-                flight_assert(potential_seat->is_box);
-                flight_assert(potential_seat->box_type == BoxMerge);
-              }
               if (potential_seat->box_type == BoxCockpit || potential_seat->box_type == BoxMedbay)
               {
                 // don't let players get inside of cockpits that somebody else is already inside of

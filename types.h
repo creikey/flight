@@ -250,6 +250,7 @@ typedef struct InputFrame
   bool reject_cur_squad_invite;
   EntityID invite_this_player; // null means inviting nobody! @Robust make it so just sends interact pos input, and server processes who to invite. This depends on client side prediction + proper input processing at the right tick.
 
+  bool interact_action;
   bool seat_action;
   cpVect hand_pos; // local to player transationally but not rotationally
 
@@ -550,6 +551,7 @@ Entity *get_entity(struct GameState *gs, EntityID id);
 Entity *new_entity(struct GameState *gs);
 EntityID get_id(struct GameState *gs, Entity *e);
 cpVect entity_pos(Entity *e);
+bool box_enterable(Entity *box);
 bool box_interactible(GameState *gs, Player *for_player, Entity *box);
 void entity_set_rotation(Entity *e, double rot);
 bool could_learn_from_scanner(Player *for_player, Entity *box);

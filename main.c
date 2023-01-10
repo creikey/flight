@@ -1695,6 +1695,7 @@ static void frame(void)
 
     build_pressed = mousepressed[SAPP_MOUSEBUTTON_LEFT].pressed;
     bool interact_pressed = mousepressed[SAPP_MOUSEBUTTON_RIGHT].pressed;
+    bool seat_pressed = keypressed[SAPP_KEYCODE_F].pressed;
 
     // networking
     PROFILE_SCOPE("networking")
@@ -1923,7 +1924,10 @@ static void frame(void)
         }
 
         if (interact_pressed)
-          cur_input_frame.seat_action = interact_pressed;
+          cur_input_frame.interact_action = interact_pressed;
+
+        if (seat_pressed)
+          cur_input_frame.seat_action = seat_pressed;
 
         cur_input_frame.hand_pos = local_hand_pos;
         if (take_over_squad >= 0)
@@ -2410,7 +2414,9 @@ static void frame(void)
                   set_color_values(1.0, 1.0, 1.0, 1.0 - b->sun_amount);
                 }
 
-                if (myplayer() != NULL && box_interactible(&gs, myplayer(), b))
+                bool interactible = box_interactible(&gs, myplayer(), b);
+                bool enterable = box_enterable(b);
+                if (myplayer() != NULL && interactible || enterable)
                 {
                   if (box_has_point((BoxCentered){
                                         .pos = entity_pos(b),
@@ -2425,7 +2431,15 @@ static void frame(void)
                     {
                       pipeline_scope(goodpixel_pipeline)
                       {
-                        sgp_set_image(0, image_rightclick);
+                        if (interactible)
+                        {
+                          sgp_set_image(0, image_rightclick);
+                        }
+                        else
+                        {
+                          flight_assert(enterable);
+                          sgp_set_image(0, image_enter_exit);
+                        }
                         cpVect draw_at = cpvadd(entity_pos(b), cpv(BOX_SIZE, 0));
                         rotate_at(-entity_rotation(b) - rotangle(b->compass_rotation), draw_at.x, draw_at.y);
                         draw_texture_centered(draw_at, BOX_SIZE + sin(exec_time * 5.0) * BOX_SIZE * 0.1);
