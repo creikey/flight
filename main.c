@@ -1064,9 +1064,12 @@ static void ui(bool draw, double dt, double width, double height)
 
   // draw pick new box type menu
   static double pick_opacity = 0.0;
+  static bool choosing_flags = false; // modifies choosing flags in pick box type modal
   {
     if (keypressed[SAPP_KEYCODE_ESCAPE].pressed)
       picking_new_boxtype = false;
+    if(picking_new_boxtype)
+      choosing_flags = false;
     AABB pick_modal = (AABB){
         .x = width * 0.25,
         .y = height * 0.25,
@@ -1074,19 +1077,10 @@ static void ui(bool draw, double dt, double width, double height)
         .height = height * 0.5,
     };
     pick_opacity = lerp(pick_opacity, picking_new_boxtype ? 1.0 : 0.0, dt * 7.0);
-    if (picking_new_boxtype)
+    if (picking_new_boxtype && build_pressed && !has_point(pick_modal, mouse_pos))
     {
-      if (build_pressed)
-      {
-        if (has_point(pick_modal, mouse_pos))
-        {
-        }
-        else
-        {
-          build_pressed = false;
-          picking_new_boxtype = false;
-        }
-      }
+      build_pressed = false;
+      picking_new_boxtype = false;
     }
     static double item_scaling[ARRLEN(boxes)] = {1.0};
     {
@@ -1157,6 +1151,10 @@ static void ui(bool draw, double dt, double width, double height)
 
         cur_column++;
       }
+    }
+    if (picking_new_boxtype && build_pressed && has_point(pick_modal, mouse_pos))
+    {
+      build_pressed = false; // modal handles the input
     }
   }
 
@@ -1294,7 +1292,6 @@ static void ui(bool draw, double dt, double width, double height)
   static cpVect flag_pos[SquadLast] = {0};
   static double flag_rot[SquadLast] = {0};
   static double flag_scaling_increase[SquadLast] = {0};
-  static bool choosing_flags = false;
   const double flag_padding = 70.0;
   const double center_panel_height = 200.0;
   static double center_panel_width = 0.0;
