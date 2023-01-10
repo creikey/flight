@@ -1164,8 +1164,7 @@ static void ui(bool draw, double dt, double width, double height)
   static double yes_size = 50.0;
   static double no_size = 50.0;
   {
-    bool invited =
-        myentity() != NULL && myentity()->squad_invited_to != SquadNone;
+    bool invited = myentity() != NULL && myentity()->squad_invited_to != SquadNone;
     double size = 200.0;
     double x_center = 0.75 * width;
     double x = x_center - size / 2.0;
