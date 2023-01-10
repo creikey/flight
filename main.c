@@ -76,7 +76,6 @@ static double dilating_time_factor = 1.0;
 
 static bool build_pressed = false;
 static double time_to_process = 0.0;
-static bool interact_pressed = false;
 #define MAX_MOUSEBUTTON (SAPP_MOUSEBUTTON_MIDDLE + 1)
 static bool mousedown[MAX_MOUSEBUTTON] = {0};
 typedef struct MousePressed
@@ -141,6 +140,7 @@ static sg_image image_orb_frozen;
 static sg_image image_radardot;
 static sg_image image_landing_gear;
 static sg_image image_pip;
+static sg_image image_enter_exit;
 
 static sg_image fire_rendertarget;
 static sg_pass fire_pass;
@@ -859,6 +859,7 @@ static void init(void)
     image_radardot = load_image("loaded/radardot.png");
     image_landing_gear = load_image("loaded/landing_gear.png");
     image_pip = load_image("loaded/pip.png");
+    image_enter_exit = load_image("loaded/enter_exit.png");
   }
 
   // socket initialization
@@ -1693,7 +1694,7 @@ static void frame(void)
     }
 
     build_pressed = mousepressed[SAPP_MOUSEBUTTON_LEFT].pressed;
-    interact_pressed = mousepressed[SAPP_MOUSEBUTTON_RIGHT].pressed;
+    bool interact_pressed = mousepressed[SAPP_MOUSEBUTTON_RIGHT].pressed;
 
     // networking
     PROFILE_SCOPE("networking")
