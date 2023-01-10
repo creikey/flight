@@ -409,7 +409,7 @@ LauncherTarget missile_launcher_target(GameState *gs, Entity *launcher)
 
 void destroy_constraints(cpBody *body, cpConstraint *constraint, void *data)
 {
-  ((Entity*)cpConstraintGetUserData(constraint))->landed_constraint = NULL;
+  ((Entity *)cpConstraintGetUserData(constraint))->landed_constraint = NULL;
   cpSpaceRemoveConstraint(cpBodyGetSpace(body), constraint);
   cpConstraintFree(constraint);
 }
@@ -463,8 +463,8 @@ void entity_memory_free(GameState *gs, Entity *e)
   if (e->body != NULL)
   {
     // need to do this here because body which constraint is attached to can be destroyed
-		// NOT TRUE: can't do this here because the handle to the constraint cannot be set to NULL. Constraints are freed by the entities that own them
-    cpBodyEachConstraint(e->body, destroy_constraints, NULL); 
+    // NOT TRUE: can't do this here because the handle to the constraint cannot be set to NULL. Constraints are freed by the entities that own them
+    cpBodyEachConstraint(e->body, destroy_constraints, NULL);
     cpBodyEachShape(e->body, destroy_child_shape, (void *)gs);
     cpSpaceRemoveBody(gs->space, e->body);
     cpBodyFree(e->body);
@@ -534,7 +534,7 @@ void create_body(GameState *gs, Entity *e)
 }
 
 // must always call this after creating a constraint
-void on_create_constraint(Entity *e, cpConstraint* c)
+void on_create_constraint(Entity *e, cpConstraint *c)
 {
   cpConstraintSetUserData(c, (cpDataPointer)e);
 }
@@ -2729,7 +2729,7 @@ void process(struct GameState *gs, double dt)
 #if 1
 
         cpVect world_hand_pos = get_world_hand_pos(gs, &player->input, p);
-        if(player->input.interact_action)
+        if (player->input.interact_action)
         {
           player->input.interact_action = false;
           cpPointQueryInfo query_info = {0};
@@ -2738,7 +2738,7 @@ void process(struct GameState *gs, double dt)
           {
             Entity *potential_seat = cp_shape_entity(result);
             flight_assert(potential_seat->is_box);
-            
+
             // IMPORTANT: if you update these, make sure you update box_interactible so
             // the button prompt still works
             if (potential_seat->box_type == BoxMerge) // disconnect!
@@ -2751,7 +2751,7 @@ void process(struct GameState *gs, double dt)
             }
           }
         }
-        
+
         if (player->input.seat_action)
         {
           player->input.seat_action = false; // "handle" the input
@@ -2945,6 +2945,7 @@ void process(struct GameState *gs, double dt)
     PROFILE_SCOPE("process entities")
     {
       ENTITIES_ITER(gs, e)
+      if (!e->flag_for_destruction)
       {
         if (e->body != NULL && cpvlengthsq((entity_pos(e))) > (INSTANT_DEATH_DISTANCE_FROM_CENTER * INSTANT_DEATH_DISTANCE_FROM_CENTER))
         {
