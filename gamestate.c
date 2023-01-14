@@ -2453,6 +2453,7 @@ void create_initial_world(GameState *gs)
   }
 #define SUN_POS(index) (entity_pos(get_entity(gs, suns[index])))
   create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(0.0, 300.0)), BoxExplosive);
+  create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(-300.0, 0.0)), BoxLandingGear);
   create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(0.0, -300.0)), BoxCloaking);
   create_bomb_station(gs, cpvadd(SUN_POS(0), cpv(300.0, 0.0)), BoxMissileLauncher);
   create_bomb_station(gs, cpvadd(SUN_POS(1), cpv(0.0, 300.0)), BoxMerge);
@@ -3397,6 +3398,7 @@ void process(struct GameState *gs, double dt)
                           detections[detections_i].used_in_scanner_closest_lightning_bolts = true;
                           cur_box->detected_platonics[i] = detections[detections_i];
                           cur_box->detected_platonics[i].intensity = max(0.1, 1.0 - clamp01(cur_box->detected_platonics[i].intensity / 100.0));
+                          break;
                         }
                       }
                     }
@@ -3447,7 +3449,6 @@ void process(struct GameState *gs, double dt)
                             if (cur_potential_platonic->is_platonic)
                             {
                               kind = Platonic;
-                              break;
                             }
                           }
                         }
