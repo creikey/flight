@@ -842,11 +842,16 @@ bool box_enterable(Entity *box)
 
 bool box_interactible(GameState *gs, Player *for_player, Entity *box)
 {
+  (void)for_player; // make sure to handle case where for_player is NULL if you end up using this variable
   flight_assert(box->is_box);
 
   if (box->box_type == BoxMerge)
   {
     return merge_box_is_merged(gs, box);
+  }
+  else if (box->box_type == BoxLandingGear)
+  {
+    return box->sees_possible_landing || box->landed_constraint != NULL;
   }
   else
   {
@@ -2738,6 +2743,10 @@ void process(struct GameState *gs, double dt)
               flight_assert(potential_seat->is_box);
               flight_assert(potential_seat->box_type == BoxMerge);
             }
+            if (potential_seat->box_type == BoxLandingGear)
+            {
+              potential_seat->toggle_landing = true;
+            }
           }
         }
 
@@ -3498,6 +3507,7 @@ void process(struct GameState *gs, double dt)
               }
               if (cur_box->box_type == BoxLandingGear)
               {
+                cur_box->sees_possible_landing = false; // false by default, if codepath which binds it sees landing it is set to true
                 cpVect landing_point = cpvadd(entity_pos(cur_box), cpvmult(box_facing_vector(cur_box), BOX_SIZE / 2.0));
                 Entity *must_have_shape = get_entity(gs, cur_box->shape_to_land_on);
                 bool want_have_constraint = true;
@@ -3510,11 +3520,13 @@ void process(struct GameState *gs, double dt)
                 if (want_have_constraint)
                   want_have_constraint &= cpvdist(entity_pos(must_have_shape), landing_point) < BOX_SIZE + LANDING_GEAR_MAX_DIST;
 
+                  // maybe merge all codepaths that delete constraint into one somehow, but seems hard
 #define DELETE_CONSTRAINT(constraint)               \
   {                                                 \
     cpSpaceRemoveConstraint(gs->space, constraint); \
     cpConstraintFree(constraint);                   \
     constraint = NULL;                              \
+    cur_box->shape_to_land_on = (EntityID){0};      \
   }
                 if (want_have_constraint)
                 {
@@ -3531,6 +3543,10 @@ void process(struct GameState *gs, double dt)
                     cpSpaceAddConstraint(gs->space, cur_box->landed_constraint);
                     on_create_constraint(cur_box, cur_box->landed_constraint);
                   }
+                  if (cur_box->toggle_landing)
+                  {
+                    DELETE_CONSTRAINT(cur_box->landed_constraint);
+                  }
                 }
                 else
                 {
@@ -3538,7 +3554,6 @@ void process(struct GameState *gs, double dt)
                   {
                     DELETE_CONSTRAINT(cur_box->landed_constraint);
                   }
-                  cur_box->shape_to_land_on = (EntityID){0};
 
                   // maybe see something to land on
                   cpVect along = box_facing_vector(cur_box);
@@ -3549,9 +3564,13 @@ void process(struct GameState *gs, double dt)
                   cpShape *found = cpSpaceSegmentQueryFirst(gs->space, from, to, 0.0, FILTER_DEFAULT, &query_result);
                   if (found != NULL && cpShapeGetBody(found) != box_grid(cur_box)->body)
                   {
-                    cur_box->shape_to_land_on = get_id(gs, cp_shape_entity(found));
+                    cur_box->sees_possible_landing = true;
+                    if (cur_box->toggle_landing)
+                      cur_box->shape_to_land_on = get_id(gs, cp_shape_entity(found));
                   }
                 }
+
+                cur_box->toggle_landing = false; // handle it
               }
             }
           }

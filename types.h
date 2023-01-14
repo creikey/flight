@@ -382,6 +382,8 @@ typedef struct Entity
   cpConstraint *landed_constraint; // when not null, landing gear landed on something. Only valid while shape_to_land_on is a valid reference
   // to land, set this to the shape to land on. A constraint will be created if it is valid. If it's not, it will be zerod
   EntityID shape_to_land_on; // checked for surface distance to make sure is valid
+  bool toggle_landing; // set when player commands landing gear to toggle landing state
+  bool sees_possible_landing; // set while processing, used to cosmetically show that the landing gear can be toggled
 
   PlatonicDetection detected_platonics[SCANNER_MAX_PLATONICS]; // intensity of 0.0 means undetected
 

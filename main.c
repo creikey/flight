@@ -138,7 +138,9 @@ static sg_image image_noenergy;
 static sg_image image_orb;
 static sg_image image_orb_frozen;
 static sg_image image_radardot;
-static sg_image image_landing_gear;
+static sg_image image_landing_gear_landed;
+static sg_image image_landing_gear_could_land;
+static sg_image image_landing_gear_cant_land;
 static sg_image image_pip;
 static sg_image image_enter_exit;
 
@@ -857,7 +859,9 @@ static void init(void)
     image_orb = load_image("loaded/orb.png");
     image_orb_frozen = load_image("loaded/orb_frozen.png");
     image_radardot = load_image("loaded/radardot.png");
-    image_landing_gear = load_image("loaded/landing_gear.png");
+    image_landing_gear_landed = load_image("loaded/landing_gear_landed.png");
+    image_landing_gear_could_land = load_image("loaded/landing_gear_could_land.png");
+    image_landing_gear_cant_land = load_image("loaded/landing_gear_cant_land.png");
     image_pip = load_image("loaded/pip.png");
     image_enter_exit = load_image("loaded/enter_exit.png");
   }
@@ -1068,7 +1072,7 @@ static void ui(bool draw, double dt, double width, double height)
   {
     if (keypressed[SAPP_KEYCODE_ESCAPE].pressed)
       picking_new_boxtype = false;
-    if(picking_new_boxtype)
+    if (picking_new_boxtype)
       choosing_flags = false;
     AABB pick_modal = (AABB){
         .x = width * 0.25,
@@ -2400,6 +2404,21 @@ static void frame(void)
                   if (get_entity(&gs, b->player_who_is_inside_of_me) != NULL)
                     img = image_medbay_used;
                 }
+                if (b->box_type == BoxLandingGear)
+                {
+                  if (b->landed_constraint != NULL)
+                  {
+                    img = image_landing_gear_landed;
+                  }
+                  else if (box_interactible(&gs, myplayer(), b))
+                  {
+                    img = image_landing_gear_could_land;
+                  }
+                  else
+                  {
+                    img = image_landing_gear_cant_land;
+                  }
+                }
                 if (b->box_type == BoxSolarPanel)
                 {
                   sgp_set_image(0, image_solarpanel_charging);
@@ -2412,7 +2431,7 @@ static void frame(void)
 
                 bool interactible = box_interactible(&gs, myplayer(), b);
                 bool enterable = box_enterable(b);
-                if (myplayer() != NULL && interactible || enterable)
+                if ((myplayer() != NULL && interactible) || enterable)
                 {
                   if (box_has_point((BoxCentered){
                                         .pos = entity_pos(b),
@@ -2468,7 +2487,7 @@ static void frame(void)
                 else
                 {
                   pipeline_scope(goodpixel_pipeline)
-                    draw_texture_centered(entity_pos(b), BOX_SIZE);
+                      draw_texture_centered(entity_pos(b), BOX_SIZE);
                 }
                 sgp_reset_image(0);
 
@@ -2803,10 +2822,10 @@ void cleanup(void)
   server_info.should_quit = true;
   ma_mutex_unlock(&server_info.info_mutex);
   WaitForSingleObject(server_thread_handle, INFINITE);
-  
+
   destroy(&gs);
   free(gs.entities);
-  
+
   end_profiling_mythread();
   end_profiling();
 
@@ -2818,7 +2837,7 @@ void cleanup(void)
 
   opus_encoder_destroy(enc);
   opus_decoder_destroy(dec);
-  
+
   sgp_shutdown();
   sg_shutdown();
   enet_deinitialize();
@@ -2957,12 +2976,12 @@ sapp_desc sokol_main(int argc, char *argv[])
       .window_title = "Flight Not Hosting",
       .icon.sokol_default = true,
       .event_cb = event,
-  #ifdef CONSOLE_CREATE
+#ifdef CONSOLE_CREATE
       .win32_console_create = true,
-  #endif
-  #ifdef CONSOLE_ATTACH
+#endif
+#ifdef CONSOLE_ATTACH
       .win32_console_attach = true,
-  #endif
+#endif
       .sample_count = 4, // anti aliasing
   };
 }
