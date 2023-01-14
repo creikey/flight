@@ -40,7 +40,7 @@ void server(void *info_raw)
 
   struct GameState gs = {0};
   size_t entities_size = (sizeof(Entity) * MAX_ENTITIES);
-  Entity *entity_data = malloc(entities_size);
+  Entity *entity_data = calloc(1, entities_size);
   initialize(&gs, entity_data, entities_size);
   gs.server_side_computing = true;
   Log("Allocated %zu bytes for entities\n", entities_size);
@@ -64,7 +64,7 @@ void server(void *info_raw)
   if (world_save_name != NULL)
   {
     size_t read_game_data_buffer_size = entities_size;
-    unsigned char *read_game_data = malloc(read_game_data_buffer_size);
+    unsigned char *read_game_data = calloc(1, read_game_data_buffer_size);
 
     FILE *file = NULL;
     fopen_s(&file, (const char *)world_save_name, "rb");
@@ -139,7 +139,7 @@ void server(void *info_raw)
   uint64_t last_sent_gamestate_time = stm_now();
   double audio_time_to_send = 0.0;
   double total_time = 0.0;
-  unsigned char *world_save_buffer = malloc(entities_size);
+  unsigned char *world_save_buffer = calloc(1, entities_size);
   PROFILE_SCOPE("Serving")
   {
     while (true)
@@ -422,8 +422,8 @@ void server(void *info_raw)
             if (this_player_entity == NULL)
               continue;
             // @Speed don't recreate the packet for every peer, gets expensive copying gamestate over and over again
-            unsigned char *bytes_buffer = malloc(sizeof *bytes_buffer * MAX_SERVER_TO_CLIENT);
-            unsigned char *compressed_buffer = malloc(sizeof *compressed_buffer * MAX_SERVER_TO_CLIENT);
+            unsigned char *bytes_buffer = calloc(1, sizeof *bytes_buffer * MAX_SERVER_TO_CLIENT);
+            unsigned char *compressed_buffer = calloc(1, sizeof *compressed_buffer * MAX_SERVER_TO_CLIENT);
 
             // mix audio to be sent
             VOIP_QUEUE_DECL(buffer_to_play, buffer_to_play_data);

@@ -17,14 +17,17 @@ popd
 
 @REM /DENET_DEBUG=1^
 clang -target x86_64-pc-windows-elf -c^
+  -DDEBUG^
   -I"thirdparty" -I"thirdparty\minilzo" -I"thirdparty\enet\include" -I"thirdparty\Chipmunk2D\include\chipmunk" -I"thirdparty\Chipmunk2D\include" -I"thirdparty\opus\include" -I"thirdparty\opus\src"^
-  %MUNKSRC%
+  %MUNKSRC%^
+  gamestate.c
+
 
 rmdir /S /Q elf_objects
 mkdir elf_objects
 move *.o elf_objects
 
-  @REM main.c gamestate.c server.c debugdraw.c^
-  @REM thirdparty\minilzo\minilzo.c^
-  @REM %OPUSLIB%
-  @REM thirdparty\enet\callbacks.c thirdparty\enet\compress.c thirdparty\enet\host.c thirdparty\enet\list.c thirdparty\enet\packet.c thirdparty\enet\peer.c thirdparty\enet\protocol.c thirdparty\enet\win32.c Ws2_32.lib winmm.lib^
+@REM main.c gamestate.c server.c debugdraw.c^
+@REM thirdparty\minilzo\minilzo.c^
+@REM %OPUSLIB%
+@REM thirdparty\enet\callbacks.c thirdparty\enet\compress.c thirdparty\enet\host.c thirdparty\enet\list.c thirdparty\enet\packet.c thirdparty\enet\peer.c thirdparty\enet\protocol.c thirdparty\enet\win32.c Ws2_32.lib winmm.lib^

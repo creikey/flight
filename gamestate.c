@@ -430,6 +430,19 @@ void destroy_child_shape(cpBody *body, cpShape *shape, void *data)
   }
 }
 
+void entity_free_allocated(Entity *e)
+{
+#define MAYBE_FREE(variable, free_call) \
+  if (variable != NULL)                 \
+  {                                     \
+    free_call(variable);                \
+    variable = NULL;                    \
+  }
+  MAYBE_FREE(e->shape, cpShapeFree);
+  MAYBE_FREE(e->body, cpBodyFree);
+  MAYBE_FREE(e->landed_constraint, cpConstraintFree);
+}
+
 // Destroys the entity and puts its slot back into the free list. Doesn't obey game rules
 // like making sure grids don't have holes in them, for that you want entity_destroy.
 // *Does* free all owned memory/entities though, e.g grids free the boxes they own.
@@ -451,14 +464,10 @@ void entity_memory_free(GameState *gs, Entity *e)
   if (e->shape != NULL)
   {
     cpSpaceRemoveShape(gs->space, e->shape);
-    cpShapeFree(e->shape);
-    e->shape = NULL;
   }
   if (e->landed_constraint != NULL)
   {
     cpSpaceRemoveConstraint(gs->space, e->landed_constraint);
-    cpConstraintFree(e->landed_constraint);
-    e->landed_constraint = NULL;
   }
   if (e->body != NULL)
   {
@@ -467,9 +476,8 @@ void entity_memory_free(GameState *gs, Entity *e)
     cpBodyEachConstraint(e->body, destroy_constraints, NULL);
     cpBodyEachShape(e->body, destroy_child_shape, (void *)gs);
     cpSpaceRemoveBody(gs->space, e->body);
-    cpBodyFree(e->body);
-    e->body = NULL;
   }
+  entity_free_allocated(e);
   Entity *front_of_free_list = get_entity(gs, gs->free_list);
   if (front_of_free_list != NULL)
     flight_assert(!front_of_free_list->exists);
@@ -595,29 +603,41 @@ static const cpShapeFilter FILTER_DEFAULT = {CP_NO_GROUP, DEFAULT, CP_ALL_CATEGO
 // size is (1/2 the width, 1/2 the height)
 void create_rectangle_shape(GameState *gs, Entity *e, Entity *parent, cpVect pos, cpVect size, double mass)
 {
-  // @Robust remove this garbage
-  if (e->shape != NULL)
+  PROFILE_SCOPE("Create rectangle shape")
   {
-    cpSpaceRemoveShape(gs->space, e->shape);
-    cpShapeFree(e->shape);
-    e->shape = NULL;
+    // @Robust remove this garbage
+    if (e->shape != NULL)
+    {
+      PROFILE_SCOPE("Freeing shape")
+      {
+        cpSpaceRemoveShape(gs->space, e->shape);
+        cpShapeFree(e->shape);
+        e->shape = NULL;
+      }
+    }
+
+    cpBB box = cpBBNew(-size.x + pos.x, -size.y + pos.y, size.x + pos.x, size.y + pos.y);
+    cpVect verts[4] = {
+        cpv(box.r, box.b),
+        cpv(box.r, box.t),
+        cpv(box.l, box.t),
+        cpv(box.l, box.b),
+    };
+
+    e->shape_size = size;
+    e->shape_parent_entity = get_id(gs, parent);
+    e->shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), parent->body, 4, verts, 0.0); // this cast is done in chipmunk, not sure why it works
+    cpShapeSetUserData(e->shape, (void *)e);
+    PROFILE_SCOPE("Setting mass")
+    {
+      cpShapeSetMass(e->shape, mass);
+    }
+    PROFILE_SCOPE("Adding shape")
+    {
+      cpSpaceAddShape(gs->space, e->shape);
+    }
+    cpShapeSetFilter(e->shape, FILTER_DEFAULT);
   }
-
-  cpBB box = cpBBNew(-size.x + pos.x, -size.y + pos.y, size.x + pos.x, size.y + pos.y);
-  cpVect verts[4] = {
-      cpv(box.r, box.b),
-      cpv(box.r, box.t),
-      cpv(box.l, box.t),
-      cpv(box.l, box.b),
-  };
-
-  e->shape_size = size;
-  e->shape_parent_entity = get_id(gs, parent);
-  e->shape = (cpShape *)cpPolyShapeInitRaw(cpPolyShapeAlloc(), parent->body, 4, verts, 0.0); // this cast is done in chipmunk, not sure why it works
-  cpShapeSetUserData(e->shape, (void *)e);
-  cpShapeSetMass(e->shape, mass);
-  cpSpaceAddShape(gs->space, e->shape);
-  cpShapeSetFilter(e->shape, FILTER_DEFAULT);
 }
 void create_circle_shape(GameState *gs, Entity *e, double radius)
 {
@@ -1016,9 +1036,6 @@ static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
     }
   }
 
-  // if(entity_a->is_missile) {getPointFunc = cpArbiterGetPointA;
-  // if(entity_b->is_missile) getPointFunc = cpArbiterGetPointB;
-
   double damage = cpvlength((cpArbiterTotalImpulse(arb))) * COLLISION_DAMAGE_SCALING;
 
   if (entity_a->is_box && entity_a->box_type == BoxExplosive)
@@ -1028,45 +1045,45 @@ static void on_damage(cpArbiter *arb, cpSpace *space, cpDataPointer userData)
 
   if (damage > 0.05)
   {
-    // Log("Collision with damage %f\n", damage);
     entity_a->damage += damage;
     entity_b->damage += damage;
   }
-
-  // b must be the key passed into the post step removed, the key is cast into its shape
-  // cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, b, NULL);
-  // cpSpaceAddPostStepCallback(space, (cpPostStepFunc)postStepRemove, a, NULL);
 }
 
 // must be called with zero initialized game state, because copies the server side computing!
 void initialize(GameState *gs, void *entity_arena, size_t entity_arena_size)
 {
-  bool is_server_side = gs->server_side_computing;
-  *gs = (GameState){0};
-  memset(entity_arena, 0, entity_arena_size); // SUPER critical. Random vals in the entity data causes big problem
-  gs->entities = (Entity *)entity_arena;
-  gs->max_entities = (unsigned int)(entity_arena_size / sizeof(Entity));
-  gs->space = cpSpaceNew();
-  cpSpaceSetUserData(gs->space, (cpDataPointer)gs); // needed in the handler
-  cpCollisionHandler *handler = cpSpaceAddCollisionHandler(gs->space, 0, 0);
-  handler->postSolveFunc = on_damage;
-  gs->server_side_computing = is_server_side;
+  PROFILE_SCOPE("Initialize")
+  {
+    bool is_server_side = gs->server_side_computing;
+    *gs = (GameState){0};
+    gs->entities = (Entity *)entity_arena;
+    gs->max_entities = (unsigned int)(entity_arena_size / sizeof(Entity));
+    gs->space = cpSpaceNew();
+    cpSpaceSetUserData(gs->space, (cpDataPointer)gs); // needed in the handler
+    cpCollisionHandler *handler = cpSpaceAddCollisionHandler(gs->space, 0, 0);
+    handler->postSolveFunc = on_damage;
+    gs->server_side_computing = is_server_side;
+  }
 }
 void destroy(GameState *gs)
 {
-  // can't zero out gs data because the entity memory arena is reused
-  // on deserialization
-  for (size_t i = 0; i < gs->cur_next_entity; i++)
+  PROFILE_SCOPE("Destroy")
   {
-    if (gs->entities[i].exists)
+    // can't zero out gs data because the entity memory arena is reused
+    // on deserialization
+    for (size_t i = 0; i < gs->cur_next_entity; i++)
     {
-      entity_memory_free(gs, &gs->entities[i]);
-      gs->entities[i] = (Entity){0};
+      if (gs->entities[i].exists)
+      {
+        entity_free_allocated(&gs->entities[i]);
+        gs->entities[i] = (Entity){0}; // IMPORTANT expects zeroed for initialize
+      }
     }
+    cpSpaceFree(gs->space);
+    gs->space = NULL;
+    gs->cur_next_entity = 0;
   }
-  cpSpaceFree(gs->space);
-  gs->space = NULL;
-  gs->cur_next_entity = 0;
 }
 // center of mass, not the literal position
 cpVect grid_com(Entity *grid)
@@ -1435,235 +1452,207 @@ SerMaybeFailure ser_player(SerState *ser, Player *p)
 
 SerMaybeFailure ser_entity(SerState *ser, GameState *gs, Entity *e)
 {
-  SER_VAR(&e->no_save_to_disk);
-  SER_VAR(&e->always_visible);
-  SER_VAR(&e->generation);
-  SER_MAYBE_RETURN(ser_f(ser, &e->damage));
-
-  bool has_body = ser->serializing && e->body != NULL;
-  SER_VAR(&has_body);
-
-  if (has_body)
+  PROFILE_SCOPE("Ser entity")
   {
-    struct BodyData body_data;
-    if (ser->serializing)
-      populate(e->body, &body_data);
-    SER_MAYBE_RETURN(ser_bodydata(ser, &body_data));
-    if (!ser->serializing)
-    {
-      create_body(gs, e);
-      update_from(e->body, &body_data);
-    }
-  }
+    SER_VAR(&e->no_save_to_disk);
+    SER_VAR(&e->always_visible);
+    SER_VAR(&e->generation);
+    SER_MAYBE_RETURN(ser_f(ser, &e->damage));
 
-  bool has_shape = ser->serializing && e->shape != NULL;
-  SER_VAR(&has_shape);
-  if (has_shape)
-  {
-    SER_VAR(&e->is_circle_shape);
-    if (e->is_circle_shape)
+    bool has_body = ser->serializing && e->body != NULL;
+    SER_VAR(&has_body);
+
+    if (has_body)
     {
-      SER_MAYBE_RETURN(ser_f(ser, &e->shape_radius));
-    }
-    else
-    {
-      SER_MAYBE_RETURN(ser_fV2(ser, &e->shape_size));
+      struct BodyData body_data;
+      if (ser->serializing)
+        populate(e->body, &body_data);
+      SER_MAYBE_RETURN(ser_bodydata(ser, &body_data));
+      if (!ser->serializing)
+      {
+        create_body(gs, e);
+        update_from(e->body, &body_data);
+      }
     }
 
-    SER_MAYBE_RETURN(ser_entityid(ser, &e->shape_parent_entity));
-    Entity *parent = get_entity(gs, e->shape_parent_entity);
-    SER_ASSERT(parent != NULL);
-
-    cpVect shape_pos;
-    if (ser->serializing)
-      shape_pos = entity_shape_pos(e);
-    SER_MAYBE_RETURN(ser_fV2(ser, &shape_pos));
-
-    double shape_mass;
-    if (ser->serializing)
-      shape_mass = entity_shape_mass(e);
-    SER_VAR(&shape_mass);
-    SER_ASSERT(!isnan(shape_mass));
-
-    cpShapeFilter filter;
-    if (ser->serializing)
+    bool has_shape = ser->serializing && e->shape != NULL;
+    SER_VAR(&has_shape);
+    if (has_shape)
     {
-      filter = cpShapeGetFilter(e->shape);
-    }
-    SER_VAR(&filter.categories);
-    SER_VAR(&filter.group);
-    SER_VAR(&filter.mask);
-    if (!ser->serializing)
-    {
+      SER_VAR(&e->is_circle_shape);
       if (e->is_circle_shape)
       {
-        create_circle_shape(gs, e, e->shape_radius);
+        SER_MAYBE_RETURN(ser_f(ser, &e->shape_radius));
       }
       else
       {
-        create_rectangle_shape(gs, e, parent, shape_pos, e->shape_size, shape_mass);
+        SER_MAYBE_RETURN(ser_fV2(ser, &e->shape_size));
       }
-      cpShapeSetFilter(e->shape, filter);
+
+      SER_MAYBE_RETURN(ser_entityid(ser, &e->shape_parent_entity));
+      Entity *parent = get_entity(gs, e->shape_parent_entity);
+      SER_ASSERT(parent != NULL);
+
+      cpVect shape_pos;
+      if (ser->serializing)
+        shape_pos = entity_shape_pos(e);
+      SER_MAYBE_RETURN(ser_fV2(ser, &shape_pos));
+
+      double shape_mass;
+      if (ser->serializing)
+        shape_mass = entity_shape_mass(e);
+      SER_VAR(&shape_mass);
+      SER_ASSERT(!isnan(shape_mass));
+
+      cpShapeFilter filter;
+      if (ser->serializing)
+      {
+        filter = cpShapeGetFilter(e->shape);
+      }
+      SER_VAR(&filter.categories);
+      SER_VAR(&filter.group);
+      SER_VAR(&filter.mask);
+      if (!ser->serializing)
+      {
+        if (e->is_circle_shape)
+        {
+          create_circle_shape(gs, e, e->shape_radius);
+        }
+        else
+        {
+          create_rectangle_shape(gs, e, parent, shape_pos, e->shape_size, shape_mass);
+        }
+        cpShapeSetFilter(e->shape, filter);
+      }
     }
-  }
 
-  if (!ser->save_or_load_from_disk)
-  {
-    SER_MAYBE_RETURN(ser_f(ser, &e->time_was_last_cloaked));
-  }
-
-  SER_VAR(&e->owning_squad);
-
-  SER_VAR(&e->is_player);
-  if (e->is_player)
-  {
-    SER_ASSERT(e->no_save_to_disk);
-
-    SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
-    SER_VAR(&e->squad_invited_to);
-
-    if (ser->version < VNoGold)
+    if (!ser->save_or_load_from_disk)
     {
-      double goldness;
-      SER_VAR_NAME(&goldness, "&e->goldness");
+      SER_MAYBE_RETURN(ser_f(ser, &e->time_was_last_cloaked));
     }
-  }
-
-  SER_VAR(&e->is_explosion);
-  if (e->is_explosion)
-  {
-    SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_pos));
-    SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_vel));
-    SER_MAYBE_RETURN(ser_f(ser, &e->explosion_progress));
-    SER_MAYBE_RETURN(ser_f(ser, &e->explosion_push_strength));
-    SER_MAYBE_RETURN(ser_f(ser, &e->explosion_radius));
-  }
-
-  SER_VAR(&e->is_sun);
-  if (e->is_sun)
-  {
-    SER_MAYBE_RETURN(ser_V2(ser, &e->sun_vel));
-    SER_MAYBE_RETURN(ser_V2(ser, &e->sun_pos));
-    SER_MAYBE_RETURN(ser_f(ser, &e->sun_mass));
-    SER_MAYBE_RETURN(ser_f(ser, &e->sun_radius));
-    if (ser->version >= VSafeSun)
-      SER_VAR(&e->sun_is_safe);
-  }
-
-  SER_VAR(&e->is_grid);
-  if (e->is_grid)
-  {
-    SER_MAYBE_RETURN(ser_f(ser, &e->total_energy_capacity));
-    SER_MAYBE_RETURN(ser_entityid(ser, &e->boxes));
-  }
-
-  SER_VAR(&e->is_missile);
-  if (e->is_missile)
-  {
-    SER_MAYBE_RETURN(ser_f(ser, &e->time_burned_for));
-  }
-
-  SER_VAR(&e->is_orb);
-  if (e->is_orb)
-  {
-  }
-
-  SER_VAR(&e->is_box);
-  if (e->is_box)
-  {
-    SER_VAR(&e->box_type);
-    SER_VAR(&e->is_platonic);
 
     SER_VAR(&e->owning_squad);
 
-    SER_MAYBE_RETURN(ser_entityid(ser, &e->next_box));
-    SER_MAYBE_RETURN(ser_entityid(ser, &e->prev_box));
-    SER_VAR(&e->compass_rotation);
-    SER_VAR(&e->indestructible);
-    switch (e->box_type)
+    SER_VAR(&e->is_player);
+    if (e->is_player)
     {
-    case BoxMedbay:
-    case BoxCockpit:
-      if (!ser->save_or_load_from_disk)
-        SER_MAYBE_RETURN(ser_entityid(ser, &e->player_who_is_inside_of_me));
-      break;
-    case BoxThruster:
-      SER_MAYBE_RETURN(ser_f(ser, &e->thrust));
-      SER_MAYBE_RETURN(ser_f(ser, &e->wanted_thrust));
-      break;
-    case BoxGyroscope:
-      SER_MAYBE_RETURN(ser_f(ser, &e->thrust));
-      SER_MAYBE_RETURN(ser_f(ser, &e->wanted_thrust));
-      SER_MAYBE_RETURN(ser_f(ser, &e->gyrospin_angle));
-      SER_MAYBE_RETURN(ser_f(ser, &e->gyrospin_velocity));
-      break;
-    case BoxBattery:
-      SER_MAYBE_RETURN(ser_f(ser, &e->energy_used));
-      break;
-    case BoxSolarPanel:
-      SER_MAYBE_RETURN(ser_f(ser, &e->sun_amount));
-      break;
-    case BoxScanner:
-      SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_scanning));
-      SER_MAYBE_RETURN(ser_f(ser, &e->currently_scanning_progress));
-      SER_VAR(&e->blueprints_learned);
-      SER_MAYBE_RETURN(ser_f(ser, &e->scanner_head_rotate));
-      for (int i = 0; i < SCANNER_MAX_PLATONICS; i++)
+      SER_ASSERT(e->no_save_to_disk);
+
+      SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_inside_of_box));
+      SER_VAR(&e->squad_invited_to);
+
+      if (ser->version < VNoGold)
       {
-        SER_MAYBE_RETURN(ser_V2(ser, &e->detected_platonics[i].direction));
-        SER_MAYBE_RETURN(ser_f(ser, &e->detected_platonics[i].intensity));
+        double goldness;
+        SER_VAR_NAME(&goldness, "&e->goldness");
       }
-      for (int i = 0; i < SCANNER_MAX_POINTS; i++)
-      {
-        SER_VAR(&e->scanner_points[i]);
-      }
-      break;
-    case BoxCloaking:
-      SER_MAYBE_RETURN(ser_f(ser, &e->cloaking_power));
-      break;
-    case BoxMissileLauncher:
-      SER_MAYBE_RETURN(ser_f(ser, &e->missile_construction_charge));
-      break;
-    case BoxLandingGear:
-    {
-      bool is_null = e->landed_constraint == NULL;
-      SER_VAR(&is_null);
-      if (!is_null)
-      {
-        EntityID from = {0};
-        EntityID to = {0};
-        cpVect pin = {0};
-        if (ser->serializing)
-        {
-          from = get_id(gs, cp_body_entity(cpConstraintGetBodyA(e->landed_constraint)));
-          to = get_id(gs, cp_body_entity(cpConstraintGetBodyB(e->landed_constraint)));
-          pin = cpPivotJointGetAnchorA(e->landed_constraint);
-        }
-        SER_MAYBE_RETURN(ser_entityid(ser, &from));
-        SER_MAYBE_RETURN(ser_entityid(ser, &to));
-        SER_MAYBE_RETURN(ser_V2(ser, &pin));
-        if (!ser->serializing)
-        {
-          Entity *from_entity = get_entity(gs, from);
-          Entity *to_entity = get_entity(gs, to);
-          if (from_entity == NULL || to_entity == NULL)
-          {
-          }
-          else
-          {
-            e->landed_constraint = cpPivotJointNew(from_entity->body, to_entity->body, pin);
-            cpSpaceAddConstraint(gs->space, e->landed_constraint);
-            on_create_constraint(e, e->landed_constraint);
-          }
-        }
-      }
-      break;
     }
-    default:
-      break;
+
+    SER_VAR(&e->is_explosion);
+    if (e->is_explosion)
+    {
+      SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_pos));
+      SER_MAYBE_RETURN(ser_V2(ser, &e->explosion_vel));
+      SER_MAYBE_RETURN(ser_f(ser, &e->explosion_progress));
+      SER_MAYBE_RETURN(ser_f(ser, &e->explosion_push_strength));
+      SER_MAYBE_RETURN(ser_f(ser, &e->explosion_radius));
+    }
+
+    SER_VAR(&e->is_sun);
+    if (e->is_sun)
+    {
+      SER_MAYBE_RETURN(ser_V2(ser, &e->sun_vel));
+      SER_MAYBE_RETURN(ser_V2(ser, &e->sun_pos));
+      SER_MAYBE_RETURN(ser_f(ser, &e->sun_mass));
+      SER_MAYBE_RETURN(ser_f(ser, &e->sun_radius));
+      if (ser->version >= VSafeSun)
+        SER_VAR(&e->sun_is_safe);
+    }
+
+    SER_VAR(&e->is_grid);
+    if (e->is_grid)
+    {
+      SER_MAYBE_RETURN(ser_f(ser, &e->total_energy_capacity));
+      SER_MAYBE_RETURN(ser_entityid(ser, &e->boxes));
+    }
+
+    SER_VAR(&e->is_missile);
+    if (e->is_missile)
+    {
+      SER_MAYBE_RETURN(ser_f(ser, &e->time_burned_for));
+    }
+
+    SER_VAR(&e->is_orb);
+    if (e->is_orb)
+    {
+    }
+
+    SER_VAR(&e->is_box);
+    if (e->is_box)
+    {
+      SER_VAR(&e->box_type);
+      SER_VAR(&e->is_platonic);
+
+      SER_VAR(&e->owning_squad);
+
+      SER_MAYBE_RETURN(ser_entityid(ser, &e->next_box));
+      SER_MAYBE_RETURN(ser_entityid(ser, &e->prev_box));
+      SER_VAR(&e->compass_rotation);
+      SER_VAR(&e->indestructible);
+      switch (e->box_type)
+      {
+      case BoxMedbay:
+      case BoxCockpit:
+        if (!ser->save_or_load_from_disk)
+          SER_MAYBE_RETURN(ser_entityid(ser, &e->player_who_is_inside_of_me));
+        break;
+      case BoxThruster:
+        SER_MAYBE_RETURN(ser_f(ser, &e->thrust));
+        SER_MAYBE_RETURN(ser_f(ser, &e->wanted_thrust));
+        break;
+      case BoxGyroscope:
+        SER_MAYBE_RETURN(ser_f(ser, &e->thrust));
+        SER_MAYBE_RETURN(ser_f(ser, &e->wanted_thrust));
+        SER_MAYBE_RETURN(ser_f(ser, &e->gyrospin_angle));
+        SER_MAYBE_RETURN(ser_f(ser, &e->gyrospin_velocity));
+        break;
+      case BoxBattery:
+        SER_MAYBE_RETURN(ser_f(ser, &e->energy_used));
+        break;
+      case BoxSolarPanel:
+        SER_MAYBE_RETURN(ser_f(ser, &e->sun_amount));
+        break;
+      case BoxScanner:
+        SER_MAYBE_RETURN(ser_entityid(ser, &e->currently_scanning));
+        SER_MAYBE_RETURN(ser_f(ser, &e->currently_scanning_progress));
+        SER_VAR(&e->blueprints_learned);
+        SER_MAYBE_RETURN(ser_f(ser, &e->scanner_head_rotate));
+        for (int i = 0; i < SCANNER_MAX_PLATONICS; i++)
+        {
+          SER_MAYBE_RETURN(ser_V2(ser, &e->detected_platonics[i].direction));
+          SER_MAYBE_RETURN(ser_f(ser, &e->detected_platonics[i].intensity));
+        }
+        for (int i = 0; i < SCANNER_MAX_POINTS; i++)
+        {
+          SER_VAR(&e->scanner_points[i]);
+        }
+        break;
+      case BoxCloaking:
+        SER_MAYBE_RETURN(ser_f(ser, &e->cloaking_power));
+        break;
+      case BoxMissileLauncher:
+        SER_MAYBE_RETURN(ser_f(ser, &e->missile_construction_charge));
+        break;
+      case BoxLandingGear:
+      {
+        SER_MAYBE_RETURN(ser_entityid(ser, &e->shape_to_land_on));
+        break;
+      }
+      default:
+        break;
+      }
     }
   }
-
   return ser_ok;
 }
 
@@ -3210,6 +3199,8 @@ void process(struct GameState *gs, double dt)
           // PROFILE_SCOPE("Grid processing")
           {
             Entity *grid = e;
+            float e; // turn all references to e into errors
+            (void)e;
             // calculate how much energy solar panels provide
             double energy_to_add = 0.0;
             BOXES_ITER(gs, cur_box, grid)
@@ -3251,6 +3242,7 @@ void process(struct GameState *gs, double dt)
             // use the energy, stored in the batteries, in various boxes
             BOXES_ITER(gs, cur_box, grid)
             {
+
               if (cur_box->box_type == BoxThruster)
               {
                 cur_box->energy_effectiveness = batteries_use_energy(gs, grid, &non_battery_energy_left_over, cur_box->wanted_thrust * THRUSTER_ENERGY_USED_PER_SECOND * dt);
@@ -3506,8 +3498,49 @@ void process(struct GameState *gs, double dt)
               }
               if (cur_box->box_type == BoxLandingGear)
               {
-                if (cur_box->landed_constraint == NULL)
+                cpVect landing_point = cpvadd(entity_pos(cur_box), cpvmult(box_facing_vector(cur_box), BOX_SIZE / 2.0));
+                Entity *must_have_shape = get_entity(gs, cur_box->shape_to_land_on);
+                bool want_have_constraint = true;
+                if (want_have_constraint)
+                  want_have_constraint &= must_have_shape != NULL;
+                if (want_have_constraint)
+                  want_have_constraint &= must_have_shape->shape != NULL;
+                if (want_have_constraint)
+                  want_have_constraint &= cpShapeGetBody(must_have_shape->shape) != NULL;
+                if (want_have_constraint)
+                  want_have_constraint &= cpvdist(entity_pos(must_have_shape), landing_point) < BOX_SIZE + LANDING_GEAR_MAX_DIST;
+
+#define DELETE_CONSTRAINT(constraint)               \
+  {                                                 \
+    cpSpaceRemoveConstraint(gs->space, constraint); \
+    cpConstraintFree(constraint);                   \
+    constraint = NULL;                              \
+  }
+                if (want_have_constraint)
                 {
+                  flight_assert(must_have_shape != NULL);
+                  cpBody *body_a = box_grid(cur_box)->body;
+                  cpBody *body_b = cpShapeGetBody(must_have_shape->shape);
+                  if (cur_box->landed_constraint != NULL && (cpConstraintGetBodyA(cur_box->landed_constraint) != body_a || cpConstraintGetBodyB(cur_box->landed_constraint) != body_b))
+                  {
+                    DELETE_CONSTRAINT(cur_box->landed_constraint);
+                  }
+                  if (cur_box->landed_constraint == NULL)
+                  {
+                    cur_box->landed_constraint = cpPivotJointNew(body_a, body_b, landing_point);
+                    cpSpaceAddConstraint(gs->space, cur_box->landed_constraint);
+                    on_create_constraint(cur_box, cur_box->landed_constraint);
+                  }
+                }
+                else
+                {
+                  if (cur_box->landed_constraint != NULL)
+                  {
+                    DELETE_CONSTRAINT(cur_box->landed_constraint);
+                  }
+                  cur_box->shape_to_land_on = (EntityID){0};
+
+                  // maybe see something to land on
                   cpVect along = box_facing_vector(cur_box);
                   cpVect from = cpvadd(entity_pos(cur_box), cpvmult(along, BOX_SIZE / 2.0 + 0.03));
                   cpVect to = cpvadd(from, cpvmult(along, LANDING_GEAR_MAX_DIST));
@@ -3516,12 +3549,7 @@ void process(struct GameState *gs, double dt)
                   cpShape *found = cpSpaceSegmentQueryFirst(gs->space, from, to, 0.0, FILTER_DEFAULT, &query_result);
                   if (found != NULL && cpShapeGetBody(found) != box_grid(cur_box)->body)
                   {
-                    cpVect anchor = cpvadd(entity_pos(cur_box), cpvmult(along, BOX_SIZE / 2.0));
-                    cpBody *a = box_grid(cur_box)->body;
-                    cpBody *b = cpShapeGetBody(found);
-                    cur_box->landed_constraint = cpPivotJointNew(a, b, anchor);
-                    cpSpaceAddConstraint(gs->space, cur_box->landed_constraint);
-                    on_create_constraint(cur_box, cur_box->landed_constraint);
+                    cur_box->shape_to_land_on = get_id(gs, cp_shape_entity(found));
                   }
                 }
               }

@@ -8,7 +8,7 @@
 #define MAX_PLAYERS 16
 #define MAX_SUNS 8
 #define MAX_ENTITIES 1024 * 25
-#define BOX_SIZE 0.25f
+#define BOX_SIZE 0.25f // whole size, not half size
 #define MERGE_MAX_DIST (BOX_SIZE / 2.0f + 0.01f)
 
 #define MISSILE_RANGE 4.0f
@@ -58,7 +58,7 @@
 #define THRUSTER_ENERGY_USED_PER_SECOND 0.005
 #define THRUSTER_DAMAGE_PER_SEC 2.0
 
-#define LANDING_GEAR_MAX_DIST (BOX_SIZE * 0.25)
+#define LANDING_GEAR_MAX_DIST (BOX_SIZE * 0.05)
 
 #define GYROSCOPE_ENERGY_USED_PER_SECOND 0.005f
 #define GYROSCOPE_TORQUE 1.5f
@@ -379,7 +379,9 @@ typedef struct Entity
   double scanner_head_rotate;
 
   // landing gear only
-  cpConstraint *landed_constraint; // when null is landed
+  cpConstraint *landed_constraint; // when not null, landing gear landed on something. Only valid while shape_to_land_on is a valid reference
+  // to land, set this to the shape to land on. A constraint will be created if it is valid. If it's not, it will be zerod
+  EntityID shape_to_land_on; // checked for surface distance to make sure is valid
 
   PlatonicDetection detected_platonics[SCANNER_MAX_PLATONICS]; // intensity of 0.0 means undetected
 
@@ -590,6 +592,7 @@ cpVect thruster_force(Entity *box);
 void dbg_drawall();
 void dbg_line(cpVect from, cpVect to);
 void dbg_rect(cpVect center);
+typedef struct { int __do_not_reference__; } MakeUnreferencable; // used to remove variables from scope
 
 typedef struct ServerThreadInfo
 {

@@ -693,7 +693,7 @@ static void init(void)
     Log("Initialized audio\n");
   }
 
-  Entity *entity_data = malloc(sizeof *entity_data * MAX_ENTITIES);
+  Entity *entity_data = calloc(1, sizeof *entity_data * MAX_ENTITIES);
   initialize(&gs, entity_data, sizeof *entity_data * MAX_ENTITIES);
 
   sg_desc sgdesc = {.context = sapp_sgcontext()};
@@ -2468,7 +2468,7 @@ static void frame(void)
                 else
                 {
                   pipeline_scope(goodpixel_pipeline)
-                      draw_texture_centered(entity_pos(b), BOX_SIZE);
+                    draw_texture_centered(entity_pos(b), BOX_SIZE);
                 }
                 sgp_reset_image(0);
 
@@ -2803,7 +2803,10 @@ void cleanup(void)
   server_info.should_quit = true;
   ma_mutex_unlock(&server_info.info_mutex);
   WaitForSingleObject(server_thread_handle, INFINITE);
-
+  
+  destroy(&gs);
+  free(gs.entities);
+  
   end_profiling_mythread();
   end_profiling();
 
@@ -2815,9 +2818,7 @@ void cleanup(void)
 
   opus_encoder_destroy(enc);
   opus_decoder_destroy(dec);
-
-  destroy(&gs);
-  free(gs.entities);
+  
   sgp_shutdown();
   sg_shutdown();
   enet_deinitialize();
@@ -2956,7 +2957,12 @@ sapp_desc sokol_main(int argc, char *argv[])
       .window_title = "Flight Not Hosting",
       .icon.sokol_default = true,
       .event_cb = event,
+  #ifdef CONSOLE_CREATE
+      .win32_console_create = true,
+  #endif
+  #ifdef CONSOLE_ATTACH
       .win32_console_attach = true,
+  #endif
       .sample_count = 4, // anti aliasing
   };
 }

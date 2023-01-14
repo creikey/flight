@@ -47,7 +47,7 @@ void init_profiling_mythread(uint32_t id)
   my_thread_id = id;
   if (buffer_data != NULL)
   {
-    *(int *)0 = 0;
+    __debugbreak();
   }
   buffer_data = malloc(PROFILING_BUFFER_SIZE);
   spall_buffer = (SpallBuffer){
