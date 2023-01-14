@@ -6,7 +6,7 @@
 
 #define SERVER_PORT 2551
 // must be unsigned integer
-#define GIT_RELEASE_TAG 30
+#define GIT_RELEASE_TAG 31
 
 #ifdef DEBUG
 
