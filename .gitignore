@@ -1,3 +1,6 @@
+# remedybg
+*.rdbg
+
 # website output
 website.zip
 # elf objects
