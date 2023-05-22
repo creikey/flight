@@ -1993,6 +1993,10 @@ static void frame(void)
             }
             else
             {
+              if(tick(&gs) - last_input_committed_tick > LOCAL_INPUT_QUEUE_MAX)
+              {
+                last_input_committed_tick = tick(&gs) - LOCAL_INPUT_QUEUE_MAX;
+              }
               cur_input_frame.tick = last_input_committed_tick + 1;
               // cur_input_frame.tick = tick(&gs);
             }
